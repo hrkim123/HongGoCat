@@ -48,7 +48,8 @@
       {
         "provider": "github",
         "owner": "hrkim123",
-        "repo": "HongGoCat"
+        "repo": "HongGoCat",
+        "releaseType": "release"
       }
     ]
   }
