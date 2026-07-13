@@ -77,7 +77,7 @@ wss.on('connection', (ws) => {
     } else if (msg.t === 'shield') {
       broadcast(joinedRoom, { t: 'shield', id, angle: msg.angle, ttl: msg.ttl, hp: msg.hp, max: msg.max, broke: !!msg.broke }, id)
     } else if (msg.t === 'shield-hit') {
-      broadcast(joinedRoom, { t: 'shield-hit', id, target: msg.target }, id)
+      broadcast(joinedRoom, { t: 'shield-hit', id, target: msg.target, power: msg.power }, id)
     } else if (msg.t === 'ants' && Array.isArray(msg.list)) {
       broadcast(joinedRoom, { t: 'ants', id, list: msg.list.slice(0, 5) }, id)
     } else if (msg.t === 'ant-hit') {

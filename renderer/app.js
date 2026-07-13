@@ -18,12 +18,14 @@
   // Weapons registry (extensible — add new weapons here + a case in fireWeapon()).
   const WEAPONS = { none: '없음', missile: '🚀 미사일', shield: '🛡 쉴드', ant: '🐜 개미' }
   const SHIELD_DUR = 10000, SHIELD_CD = 3000      // 10s active, then 3s cooldown
-  const SHIELD_ARC = (140 * Math.PI) / 180        // 140° facing the cursor
-  const SHIELD_R = 108                            // outer-rim radius (px, × view.scale)
-  const SHIELD_HP = 10                            // breaks after 10 missile hits
-  // fixed scatter order in which rim segments crack as HP drops (looks shattered, not a wipe)
-  const SHIELD_SEG = 15
-  const SHIELD_BREAK_ORDER = [7, 2, 11, 4, 13, 0, 9, 5, 14, 1, 8, 12, 3, 10, 6]
+  // A real "shield plate" that floats OUT in front of the cat (not a sector from the center)
+  // and orbits toward the cursor. SHIELD_DIST = how far out it hovers; SHIELD_SPAN = its
+  // angular width; SHIELD_T = plate half-thickness; SHIELD_BAND = block tolerance around it.
+  const SHIELD_SPAN = (86 * Math.PI) / 180
+  const SHIELD_DIST = 118
+  const SHIELD_T = 10
+  const SHIELD_BAND = 16
+  const SHIELD_HP = 10                            // breaks after 10 hit-power
   const remoteShields = new Map()                 // peerId -> { until, angle, hp, max }
   const remoteBreaks = []                          // peerIds whose shield just shattered
   const shieldShards = []                          // shatter particles
@@ -138,7 +140,7 @@
         if (msg.ttl > 0) remoteShields.set(msg.id, { until: performance.now() + msg.ttl, angle: msg.angle || 0, hp: msg.hp != null ? msg.hp : SHIELD_HP, max: msg.max || SHIELD_HP })
         else { if (msg.broke) remoteBreaks.push(msg.id); remoteShields.delete(msg.id) }
       }
-      else if (msg.t === 'shield-hit') { if (msg.target === me.netId) hitMyShield() }
+      else if (msg.t === 'shield-hit') { if (msg.target === me.netId) hitMyShield(msg.power || 1) }
       else if (msg.t === 'ants') { remoteAnts.set(msg.id, { list: msg.list || [], ts: performance.now() }) }
       else if (msg.t === 'ant-hit') { if (msg.target === me.netId) { const a = ants.find((x) => x.id === msg.ant); if (a) antTakeDmg(a, msg.dmg || 1) } }
       else if (msg.t === 'error' && msg.reason === 'room_full') { setStatus('방이 가득 찼어요'); ws.close() }
@@ -210,6 +212,7 @@
     else if (msg.t === 'disconnect') { disconnect(); setStatus('오프라인 — 혼자 연주 중') }
     else if (msg.t === 'edit') { setEditing(!!msg.on) }
     else if (msg.t === 'chat') { openChat() }
+    else if (msg.t === 'boost') { boostMissiles() }
     else if (msg.t === 'fire-missile') { fireWeapon('missile') }
     else if (msg.t === 'fire-slot') { fireWeapon(me.slots[(msg.slot || 1) - 1] || 'none') }
     else if (msg.t === 'slots') {
@@ -308,6 +311,19 @@
     })
   }
 
+  // Left-click boost: every active homing missile locks onto its CURRENT heading and flies
+  // straight at 2× speed (with a bigger booster flame) instead of curving to the cursor.
+  const MISSILE_SPEED = 6.5, BOOST_MULT = 2
+  function boostMissiles() {
+    for (const p of projectiles) {
+      if (!p.homing || p.boost) continue
+      const m = Math.hypot(p.vx, p.vy) || 1
+      const spd = MISSILE_SPEED * BOOST_MULT
+      p.vx = (p.vx / m) * spd; p.vy = (p.vy / m) * spd   // lock direction, double speed
+      p.boost = true
+    }
+  }
+
   // fire the weapon assigned to a slot (extensible)
   function fireWeapon(id) {
     if (id === 'missile') fireHoming()
@@ -316,9 +332,9 @@
     // future: else if (id === 'rock') fireRock() ...
   }
 
-  // Shield: a wide 140° arc RIM in front of the cat, facing the cursor. Blocks missiles
-  // that enter its arc. 10s active, then 3s cooldown. No number UI — HP (10 hits) shows as
-  // the rim cracking apart; when HP runs out it shatters. It also fades/blinks near the end.
+  // Shield: a compact 118° FILLED sector in front of the cat, facing the cursor. Blocks
+  // missiles entering it. 10s active, then 3s cooldown. No number UI — HP (10 hit-power)
+  // shows as cracks spreading across the surface; at 0 it shatters. Fades/blinks near end.
   function activateShield() {
     const now = performance.now()
     if (now < (me.shieldCdUntil || 0)) return  // active or on cooldown
@@ -326,11 +342,11 @@
     me.shieldCdUntil = now + SHIELD_DUR + SHIELD_CD
     me.shieldHP = SHIELD_HP
   }
-  // an incoming (peer) missile hit my shield → lose 1 HP; shatter + break at 0
-  function hitMyShield() {
+  // a missile hit my shield → lose `dmg` HP (merged missiles hit for their power); break at 0
+  function hitMyShield(dmg) {
     const now = performance.now()
     if (!me.shieldUntil || now >= me.shieldUntil) return
-    me.shieldHP = (me.shieldHP || 0) - 1
+    me.shieldHP = (me.shieldHP || 0) - (dmg || 1)
     if (me.shieldHP <= 0) {
       spawnShatter(catPos[0], me.shieldAngle || 0, view.scale, 0)
       me.shieldUntil = now
@@ -346,11 +362,12 @@
     if (rem < 1500) a *= 0.55 + 0.45 * Math.sin(now / 70)    // + blink near the end
     return Math.max(0, a)
   }
-  // rim only (no filled sector). hp01 = HP fraction (1 full → 0 broken): as it drops, rim
-  // segments crack away in a scattered order and the color bleeds cyan → red, with a flicker.
+  // A curved shield PLATE floating at distance SHIELD_DIST in front of the cat, facing
+  // `angle` (toward the cursor). Drawn as a convex band with a rim + central boss — a real
+  // shield, not a sector from the cat. hp01: as it drops, the plate tints cyan→red + cracks.
   function drawShield(cx, cy, angle, alpha, sc, hp01) {
     if (alpha <= 0.01) return
-    const R = SHIELD_R * sc, half = SHIELD_ARC / 2
+    const D = SHIELD_DIST * sc, half = SHIELD_SPAN / 2, t = SHIELD_T * sc
     const hp = Math.max(0, Math.min(1, hp01))
     const cr = Math.round(120 + (255 - 120) * (1 - hp))
     const cg = Math.round(205 - (205 - 90) * (1 - hp))
@@ -358,37 +375,44 @@
     const col = (a) => `rgba(${cr},${cg},${cb},${a})`
     let a = alpha
     if (hp < 0.35) a *= 0.6 + 0.4 * Math.abs(Math.sin(performance.now() / 60))   // hurt flicker
-    const broken = Math.round((1 - hp) * SHIELD_SEG)
-    const step = SHIELD_ARC / SHIELD_SEG, segLen = step * 0.82
+    const platePath = () => { ctx.beginPath(); ctx.arc(cx, cy, D + t, angle - half, angle + half); ctx.arc(cx, cy, D - t, angle + half, angle - half, true); ctx.closePath() }
     ctx.save()
     ctx.globalAlpha = a
-    ctx.lineCap = 'round'
-    // soft outer glow band along the whole arc (dimming as HP falls)
-    ctx.beginPath(); ctx.arc(cx, cy, R, angle - half, angle + half)
-    ctx.strokeStyle = col(0.10 + 0.10 * hp); ctx.lineWidth = 15 * sc; ctx.stroke()
-    for (let s = 0; s < SHIELD_SEG; s++) {
-      const a0 = angle - half + s * step, a1 = a0 + segLen
-      const cracked = SHIELD_BREAK_ORDER[s] < broken
-      if (cracked) {
-        // fractured remnant: faint, nudged outward — reads as a broken shard
-        const jr = R + (2 + (s % 3)) * sc
-        ctx.beginPath(); ctx.arc(cx, cy, jr, a0 + step * 0.15, a1 - step * 0.15)
-        ctx.strokeStyle = col(0.16); ctx.lineWidth = 2 * sc; ctx.stroke()
-      } else {
-        ctx.beginPath(); ctx.arc(cx, cy, R, a0, a1)
-        ctx.strokeStyle = col(0.95); ctx.lineWidth = 5 * sc; ctx.stroke()
-        ctx.beginPath(); ctx.arc(cx, cy, R - 3.5 * sc, a0, a1)
-        ctx.strokeStyle = col(0.5); ctx.lineWidth = 2 * sc; ctx.stroke()
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round'
+    // metallic fill across the plate thickness
+    platePath()
+    const g = ctx.createLinearGradient(cx + Math.cos(angle) * (D - t), cy + Math.sin(angle) * (D - t), cx + Math.cos(angle) * (D + t), cy + Math.sin(angle) * (D + t))
+    g.addColorStop(0, col(0.30)); g.addColorStop(0.5, col(0.62)); g.addColorStop(1, col(0.30))
+    ctx.fillStyle = g; ctx.fill()
+    // cracks across the plate surface (clipped to the band)
+    ctx.save(); platePath(); ctx.clip()
+    const nCracks = Math.round((1 - hp) * 8)
+    for (let k = 0; k < nCracks; k++) {
+      const ca = angle - half + SHIELD_SPAN * (frnd(k * 3.1 + 1) * 0.86 + 0.07)
+      ctx.beginPath(); ctx.moveTo(cx + Math.cos(ca) * (D + t), cy + Math.sin(ca) * (D + t))
+      const segs = 2 + Math.floor(frnd(k * 5.7) * 2)
+      for (let s = 1; s <= segs; s++) {
+        const rr = (D + t) - (2 * t) * (s / segs), ja = ca + (frnd(k + s * 2.3) - 0.5) * 0.16
+        ctx.lineTo(cx + Math.cos(ja) * rr, cy + Math.sin(ja) * rr)
       }
+      ctx.strokeStyle = col(0.9); ctx.lineWidth = 1.3 * sc; ctx.stroke()
+      ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 0.6 * sc; ctx.stroke()
     }
+    ctx.restore()
+    // bright outer rim + fainter inner edge
+    ctx.beginPath(); ctx.arc(cx, cy, D + t, angle - half, angle + half); ctx.strokeStyle = col(0.95); ctx.lineWidth = 2.6 * sc; ctx.stroke()
+    ctx.beginPath(); ctx.arc(cx, cy, D - t, angle - half, angle + half); ctx.strokeStyle = col(0.7); ctx.lineWidth = 1.6 * sc; ctx.stroke()
+    // central boss (knob) so it reads as a shield
+    const bx = cx + Math.cos(angle) * D, by = cy + Math.sin(angle) * D
+    ctx.beginPath(); ctx.arc(bx, by, 4.5 * sc, 0, Math.PI * 2); ctx.fillStyle = col(0.92); ctx.fill()
+    ctx.strokeStyle = col(0.5); ctx.lineWidth = 1.2 * sc; ctx.stroke()
     ctx.restore()
   }
   function angDiff(a, b) { let d = a - b; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return Math.abs(d) }
-  // returns the cat whose shield catches missile `p`. A shield blocks a missile that is
-  // within its arc/radius AND moving INWARD (toward that cat) — so it stops incoming fire
-  // (including your own missiles curving back in) but lets you launch missiles outward.
+  // returns the cat whose shield plate catches missile `p`: within the plate's angular span,
+  // near the plate's radius (SHIELD_DIST ± band), and moving INWARD (so you can still fire out).
   function shieldBlocks(p, now) {
-    const R = SHIELD_R * view.scale, half = SHIELD_ARC / 2
+    const D = SHIELD_DIST * view.scale, half = SHIELD_SPAN / 2, band = SHIELD_BAND * view.scale
     for (let i = 0; i < catPos.length; i++) {
       const cat = allRef[i], c = catPos[i]
       let until = 0, ang = 0
@@ -396,9 +420,9 @@
       else { const rs = remoteShields.get(cat.id); if (rs) { until = rs.until; ang = rs.angle } }
       if (now >= until) continue
       const toCatX = c.x - p.x, toCatY = c.y - p.y
-      const inward = (p.vx * toCatX + p.vy * toCatY) > 0                 // heading toward the cat
-      if (!inward) continue
-      if (Math.hypot(-toCatX, -toCatY) <= R && angDiff(Math.atan2(-toCatY, -toCatX), ang) <= half) return cat
+      if ((p.vx * toCatX + p.vy * toCatY) <= 0) continue        // must be heading toward the cat
+      const dist = Math.hypot(toCatX, toCatY)
+      if (dist >= D - band && dist <= D + band && angDiff(Math.atan2(-toCatY, -toCatX), ang) <= half) return cat
     }
     return null
   }
@@ -419,12 +443,12 @@
       if (now < until) drawShield(c.x, c.y, ang, shieldAlpha(until, now), view.scale, hp01)
     }
   }
-  // glass-shard burst along the arc when a shield breaks
+  // glass-shard burst along the shield plate when it breaks
   function spawnShatter(c, angle, sc, _hp) {
     if (!c) return
-    const R = SHIELD_R * sc, half = SHIELD_ARC / 2, N = 18
+    const R = SHIELD_DIST * sc, half = SHIELD_SPAN / 2, N = 18
     for (let k = 0; k < N; k++) {
-      const ph = angle - half + SHIELD_ARC * (k / (N - 1))
+      const ph = angle - half + SHIELD_SPAN * (k / (N - 1))
       const sp = 2 + Math.random() * 3
       shieldShards.push({
         x: c.x + Math.cos(ph) * R, y: c.y + Math.sin(ph) * R,
@@ -519,7 +543,9 @@
   const MAX_ANTS = 5
   const ANT_HP = 3
   let nextAntId = 1
-  function antGroundY() { const tb = taskbarRect(); return tb ? tb.top + tb.h * 0.5 : canvas.clientHeight - 22 }
+  // Ants stand ON the taskbar's top boundary line (feet on the line, body above it) — not
+  // sunk inside the bar. Falls back to the screen bottom if there's no detectable taskbar.
+  function antGroundY() { const tb = taskbarRect(); return (tb ? tb.top : canvas.clientHeight) - 5 * view.scale }
   function summonAnt() {
     if (ants.filter((a) => !a.dead).length >= MAX_ANTS) return
     ants.push({ id: nextAntId++, x: cursor.x, y: cursor.y, vy: 0, onGround: false, hp: ANT_HP,
@@ -667,11 +693,26 @@
     })
   }
 
-  function drawMissile(x, y, ang, now, power = 1) {
+  function drawMissile(x, y, ang, now, power = 1, boost = false) {
     const s = missileScale(power)
     const body = missileColor(power)
     ctx.save(); ctx.translate(x, y); ctx.rotate(ang); ctx.scale(s, s)
-    const fl = 7 + Math.sin(now / 40) * 3
+    // booster: a longer, hotter, flickering double flame + heat glow while boosted
+    if (boost) {
+      const bl = 22 + Math.sin(now / 22) * 8
+      const bg = ctx.createLinearGradient(-14 - bl, 0, -13, 0)
+      bg.addColorStop(0, 'rgba(120,180,255,0)'); bg.addColorStop(0.5, 'rgba(120,190,255,0.85)'); bg.addColorStop(1, '#fff3c4')
+      ctx.fillStyle = bg
+      ctx.beginPath(); ctx.moveTo(-13, -6); ctx.lineTo(-14 - bl, 0); ctx.lineTo(-13, 6); ctx.closePath(); ctx.fill()
+      ctx.fillStyle = 'rgba(255,255,255,0.6)'
+      ctx.beginPath(); ctx.moveTo(-13, -3); ctx.lineTo(-14 - bl * 0.6, 0); ctx.lineTo(-13, 3); ctx.closePath(); ctx.fill()
+      for (let i = 0; i < 3; i++) {   // spark puffs trailing behind
+        const px = -16 - (frnd(now / 40 + i) * 16), py = (frnd(now / 30 + i * 2) - 0.5) * 8
+        ctx.globalAlpha = 0.5; ctx.fillStyle = i % 2 ? '#ffd166' : '#8ec5ff'
+        ctx.beginPath(); ctx.arc(px, py, 1.6, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1
+      }
+    }
+    const fl = (7 + Math.sin(now / 40) * 3) * (boost ? 1.4 : 1)
     const g = ctx.createLinearGradient(-14 - fl, 0, -13, 0)
     g.addColorStop(0, 'rgba(255,170,40,0)'); g.addColorStop(1, power > 3 ? '#ffe066' : '#ff9d33')
     ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(-14, -4); ctx.lineTo(-14 - fl, 0); ctx.lineTo(-14, 4); ctx.closePath(); ctx.fill()
@@ -753,6 +794,44 @@
     if (inTaskbar(x, y)) spawnCrack(x)   // blasting the taskbar leaves a crack + debris
   }
 
+  // The blast's damage radius matches the explosion's visual size (grows with power).
+  function blastRadius(power) {
+    const boom = 1 + Math.min(power - 1, 6) * 0.35
+    return 46 * boom * view.scale
+  }
+  // is (x,y) on `cat`'s shielded side? (a blast there is absorbed, so the cat isn't hurt)
+  function catShieldCovers(cat, c, x, y, now) {
+    let until = 0, ang = 0
+    if (cat.id === 'me') { until = me.shieldUntil || 0; ang = me.shieldAngle || 0 }
+    else { const rs = remoteShields.get(cat.id); if (rs) { until = rs.until; ang = rs.angle } }
+    if (now >= until) return false
+    const D = SHIELD_DIST * view.scale, half = SHIELD_SPAN / 2, band = SHIELD_BAND * view.scale
+    // protected if the blast is in the shielded direction AND at/beyond the plate (plate is between)
+    return Math.hypot(x - c.x, y - c.y) >= D - band && angDiff(Math.atan2(y - c.y, x - c.x), ang) <= half
+  }
+  // Area-of-effect detonation: the explosion damages EVERYTHING within its blast radius
+  // (ants, cats, and it leaves a crack if on the taskbar) — not just the one thing it touched.
+  function explode(x, y, power) {
+    addEffect(x, y, power)
+    const R = blastRadius(power), now = performance.now()
+    for (const a of ants) if (!a.dead && Math.hypot(x - a.x, y - a.y) <= R) antTakeDmg(a, power)
+    for (const [pid, rec] of remoteAnts) {
+      if (now - rec.ts > 800) continue
+      for (const a of rec.list) {
+        if (a.dead) continue
+        const s = remoteAntScreenPos(pid, a); if (!s) continue
+        if (Math.hypot(x - s.x, y - s.y) <= R && connected()) net.send(JSON.stringify({ t: 'ant-hit', target: pid, ant: a.id, dmg: power }))
+      }
+    }
+    for (let i = 0; i < catPos.length; i++) {
+      const cat = allRef[i], c = catPos[i]
+      if (Math.hypot(x - c.x, y - c.y) > R + view.scale * 30) continue   // blast overlaps the cat body
+      if (catShieldCovers(cat, c, x, y, now)) continue
+      cat.hitUntil = now + 1000 + Math.min(power - 1, 5) * 200
+      if (cat.id !== 'me' && connected()) net.send(JSON.stringify({ t: 'hit', target: cat.id, power }))
+    }
+  }
+
   function mergeMissiles() {
     for (let i = 0; i < projectiles.length; i++) {
       const a = projectiles[i]; if (!a.homing) continue
@@ -775,39 +854,33 @@
 
       if (p.homing) {
         if (now - p.born > p.life) { projectiles.splice(i, 1); continue }
-        const dx = cursor.x - p.x, dy = cursor.y - p.y
-        const d = Math.hypot(dx, dy) || 1
-        const SPEED = 6.5
-        p.vx += (dx / d * SPEED - p.vx) * 0.11
-        p.vy += (dy / d * SPEED - p.vy) * 0.11
+        if (!p.boost) {                       // normal: curve toward the cursor
+          const dx = cursor.x - p.x, dy = cursor.y - p.y
+          const d = Math.hypot(dx, dy) || 1
+          p.vx += (dx / d * MISSILE_SPEED - p.vx) * 0.11
+          p.vy += (dy / d * MISSILE_SPEED - p.vy) * 0.11
+        }
         p.x += p.vx; p.y += p.vy
-        // a shield (mine or a peer's) intercepts the missile before it reaches the cat
+        // left the overlay (e.g. a boosted missile flying off-screen) → drop it now so it
+        // stops counting toward the active-missile limit and you can fire again immediately
+        const M = 60
+        if (p.x < -M || p.x > canvas.clientWidth + M || p.y < -M || p.y > canvas.clientHeight + M) {
+          projectiles.splice(i, 1); continue
+        }
+        // a shield (mine or a peer's) absorbs the missile — no area blast, shield eats it
         const blk = shieldBlocks(p, now)
         if (blk) {
           addEffect(p.x, p.y, p.power)
-          if (blk.id === 'me') hitMyShield()
-          else if (connected()) net.send(JSON.stringify({ t: 'shield-hit', target: blk.id }))
+          if (blk.id === 'me') hitMyShield(p.power)   // merged missile deals its full power
+          else if (connected()) net.send(JSON.stringify({ t: 'shield-hit', target: blk.id, power: p.power }))
           projectiles.splice(i, 1); continue
         }
-        // a missile can also squash ants (mine → local; a peer's → tell that peer)
-        const ah = missileHitsAnt(p.x, p.y)
-        if (ah) {
-          addEffect(p.x, p.y, p.power)
-          if (ah.local) antTakeDmg(ah.ant, ANT_HP)
-          else if (connected()) net.send(JSON.stringify({ t: 'ant-hit', target: ah.pid, ant: ah.id, dmg: ANT_HP }))
+        // detonate on contact with an ant, a cat, a peer missile, OR the taskbar → AoE blast
+        if (missileHitsAnt(p.x, p.y) || hitTestCats(p.x, p.y) || hitRemoteMissile(p.x, p.y, p.power) || inTaskbar(p.x, p.y)) {
+          explode(p.x, p.y, p.power)
           projectiles.splice(i, 1); continue
         }
-        const hit = hitTestCats(p.x, p.y)
-        if (hit) {
-          addEffect(hit.at.x, hit.at.y, p.power)
-          hit.cat.hitUntil = now + 1000 + Math.min(p.power - 1, 5) * 200
-          if (hit.cat.id !== 'me' && connected()) net.send(JSON.stringify({ t: 'hit', target: hit.cat.id, power: p.power }))
-          projectiles.splice(i, 1); continue
-        }
-        // explode on contact with an enemy (remote) missile
-        const rm = hitRemoteMissile(p.x, p.y, p.power)
-        if (rm) { addEffect((p.x + rm.x) / 2, (p.y + rm.y) / 2, Math.max(p.power, rm.power)); projectiles.splice(i, 1); continue }
-        drawMissile(p.x, p.y, Math.atan2(p.vy, p.vx), now, p.power)
+        drawMissile(p.x, p.y, Math.atan2(p.vy, p.vx), now, p.power, p.boost)
         continue
       }
 

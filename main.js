@@ -65,8 +65,8 @@ function createWindow() {
     backgroundColor: '#00000000',
     alwaysOnTop: true,
     hasShadow: false,
-    resizable: false,
-    movable: false,
+    resizable: true,     // must be resizable or Windows clamps us to the work area (can't
+    movable: false,      // cover the taskbar). frame:false means no user-facing resize grips.
     minimizable: false,
     maximizable: false,
     fullscreenable: false,
@@ -80,7 +80,13 @@ function createWindow() {
   })
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'))
   win.setTitle('')
-  win.once('ready-to-show', () => win.showInactive()) // show WITHOUT activating (no caption bar)
+  win.once('ready-to-show', () => {
+    win.showInactive() // show WITHOUT activating (no caption bar)
+    // Windows clamps the initial size to the work area; re-assert full monitor bounds so the
+    // overlay actually covers the taskbar (needed for ants/cracks/missiles down there).
+    const fb = activeDisplay().bounds
+    win.setBounds({ x: fb.x, y: fb.y, width: fb.width, height: fb.height })
+  })
   win.setAlwaysOnTop(true, 'screen-saver')
   win.setIgnoreMouseEvents(true, { forward: true }) // click-through; forward mousemove for hover
   stripWin11Chrome(win)
@@ -254,7 +260,11 @@ app.whenReady().then(() => {
       }
     })
     uIOhook.on('keyup', (e) => { keysDown.delete(e.keycode) })
-    uIOhook.on('mousedown', () => sendInput('mouse'))
+    uIOhook.on('mousedown', (e) => {
+      sendInput('mouse')
+      // left click (uiohook button 1) → boost active missiles in their current heading
+      if (e && e.button === 1 && win && !win.isDestroyed()) win.webContents.send('command', { t: 'boost' })
+    })
     // mouse wheel / scroll intentionally does NOT count
     try { uIOhook.start() } catch (err) {
       console.error('[bongo] failed to start global hook:', err.message)
