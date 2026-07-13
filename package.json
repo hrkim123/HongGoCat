@@ -10,9 +10,9 @@
     "server": "node server/server.js",
     "dist": "electron-builder",
     "release": "electron-builder --publish always",
-    "ship:patch": "npm version patch && git push --follow-tags && npm run release",
-    "ship:minor": "npm version minor && git push --follow-tags && npm run release",
-    "ship:major": "npm version major && git push --follow-tags && npm run release"
+    "ship:patch": "npm version patch && git push --follow-tags",
+    "ship:minor": "npm version minor && git push --follow-tags",
+    "ship:major": "npm version major && git push --follow-tags"
   },
   "devDependencies": {
     "electron": "^35.0.0",

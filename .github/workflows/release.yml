@@ -1,0 +1,25 @@
+name: release
+
+# Pushing a version tag (e.g. v0.1.1) builds the Windows installer and publishes it to a
+# GitHub Release. Uses the built-in GITHUB_TOKEN — no personal token needed.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - name: Build & publish installer
+        run: npx electron-builder --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
