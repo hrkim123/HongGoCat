@@ -22,8 +22,10 @@ function initAutoUpdate() {
     console.error('[bongo] electron-updater not installed — auto-update disabled:', e.message); return
   }
   autoUpdater.autoDownload = true
+  autoUpdater.autoInstallOnAppQuit = true   // apply silently when the user next closes the app
   autoUpdater.on('error', (e) => console.error('[bongo] update error:', e && e.message))
-  autoUpdater.on('update-downloaded', () => autoUpdater.quitAndInstall()) // install on next quit
+  // download in the background; DON'T force-quit mid-session — it installs on the next quit
+  autoUpdater.on('update-downloaded', () => console.log('[bongo] update downloaded — installs on quit'))
   try { autoUpdater.checkForUpdatesAndNotify() } catch (e) { console.error('[bongo] update check failed:', e.message) }
 }
 
