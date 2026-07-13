@@ -1,0 +1,91 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  width: 100%; height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: "Segoe UI", "Malgun Gothic", sans-serif;
+  user-select: none;
+}
+
+/* full-screen canvas — the widget & missiles are drawn onto it at computed positions.
+   width/height:100% are REQUIRED — <canvas> is a replaced element and won't
+   stretch from inset:0 alone (it would stay at its intrinsic 300x150). */
+#stage { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+/* bottom UI bar — positioned by JS right under the cat widget */
+#hud-bar {
+  position: absolute;
+  left: 0; top: 0; width: 240px;   /* left/top/width set from JS */
+  height: 32px;
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px;
+  border-radius: 10px;
+  background: rgba(238, 240, 245, 0.97);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.28);
+}
+
+#counter {
+  flex: 1;                 /* stretch to fill up to the hamburger button */
+  height: 24px;
+  padding: 0 11px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 6px;
+  background: #2a2a34;
+  color: #fff; font-size: 13px; font-weight: 700;
+  font-variant-numeric: tabular-nums; letter-spacing: 0.5px;
+  transition: transform 0.08s ease-out;
+}
+#counter.pop { transform: scale(1.15); }
+
+#btn-menu {
+  width: 34px; height: 24px;
+  border: none; border-radius: 6px;
+  background: #2a2a34;
+  cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 3px;
+}
+#btn-menu span { display: block; width: 15px; height: 2px; border-radius: 2px; background: #eee; }
+#btn-menu:hover { background: #3d3d4c; }
+
+#chatbar {
+  position: absolute;
+  left: 0; top: 0; transform: translateX(-50%);  /* left/top set from JS (centered on widget) */
+  width: 240px;
+}
+#chatbar.hidden { display: none; }
+#chatbar input {
+  width: 100%; padding: 7px 11px;
+  border: 1px solid #555; border-radius: 16px;
+  background: rgba(24, 24, 34, 0.95); color: #eee;
+  font-size: 12px; outline: none;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+#chatbar input:focus { border-color: #6c8cff; }
+
+#edit-banner {
+  position: absolute;
+  left: 50%; top: 6px; transform: translateX(-50%);
+  padding: 4px 10px; border-radius: 12px;
+  background: rgba(108, 140, 255, 0.92); color: #fff;
+  font-size: 11px; white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+#edit-banner.hidden { display: none; }
+
+/* draggable feature handles (edit mode) */
+.handle {
+  position: absolute;
+  width: 26px; height: 26px;
+  margin: -13px 0 0 -13px;      /* center on its point */
+  border-radius: 50%;
+  background: rgba(108, 140, 255, 0.35);
+  border: 2px solid #6c8cff;
+  cursor: grab;
+  -webkit-app-region: no-drag;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+}
+.handle:active { cursor: grabbing; background: rgba(108, 140, 255, 0.6); }
+.handle.hidden { display: none; }

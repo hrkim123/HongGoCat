@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>HongGoCat 설정</title>
+  <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+  <h1>🐱 HongGoCat 설정</h1>
+
+  <section>
+    <h2>캐릭터</h2>
+    <label>이름<input id="in-name" maxlength="20" placeholder="내 이름"></label>
+    <label>털색
+      <select id="in-skin">
+        <option value="default">흰색 (기본)</option>
+        <option value="cream">크림</option>
+        <option value="gray">회색</option>
+        <option value="brown">갈색</option>
+        <option value="black">검정</option>
+        <option value="orange">치즈</option>
+        <option value="pink">분홍</option>
+        <option value="mint">민트</option>
+        <option value="lavender">라벤더</option>
+      </select>
+    </label>
+    <label>무늬
+      <select id="in-pattern">
+        <option value="solid">단색</option>
+        <option value="tabby">태비 (줄무늬)</option>
+        <option value="tuxedo">턱시도</option>
+        <option value="spotted">점박이</option>
+        <option value="point">포인트</option>
+      </select>
+    </label>
+    <label>모자
+      <select id="in-hat">
+        <option value="none">없음</option>
+        <option value="beanie">비니</option>
+        <option value="party">파티모자</option>
+        <option value="crown">왕관</option>
+        <option value="tophat">중산모</option>
+        <option value="cap">야구모자</option>
+      </select>
+    </label>
+    <label class="check"><input type="checkbox" id="in-edit"> 디자인 편집 모드 (귀·눈·꼬리 위치 조정)</label>
+  </section>
+
+  <section>
+    <h2>멀티플레이</h2>
+    <label>서버 주소<input id="in-server" placeholder="ws://localhost:8787"></label>
+    <label>방 코드<input id="in-room" maxlength="16" placeholder="예: BONGO123"></label>
+    <div class="row">
+      <button id="btn-connect">접속</button>
+      <button id="btn-disconnect" class="secondary" disabled>나가기</button>
+    </div>
+    <div id="status">오프라인 — 혼자 연주 중</div>
+    <div id="capacity" class="capacity">접속 인원: — / 12명</div>
+  </section>
+
+  <section>
+    <h2>화면</h2>
+    <button id="btn-monitor" class="wide secondary">🖥 다음 모니터로 이동</button>
+    <p class="hint">여러 모니터가 있으면 이 버튼으로 오버레이를 옮깁니다. 캐릭터는 드래그로 그 화면 안 어디든 옮길 수 있어요.</p>
+  </section>
+
+  <section>
+    <h2>무기 슬롯</h2>
+    <label>Ctrl+1
+      <select id="slot-0" class="slot"><option value="none">없음</option><option value="missile">🚀 미사일</option><option value="shield">🛡 쉴드</option><option value="ant">🐜 개미</option></select>
+    </label>
+    <label>Ctrl+2
+      <select id="slot-1" class="slot"><option value="none">없음</option><option value="missile">🚀 미사일</option><option value="shield">🛡 쉴드</option><option value="ant">🐜 개미</option></select>
+    </label>
+    <label>Ctrl+3
+      <select id="slot-2" class="slot"><option value="none">없음</option><option value="missile">🚀 미사일</option><option value="shield">🛡 쉴드</option><option value="ant">🐜 개미</option></select>
+    </label>
+    <p class="hint">단축키(<b>Ctrl+1/2/3</b>)로 그 슬롯의 무기를 사용합니다. 🚀 미사일: 커서를 따라가 명중 시 반응, 여러 발이 겹치면 합쳐져 커지고 황금색. 🛡 쉴드: 커서 방향으로 테두리형 방어막을 10초간 펼쳐 미사일을 막음(체력 10 — 10발 맞으면 금이 가다 깨짐, 이후 3초 쿨타임). 🐜 개미: 커서 위치에 소환(최대 5마리) → 작업 표시줄로 떨어져 기어다니고, 상대 개미가 있으면 서로 싸움. 체력 3(3번 맞으면 사망), 미사일로도 처치 가능.</p>
+  </section>
+
+  <section>
+    <div class="row">
+      <button id="btn-chat" class="secondary">💬 채팅 열기</button>
+      <button id="btn-quit" class="danger">봉고캣 종료</button>
+    </div>
+  </section>
+
+  <script src="settings.js"></script>
+</body>
+</html>

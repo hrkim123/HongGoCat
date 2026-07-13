@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title></title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="stage"></canvas>
+
+  <!-- bottom UI bar (below the character) -->
+  <div id="hud-bar" class="no-drag">
+    <div id="counter" title="내 상호작용 횟수">0</div>
+    <button id="btn-menu" title="설정 / 메뉴" aria-label="메뉴">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+
+  <div id="chatbar" class="no-drag hidden">
+    <input id="chat-input" maxlength="80" placeholder="메시지 입력 후 Enter · Esc로 닫기">
+  </div>
+
+  <div id="edit-banner" class="hidden">✏️ 편집 모드 — 핸들을 드래그해 위치 조정</div>
+
+  <script src="animals.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
