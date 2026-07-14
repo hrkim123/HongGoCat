@@ -250,14 +250,18 @@ app.whenReady().then(() => {
   if (uIOhook) {
     const keysDown = new Set()
     const isCtrl = () => keysDown.has(UiohookKey.Ctrl) || keysDown.has(UiohookKey.CtrlRight)
-    // Ctrl+1 / Ctrl+2 / Ctrl+3 → fire weapon assigned to slot 1/2/3 (uiohook = 1 per press)
+    const isAlt = () => keysDown.has(UiohookKey.Alt) || keysDown.has(UiohookKey.AltRight)
+    // Ctrl+Alt+1/2/3 → fire weapon in slot 1/2/3. We only OBSERVE keys (can't block them), so
+    // the combo must not collide with OS shortcuts: Ctrl+number = browser tabs, Ctrl+Shift+
+    // number = Explorer/desktop icon-view size. Ctrl+Alt+number isn't a standard shortcut.
+    // uiohook keycodes are physical → the number key matches regardless of any shifted symbol.
     const SLOT_KEYS = { [UiohookKey['1']]: 1, [UiohookKey['2']]: 2, [UiohookKey['3']]: 3 }
     uIOhook.on('keydown', (e) => {
       // ignore OS auto-repeat while a key is held — act only on the initial press
       if (keysDown.has(e.keycode)) return
       keysDown.add(e.keycode)
       sendInput('key')
-      if (SLOT_KEYS[e.keycode] && isCtrl()) {
+      if (SLOT_KEYS[e.keycode] && isCtrl() && isAlt()) {
         if (win && !win.isDestroyed()) win.webContents.send('command', { t: 'fire-slot', slot: SLOT_KEYS[e.keycode] })
       }
     })

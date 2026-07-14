@@ -66,24 +66,36 @@
 
   <section>
     <h2>무기 슬롯</h2>
-    <label>Ctrl+1
+    <label>Ctrl+Alt+1
       <select id="slot-0" class="slot"><option value="none">없음</option><option value="missile">🚀 미사일</option><option value="shield">🛡 쉴드</option><option value="ant">🐜 개미</option></select>
     </label>
-    <label>Ctrl+2
+    <label>Ctrl+Alt+2
       <select id="slot-1" class="slot"><option value="none">없음</option><option value="missile">🚀 미사일</option><option value="shield">🛡 쉴드</option><option value="ant">🐜 개미</option></select>
     </label>
-    <label>Ctrl+3
+    <label>Ctrl+Alt+3
       <select id="slot-2" class="slot"><option value="none">없음</option><option value="missile">🚀 미사일</option><option value="shield">🛡 쉴드</option><option value="ant">🐜 개미</option></select>
     </label>
-    <p class="hint">단축키(<b>Ctrl+1/2/3</b>)로 그 슬롯의 무기를 사용합니다. 🚀 미사일: 커서를 따라가 명중 시 반응, 여러 발이 겹치면 합쳐져 커지고 황금색. 🛡 쉴드: 커서 방향으로 떠 있는 방패를 10초간 소환해 미사일을 막음(체력 10 — 맞을수록 금이 가다 깨짐, 이후 3초 쿨타임). 미사일 좌클릭 시 2배 속도 부스터. 🐜 개미: 커서 위치에 소환(최대 5마리) → 작업 표시줄로 떨어져 기어다니고, 상대 개미가 있으면 서로 싸움. 체력 3(3번 맞으면 사망), 미사일로도 처치 가능.</p>
+    <button id="btn-weapon-info" class="wide secondary" type="button">ⓘ 무기 설명 보기</button>
   </section>
 
   <section>
     <div class="row">
       <button id="btn-chat" class="secondary">💬 채팅 열기</button>
-      <button id="btn-quit" class="danger">봉고캣 종료</button>
+      <button id="btn-quit" class="danger">홍고캣 종료</button>
     </div>
   </section>
+
+  <div id="weapon-modal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head"><span>무기 설명</span><button id="weapon-modal-close" class="modal-x" type="button" aria-label="닫기">✕</button></div>
+      <div class="modal-body">
+        <div class="wpn"><b>🚀 미사일</b><p>커서를 따라가 명중 시 폭발(폭발 범위 안 대상에 피해). 여러 발이 겹치면 합쳐져 커지고 황금색이 됩니다. <b>왼쪽 클릭</b> 시 마지막 방향으로 <b>3배 속도</b> 부스터.</p></div>
+        <div class="wpn"><b>🛡 쉴드</b><p>커서 방향에 떠 있는 방패를 <b>10초</b>간 소환해 미사일을 막습니다. 체력 10 — 맞을수록 금이 가다 깨지고, 이후 <b>3초 쿨타임</b>.</p></div>
+        <div class="wpn"><b>🐜 개미</b><p>커서 위치에 소환(<b>최대 5마리</b>). 작업 표시줄 위를 기어다니고, 상대 개미가 있으면 서로 싸웁니다. 체력 3(3번 맞으면 사망), 미사일로도 처치 가능.</p></div>
+        <p class="modal-note">단축키: Ctrl+Alt+1 / 2 / 3 으로 각 슬롯 무기를 사용</p>
+      </div>
+    </div>
+  </div>
 
   <script src="settings.js"></script>
 </body>

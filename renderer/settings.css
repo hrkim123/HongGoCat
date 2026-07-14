@@ -34,3 +34,15 @@ button.wide { width: 100%; }
 .hint { font-size: 11px; color: #7a7a90; margin-top: 7px; line-height: 1.4; }
 #status { margin-top: 9px; font-size: 11px; color: #8fd18f; }
 .capacity { margin-top: 5px; font-size: 12px; font-weight: 600; color: #b8b8c8; }
+
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 50; }
+.modal.hidden { display: none; }
+.modal-card { background: #23232f; border: 1px solid #3a3a48; border-radius: 12px; width: 100%; max-width: 280px; max-height: 90%; overflow-y: auto; }
+.modal-head { display: flex; align-items: center; justify-content: space-between; padding: 11px 14px; border-bottom: 1px solid #3a3a48; font-size: 14px; font-weight: 600; }
+.modal-x { flex: 0 0 auto; width: 26px; height: 26px; padding: 0; background: #3a3a48; border-radius: 6px; font-size: 12px; }
+.modal-body { padding: 12px 14px; }
+.wpn { margin-bottom: 12px; }
+.wpn b { color: #e8e8ee; }
+.wpn > b { display: block; font-size: 13px; margin-bottom: 3px; }
+.wpn p { font-size: 12px; color: #b8b8c8; line-height: 1.5; margin: 0; }
+.modal-note { font-size: 11px; color: #8a8aa0; margin: 8px 0 0; border-top: 1px solid #3a3a48; padding-top: 8px; }

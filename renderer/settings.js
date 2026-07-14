@@ -8,7 +8,7 @@
   const slotSel = [$('slot-0'), $('slot-1'), $('slot-2')]
   const statusEl = $('status'), capacityEl = $('capacity')
 
-  if (!api) { statusEl.textContent = '이 창은 봉고캣 앱에서 열어야 합니다'; return }
+  if (!api) { statusEl.textContent = '이 창은 홍고캣 앱에서 열어야 합니다'; return }
 
   let ready = false
 
@@ -51,6 +51,12 @@
     if (!url || !room) { statusEl.textContent = '서버 주소와 방 코드를 입력하세요'; statusEl.style.color = '#c9a2b0'; return }
     api.toOverlay({ t: 'connect', url, room })
   }
+  const wModal = $('weapon-modal')
+  $('btn-weapon-info').onclick = () => wModal.classList.remove('hidden')
+  $('weapon-modal-close').onclick = () => wModal.classList.add('hidden')
+  wModal.addEventListener('click', (e) => { if (e.target === wModal) wModal.classList.add('hidden') })
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') wModal.classList.add('hidden') })
+
   btnDisconnect.onclick = () => api.toOverlay({ t: 'disconnect' })
   $('btn-monitor').onclick = () => api.toOverlay({ t: 'next-monitor' })
   $('btn-chat').onclick = () => api.toOverlay({ t: 'chat' })

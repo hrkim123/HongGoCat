@@ -131,17 +131,18 @@
         for (const id of [...peers.keys()]) if (!seen.has(id)) peers.delete(id)
         pushState()   // reflect the new count in the settings window
       }
+      else if (msg.t === 'pos') { const p = peers.get(msg.id); if (p) { p.nx = msg.nx; p.ny = msg.ny; p.taps = msg.taps } }
       else if (msg.t === 'pulse') { const p = peers.get(msg.id); if (p) pulse(p, msg.kind) }
       else if (msg.t === 'chat') { const p = peers.get(msg.id); if (p) showBubble(p, String(msg.text)) }
       else if (msg.t === 'throw') { const src = targetOf(msg.id); launch('me', src ? { from: src } : {}) }
-      else if (msg.t === 'missiles') { remoteMissiles.set(msg.id, { list: msg.list || [], ts: performance.now() }) }
+      else if (msg.t === 'missiles') { mergeRemote(remoteMissiles, msg.id, msg.list, 'nx', 'ny') }
       else if (msg.t === 'hit') { if (msg.target === me.netId) me.hitUntil = performance.now() + 1000 + Math.min((msg.power || 1) - 1, 5) * 200 }
       else if (msg.t === 'shield') {
         if (msg.ttl > 0) remoteShields.set(msg.id, { until: performance.now() + msg.ttl, angle: msg.angle || 0, hp: msg.hp != null ? msg.hp : SHIELD_HP, max: msg.max || SHIELD_HP })
         else { if (msg.broke) remoteBreaks.push(msg.id); remoteShields.delete(msg.id) }
       }
       else if (msg.t === 'shield-hit') { if (msg.target === me.netId) hitMyShield(msg.power || 1) }
-      else if (msg.t === 'ants') { remoteAnts.set(msg.id, { list: msg.list || [], ts: performance.now() }) }
+      else if (msg.t === 'ants') { mergeRemote(remoteAnts, msg.id, msg.list, 'nx', 'nx') }
       else if (msg.t === 'ant-hit') { if (msg.target === me.netId) { const a = ants.find((x) => x.id === msg.ant); if (a) antTakeDmg(a, msg.dmg || 1) } }
       else if (msg.t === 'error' && msg.reason === 'room_full') { setStatus('방이 가득 찼어요'); ws.close() }
     }
@@ -282,7 +283,25 @@
   let allRef = [me]
   const cursor = { x: 0, y: 0 } // full-screen cursor (for homing missiles + hover)
   let nextMid = 1
-  const remoteMissiles = new Map() // peerId -> { list:[{id,dx,dy,power}], ts }
+  const remoteMissiles = new Map() // peerId -> { items: Map(id->{...,sx,sy,ang}), ts }
+  const SMOOTH = 0.3               // per-frame lerp toward the latest received position
+
+  // Merge an incoming list of {id,...} into a persistent per-peer Map, seeding smoothed
+  // display coords (sx,sy). Remote entities arrive every ~90ms; we glide toward them each
+  // frame (see draw fns) so they move smoothly instead of teleporting.
+  function mergeRemote(store, peerId, list, xk, yk) {
+    const rec = store.get(peerId) || { items: new Map(), ts: 0 }
+    rec.ts = performance.now()
+    const seen = new Set()
+    for (const m of (list || [])) {
+      seen.add(m.id)
+      const it = rec.items.get(m.id)
+      if (it) Object.assign(it, m)
+      else rec.items.set(m.id, Object.assign({ sx: m[xk], sy: m[yk], ang: 0, dir: 1 }, m))
+    }
+    for (const id of [...rec.items.keys()]) if (!seen.has(id)) rec.items.delete(id)
+    store.set(peerId, rec)
+  }
 
   function targetOf(id) {
     const idx = allRef.findIndex((c) => c.id === id)
@@ -313,7 +332,7 @@
 
   // Left-click boost: every active homing missile locks onto its CURRENT heading and flies
   // straight at 2× speed (with a bigger booster flame) instead of curving to the cursor.
-  const MISSILE_SPEED = 6.5, BOOST_MULT = 2
+  const MISSILE_SPEED = 6.5, BOOST_MULT = 3
   function boostMissiles() {
     for (const p of projectiles) {
       if (!p.homing || p.boost) continue
@@ -551,17 +570,15 @@
     ants.push({ id: nextAntId++, x: cursor.x, y: cursor.y, vy: 0, onGround: false, hp: ANT_HP,
       dir: Math.random() < 0.5 ? -1 : 1, wanderUntil: 0, atkCd: 0, dead: false, deadAt: 0, step: Math.random() * 10 })
   }
+  // peer ants: normalized X → my screen; pinned to MY taskbar line so they always crawl on it
   function remoteAntScreenPos(peerId, a) {
-    const idx = allRef.findIndex((c) => c.id === peerId)
-    if (idx < 0) return null
-    const c = catPos[idx]; if (!c) return null
-    return { x: c.x + a.x, y: c.y + a.y, id: a.id, hp: a.hp, dead: a.dead }
+    return { x: (a.sx != null ? a.sx : a.nx) * canvas.clientWidth, y: antGroundY(), id: a.id, hp: a.hp, dead: a.dead }
   }
   function nearestEnemyAnt(x) {
     const now = performance.now(); let best = null, bd = Infinity
     for (const [pid, rec] of remoteAnts) {
       if (now - rec.ts > 800) continue
-      for (const a of rec.list) {
+      for (const a of rec.items.values()) {
         if (a.dead) continue
         const s = remoteAntScreenPos(pid, a); if (!s) continue
         const d = Math.abs(s.x - x); if (d < bd) { bd = d; best = { pid, s } }
@@ -586,7 +603,7 @@
     const now = performance.now()
     for (const [pid, rec] of remoteAnts) {
       if (now - rec.ts > 800) continue
-      for (const a of rec.list) {
+      for (const a of rec.items.values()) {
         if (a.dead) continue
         const s = remoteAntScreenPos(pid, a); if (!s) continue
         if (Math.hypot(x - s.x, y - s.y) < rr) return { local: false, pid, id: a.id }
@@ -625,12 +642,15 @@
     }
   }
   function drawRemoteAnts(now) {
+    const W = canvas.clientWidth, gy = antGroundY()
     for (const [pid, rec] of [...remoteAnts]) {
       if (now - rec.ts > 1000) { remoteAnts.delete(pid); continue }
-      for (const a of rec.list) {
+      for (const a of rec.items.values()) {
         if (a.dead) continue
-        const s = remoteAntScreenPos(pid, a); if (!s) continue
-        drawAnt({ x: s.x, y: s.y, dir: 1, step: now / 90, hp: a.hp }, now, false, true)
+        const px = a.sx
+        a.sx += (a.nx - a.sx) * SMOOTH   // glide toward latest (normalized X)
+        if (a.sx - px > 0.001) a.dir = 1; else if (a.sx - px < -0.001) a.dir = -1
+        drawAnt({ x: a.sx * W, y: gy, dir: a.dir, step: now / 90, hp: a.hp }, now, false, true)
       }
     }
   }
@@ -760,30 +780,29 @@
     return null
   }
 
-  // a peer's missile is streamed relative to THEIR cat; place it under their cat in my view
-  function remoteMissileScreenPos(peerId, m) {
-    const idx = allRef.findIndex((c) => c.id === peerId)
-    if (idx < 0) return null
-    const c = catPos[idx]; if (!c) return null
-    return { x: c.x + m.dx, y: c.y + m.dy, power: m.power || 1 }
-  }
+  // peer missiles arrive in NORMALIZED screen coords (nx,ny) → converge on the right target
+  // on any resolution. Collision uses the smoothed on-screen position (sx,sy in 0..1).
   function hitRemoteMissile(x, y, power) {
-    const now = performance.now()
+    const W = canvas.clientWidth, H = canvas.clientHeight, now = performance.now()
     for (const [pid, rec] of remoteMissiles) {
       if (now - rec.ts > 500) continue
-      for (const m of rec.list) {
-        const s = remoteMissileScreenPos(pid, m); if (!s) continue
-        if (Math.hypot(x - s.x, y - s.y) < 16 + (power + s.power) * 2) return s
+      for (const it of rec.items.values()) {
+        const sx = it.sx * W, sy = it.sy * H
+        if (Math.hypot(x - sx, y - sy) < 16 + (power + (it.power || 1)) * 2) return { x: sx, y: sy, power: it.power || 1 }
       }
     }
     return null
   }
   function drawRemoteMissiles(now) {
+    const W = canvas.clientWidth, H = canvas.clientHeight
     for (const [pid, rec] of [...remoteMissiles]) {
       if (now - rec.ts > 500) { remoteMissiles.delete(pid); continue }
-      for (const m of rec.list) {
-        const s = remoteMissileScreenPos(pid, m); if (!s) continue
-        drawMissile(s.x, s.y, now / 200, now, s.power) // spin in place (no local velocity)
+      for (const it of rec.items.values()) {
+        const px = it.sx, py = it.sy
+        it.sx += (it.nx - it.sx) * SMOOTH; it.sy += (it.ny - it.sy) * SMOOTH   // glide toward latest
+        const mvx = (it.sx - px) * W, mvy = (it.sy - py) * H
+        if (mvx * mvx + mvy * mvy > 0.25) it.ang = Math.atan2(mvy, mvx)          // face travel direction
+        drawMissile(it.sx * W, it.sy * H, it.ang, now, it.power || 1)
       }
     }
   }
@@ -817,7 +836,7 @@
     for (const a of ants) if (!a.dead && Math.hypot(x - a.x, y - a.y) <= R) antTakeDmg(a, power)
     for (const [pid, rec] of remoteAnts) {
       if (now - rec.ts > 800) continue
-      for (const a of rec.list) {
+      for (const a of rec.items.values()) {
         if (a.dead) continue
         const s = remoteAntScreenPos(pid, a); if (!s) continue
         if (Math.hypot(x - s.x, y - s.y) <= R && connected()) net.send(JSON.stringify({ t: 'ant-hit', target: pid, ant: a.id, dmg: power }))
@@ -910,13 +929,15 @@
   setInterval(() => {
     if (!connected()) return
     const now = performance.now()
+    const NW = canvas.clientWidth || 1, NH = canvas.clientHeight || 1
     const mine = projectiles.filter((p) => p.homing)
     if (mine.length) {
       sentMissiles = true
-      const my = catPos[0] || { x: 0, y: 0 }
+      // stream missiles in NORMALIZED screen coords (0..1) so they converge on the right
+      // target on every screen regardless of resolution/aspect
       net.send(JSON.stringify({
         t: 'missiles',
-        list: mine.map((m) => ({ id: m.mid, dx: Math.round(m.x - my.x), dy: Math.round(m.y - my.y), power: m.power }))
+        list: mine.map((m) => ({ id: m.mid, nx: +(m.x / NW).toFixed(4), ny: +(m.y / NH).toFixed(4), power: m.power }))
       }))
     } else if (sentMissiles) { net.send(JSON.stringify({ t: 'missiles', list: [] })); sentMissiles = false }
 
@@ -927,17 +948,25 @@
 
     if (ants.length) {
       sentAnts = true
-      const my = catPos[0] || { x: 0, y: 0 }
-      net.send(JSON.stringify({ t: 'ants', list: ants.map((a) => ({ id: a.id, x: Math.round(a.x - my.x), y: Math.round(a.y - my.y), hp: a.hp, dead: a.dead })) }))
+      // ants: normalized X only (peers pin them to THEIR taskbar line, see drawRemoteAnts)
+      net.send(JSON.stringify({ t: 'ants', list: ants.map((a) => ({ id: a.id, nx: +(a.x / NW).toFixed(4), hp: a.hp, dead: a.dead })) }))
     } else if (sentAnts) { net.send(JSON.stringify({ t: 'ants', list: [] })); sentAnts = false }
+
+    // my widget position (normalized 0..1 to my screen) + interaction count, so peers place
+    // my cat where I put it and can see my counter
+    if (wx != null) {
+      const W = canvas.clientWidth || 1, H = canvas.clientHeight || 1
+      net.send(JSON.stringify({ t: 'pos', nx: +(wx / W).toFixed(4), ny: +(wy / H).toFixed(4), taps: tapCount }))
+    }
   }, 90)
 
   // ---------- widget placement + click-through management ----------
   // The window covers the whole screen. The cat "widget" (cat + desk + bottom bar)
   // sits at a draggable spot; everywhere else the window is click-through so it never
   // blocks your normal desktop use. Interactive only while the cursor is over the widget.
-  const SCALE = 1.0
-  const BAR_SPACE = 40 // room below the cell for the DOM #hud-bar
+  const SCALE = 0.8    // widget (cat + desk + bar) drawn 20% smaller (counter text stays CSS-sized)
+  const BAR_SPACE = 34 // room below the cell for the DOM #hud-bar
+  const GRID_COLS = 4, GRID_ROWS = 4   // drag-snap preset anchors
   const SIDE = 6
   const hudBar = document.getElementById('hud-bar')
   const cellPxW = CELL_W * SCALE
@@ -945,20 +974,58 @@
 
   let wx = null, wy = null // widget top-left (of me's cell)
   let primaryRect = null   // primary monitor work area (canvas coords), from main
-  if (inputSource.onLayout) inputSource.onLayout((l) => { primaryRect = l.primary; wx = null /* re-center */ })
+  // chosen preset as a grid cell {c,r} — persisted so it survives monitor switches & restarts
+  let savedAnchor = null
+  try { const s = JSON.parse(localStorage.getItem('anchor') || 'null'); if (s && typeof s.c === 'number') savedAnchor = s } catch {}
+  // on monitor move, re-apply the SAME preset cell to the new screen (don't reset to center)
+  if (inputSource.onLayout) inputSource.onLayout((l) => { primaryRect = l.primary; wx = null })
 
+  // bottom limit for the cat widget = taskbar top (so it never overlaps the taskbar), or the
+  // screen bottom if there's no detectable taskbar.
+  function usableBottom() { const tb = taskbarRect(); return tb ? tb.top : canvas.clientHeight }
   function clampWidget() {
-    const W = canvas.clientWidth, H = canvas.clientHeight
+    const W = canvas.clientWidth
     wx = Math.max(0, Math.min(wx, W - cellPxW))
-    wy = Math.max(0, Math.min(wy, H - (cellPxH + BAR_SPACE)))
+    wy = Math.max(0, Math.min(wy, usableBottom() - (cellPxH + BAR_SPACE)))
+  }
+  // Preset anchor positions (widget top-left) — a GRID_COLS×GRID_ROWS grid spanning the whole
+  // usable area (0..maxX, 0..maxY), so the widget never runs off-screen. Ratio-based via the
+  // span, so it maps consistently across resolutions.
+  function anchorAt(c, r) {
+    const W = canvas.clientWidth
+    const maxX = Math.max(0, W - cellPxW), maxY = Math.max(0, usableBottom() - (cellPxH + BAR_SPACE))
+    const fx = GRID_COLS === 1 ? 0.5 : c / (GRID_COLS - 1)
+    const fy = GRID_ROWS === 1 ? 0.5 : r / (GRID_ROWS - 1)
+    return { x: Math.round(fx * maxX), y: Math.round(fy * maxY), c, r }
+  }
+  function anchorPoints() {
+    const pts = []
+    for (let r = 0; r < GRID_ROWS; r++) for (let c = 0; c < GRID_COLS; c++) pts.push(anchorAt(c, r))
+    return pts
+  }
+  function nearestAnchor(x, y) {
+    let best = null, bd = Infinity
+    for (const p of anchorPoints()) { const d = (p.x - x) ** 2 + (p.y - y) ** 2; if (d < bd) { bd = d; best = p } }
+    return best
+  }
+  function snapToNearestAnchor() {
+    const a = nearestAnchor(wx, wy); if (!a) return
+    wx = a.x; wy = a.y
+    savedAnchor = { c: a.c, r: a.r }; localStorage.setItem('anchor', JSON.stringify(savedAnchor))
+    clampWidget(); positionHud(); sendHotzone()
   }
   function initWidget() {
-    // start bottom-center of the PRIMARY monitor (draggable to any monitor within the session)
+    // re-apply the saved preset cell (persists across monitor switches & restarts)
+    if (savedAnchor && savedAnchor.c < GRID_COLS && savedAnchor.r < GRID_ROWS) {
+      const a = anchorAt(savedAnchor.c, savedAnchor.r)
+      wx = a.x; wy = a.y; clampWidget(); positionHud(); sendHotzone(); return
+    }
+    // first run: default bottom-center → snap (which also saves the choice)
     const pr = primaryRect || { x: 0, y: 0, w: canvas.clientWidth, h: canvas.clientHeight }
     wx = Math.round(pr.x + (pr.w - cellPxW) / 2)
     wy = Math.round(pr.y + pr.h - (cellPxH + BAR_SPACE) - 12)
     clampWidget()
-    sendHotzone()
+    snapToNearestAnchor()
   }
   function positionHud() {
     hudBar.style.left = (wx + SIDE) + 'px'
@@ -968,6 +1035,22 @@
   function positionChat() {
     chatbar.style.left = (wx + cellPxW / 2) + 'px'
     chatbar.style.top = (wy - 34) + 'px'
+  }
+  // a peer's interaction counter, drawn on-canvas below their cat (I show mine in the DOM HUD).
+  // Count text stays a FIXED size (like my HUD counter) — not scaled with the smaller widget.
+  function drawPeerCount(origin, taps) {
+    const sc = view.scale
+    const cx = origin.x + CELL_W / 2 * sc
+    const y = origin.y + CELL_H * sc + 3
+    const label = (taps || 0).toLocaleString()
+    ctx.save()
+    ctx.font = '13px "Segoe UI", "Malgun Gothic", sans-serif'
+    const w = ctx.measureText(label).width + 18, h = 20
+    ctx.fillStyle = 'rgba(20,20,28,0.82)'
+    ctx.beginPath(); ctx.roundRect(cx - w / 2, y, w, h, 9); ctx.fill()
+    ctx.fillStyle = '#ffe08a'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+    ctx.fillText(label, cx, y + h / 2 + 0.5)
+    ctx.restore()
   }
 
   // Main decides click-through by polling the real cursor against this "hotzone".
@@ -991,8 +1074,23 @@
     if (onCat) dragging = { dx: e.clientX - wx, dy: e.clientY - wy }
   })
   window.addEventListener('mouseup', () => {
-    if (dragging) { dragging = null; sendHotzone() }
+    if (dragging) { dragging = null; snapToNearestAnchor() }   // drop → snap to nearest preset
   })
+  // faint preset dots while dragging; nearest one highlighted (where the cat will land)
+  function drawSnapGrid() {
+    if (!dragging) return
+    const pts = anchorPoints(), near = nearestAnchor(wx, wy)
+    const cxOff = cellPxW / 2, cyOff = cellPxH / 2
+    ctx.save()
+    for (const p of pts) {
+      const isNear = near && p.x === near.x && p.y === near.y
+      ctx.beginPath(); ctx.arc(p.x + cxOff, p.y + cyOff, isNear ? 11 : 6, 0, Math.PI * 2)
+      ctx.fillStyle = isNear ? 'rgba(108,140,255,0.5)' : 'rgba(150,160,190,0.28)'
+      ctx.fill()
+      if (isNear) { ctx.strokeStyle = 'rgba(108,140,255,0.9)'; ctx.lineWidth = 2; ctx.stroke() }
+    }
+    ctx.restore()
+  }
 
   // ---------- render loop ----------
   function resize() {
@@ -1023,24 +1121,39 @@
     allRef = all
     for (const p of all) tickBlink(p, now)
 
-    // fixed-size widget anchored at (wx, wy); peers line up to the right of me
     const scale = SCALE
     view.scale = scale; view.offX = wx; view.offY = wy
     const BUB = window.AnimalArt.BUBBLE_H
+    const W = canvas.clientWidth, H = canvas.clientHeight
+    // each cat sits at its OWN top-left origin: me at my widget; a peer where THEY placed
+    // themselves (normalized position they broadcast), so nobody is glued in a row.
+    const origins = all.map((p, i) => {
+      if (p.id === 'me') return { x: wx, y: wy }
+      if (p.nx != null && p.ny != null) {
+        return {
+          x: Math.max(0, Math.min(p.nx * W, W - CELL_W * scale)),
+          y: Math.max(0, Math.min(p.ny * H, usableBottom() - (CELL_H * scale + BAR_SPACE)))
+        }
+      }
+      return { x: wx + i * CELL_W * scale, y: wy } // fallback until their position arrives
+    })
     catPos = all.map((p, i) => ({
-      x: wx + i * CELL_W * scale + CELL_W / 2 * scale,
-      y: wy + (BUB + 100) * scale // ~ head/upper body
+      x: origins[i].x + CELL_W / 2 * scale,
+      y: origins[i].y + (BUB + 100) * scale // ~ head/upper body
     }))
 
     // shield faces the cursor while active
     if (catPos[0]) me.shieldAngle = Math.atan2(cursor.y - catPos[0].y, cursor.x - catPos[0].x)
 
+    drawSnapGrid()   // preset dots under the cats while dragging
+
     all.forEach((p, i) => {
       ctx.save()
-      ctx.translate(wx + i * CELL_W * scale, wy)
+      ctx.translate(origins[i].x, origins[i].y)
       ctx.scale(scale, scale)
       window.AnimalArt.draw(ctx, p.animal, p, now)
       ctx.restore()
+      if (p.id !== 'me' && p.taps != null) drawPeerCount(origins[i], p.taps) // peer's counter
     })
 
     drawShields(now)

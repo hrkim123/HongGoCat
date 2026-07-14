@@ -62,7 +62,9 @@ wss.on('connection', (ws) => {
     const me = room && room.get(id)
     if (!me) return
 
-    if (msg.t === 'pulse' && (msg.kind === 'key' || msg.kind === 'mouse')) {
+    if (msg.t === 'pos') {
+      broadcast(joinedRoom, { t: 'pos', id, nx: msg.nx, ny: msg.ny, taps: msg.taps }, id)
+    } else if (msg.t === 'pulse' && (msg.kind === 'key' || msg.kind === 'mouse')) {
       broadcast(joinedRoom, { t: 'pulse', id, kind: msg.kind }, id)
     } else if (msg.t === 'throw') {
       const now = Date.now()
