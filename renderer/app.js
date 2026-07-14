@@ -459,8 +459,8 @@
       const was = lmbDown; lmbDown = !!msg.down
       if (platformMode) {   // drawing a platform stroke while the button is held
         if (lmbDown && !was) curStroke = { pts: [{ x: cursor.x, y: cursor.y }], hp: PLAT_HP }
-        else if (!lmbDown && was && curStroke) { if (curStroke.pts.length >= 2) platforms.push(curStroke); curStroke = null }
-      }
+        else if (!lmbDown && was && curStroke) { if (curStroke.pts.length >= 2) { platforms.push(curStroke); if (platforms.length > 40) platforms.shift() } curStroke = null }
+      } else if (was && !lmbDown && me.humanActive) humanRelease()   // sword: release → swing or fire 검기
     }
     else if (msg.t === 'platform-mode') { togglePlatformMode() }
     else if (msg.t === 'human-key') { if (msg.down) humanKeys.add(msg.key); else humanKeys.delete(msg.key) }
@@ -676,7 +676,10 @@
   let gwSpawnAt = 0
   function spawnGroundWeapon(kind, atCursor) {
     const W = canvas.clientWidth
-    groundWeapons.push({ kind, x: atCursor ? cursor.x : 40 + Math.random() * (W - 80), y: atCursor ? cursor.y : -20, vy: 0, onGround: false, born: performance.now() })
+    const gx = atCursor ? cursor.x : 40 + Math.random() * (W - 80)
+    // fall from just ABOVE the taskbar (not the whole sky); shop drops still come from the cursor
+    const gy = atCursor ? cursor.y : antGroundY(gx) - 130 * view.scale
+    groundWeapons.push({ kind, x: gx, y: gy, vy: 0, onGround: false, born: performance.now() })
   }
   function summonHumanWeapon(id) {   // shop: spend, then drop it at the cursor to be picked up
     const w = HUMAN_WEAPONS[id]; if (!w) return
@@ -693,43 +696,60 @@
     return false
   }
   function stepGroundWeapons(now) {
-    if (now > gwSpawnAt && groundWeapons.length < GW_MAX) {   // occasional random spawn on the taskbar
+    if (me.humanActive && now > gwSpawnAt && groundWeapons.length < GW_MAX) {   // random spawns only while a human exists
       gwSpawnAt = now + 15000 + Math.random() * 20000
       spawnGroundWeapon(HUMAN_WEAPON_ITEMS[Math.floor(Math.random() * HUMAN_WEAPON_ITEMS.length)], false)
-    }
+    } else if (!me.humanActive) gwSpawnAt = now + 8000   // hold off the timer until a human is summoned
     const s = view.scale
     for (let i = groundWeapons.length - 1; i >= 0; i--) {
       const g = groundWeapons[i], age = now - g.born
       if (age >= GW_LIFE) { groundWeapons.splice(i, 1); continue }
       if (!g.onGround) { g.vy += 0.5; g.y += g.vy; const gy = antGroundY(g.x); if (g.y >= gy) { g.y = gy; g.vy = 0; g.onGround = true } }
       if ((GW_LIFE - age) < GW_BLINK && Math.floor(now / 140) % 2 === 0) continue   // blink out near the end
-      ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.globalAlpha = 1
-      const iy = g.y - 20 * s
-      ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.beginPath(); ctx.ellipse(g.x, g.y + 2 * s, 18 * s, 5 * s, 0, 0, Math.PI * 2); ctx.fill()   // ground shadow
-      ctx.fillStyle = 'rgba(43,47,58,0.95)'; ctx.beginPath(); ctx.arc(g.x, iy, 22 * s, 0, Math.PI * 2); ctx.fill()   // solid disc so it reads clearly
-      ctx.strokeStyle = '#ffd451'; ctx.lineWidth = 2.5 * s; ctx.stroke()
-      ctx.font = `${34 * s}px sans-serif`; ctx.fillText(HUMAN_WEAPONS[g.kind].emoji, g.x, iy)
+      ctx.save()
+      ctx.fillStyle = 'rgba(255,220,120,0.25)'; ctx.beginPath(); ctx.ellipse(g.x, g.y + 1 * s, 16 * s, 5 * s, 0, 0, Math.PI * 2); ctx.fill()   // faint glow (reverted)
+      ctx.translate(g.x, g.y - 9 * s); ctx.rotate(-0.35)                                                                                       // laid at a slight angle
+      const L = (g.kind === 'rifle' || g.kind === 'bazooka') ? 20 * s : (g.kind === 'sword' ? 16 * s : 11 * s)   // ~70% of the held size
+      ctx.translate(-L * 0.4, 0); drawWeapon(g.kind, L)
       ctx.restore()
     }
   }
-  function humanAttack() {
+  const SWORD_CHARGE_MS = 700   // hold this long → release a sword-wave (검기)
+  const SWING_MS = 140, SLASH_MIN = 0.35   // fast swing; min charge to release a 검기
+  function humanAttack() {   // left-click DOWN
     if (!me.humanActive) return
     if (humanTryPickup()) return                 // near a ground weapon → pick it up
     const now = performance.now(), wk = me.humanWeapon
+    if (wk === 'sword') { me.swordCharging = true; me.swordChargeStart = now; me.swordCharge = 0; return }  // hold to charge
+    if (wk === 'rifle') return                    // full-auto handled in stepHuman while held
     if (!wk) { humanPunch(); return }             // bare fists
     if (now < (me.humanAtkCd || 0)) return
     const w = HUMAN_WEAPONS[wk]
     me.humanAtkCd = now + w.cd; me.humanPunchUntil = now + 150
-    if (w.melee) humanMelee(w, now)
-    else if (wk === 'bazooka') fireBazooka(w, now)
+    if (wk === 'bazooka') fireBazooka(w, now)
     else fireHumanBullet(w, now)
+  }
+  function humanRelease() {   // left-click UP — sword: quick tap = swing, held = fire a 검기 scaled by charge
+    if (!me.humanActive || !me.swordCharging) return
+    me.swordCharging = false
+    const now = performance.now()
+    me.swingUntil = now + SWING_MS; me.humanAtkCd = now + 260
+    if (me.swordCharge >= SLASH_MIN) fireSlash(now, me.swordCharge)
+    else humanMelee(HUMAN_WEAPONS.sword, now)
+    me.swordCharge = 0
+  }
+  function fireSlash(now, charge) {   // 검기: crescent wave — size/damage/HP scale with charge (max hp=dmg=3)
+    const hs = view.scale * HUMAN_SCALE, oy = me.humanY - 18 * hs
+    const ang = Math.atan2(cursor.y - oy, cursor.x - me.humanX); me.humanFace = Math.cos(ang) >= 0 ? 1 : -1
+    const hp = Math.max(1, Math.round(charge * 3))              // 1..3
+    hbullets.push({ x: me.humanX + Math.cos(ang) * 22 * hs, y: oy + Math.sin(ang) * 22 * hs, vx: Math.cos(ang) * 11, vy: Math.sin(ang) * 11, born: now, life: 1500, dmg: hp, wave: true, hp, waveR: (12 + charge * 20) * view.scale, ang })
   }
   function humanMelee(w, now) {                   // sword: wider/stronger than a punch
     const hs = view.scale * HUMAN_SCALE
     const px = me.humanX + me.humanFace * w.range * hs, py = me.humanY - 18 * hs, r = w.range * 0.8 * hs
     for (const a of ants) if (!a.dead && Math.hypot(px - a.x, py - a.y) < r) { antTakeDmg(a, w.dmg); if (a.dead) addAntKill() }
     for (const [pid, rec] of remoteAnts) for (const a of rec.items.values()) { if (a.dead) continue; const sp = remoteAntScreenPos(pid, a); if (sp && Math.hypot(px - sp.x, py - sp.y) < r && connected()) net.send(JSON.stringify({ t: 'ant-hit', target: pid, ant: a.id, dmg: w.dmg })) }
-    for (let ci = 0; ci < catPos.length; ci++) { const cat = allRef[ci]; if (!cat || cat.id === 'me') continue; const c = catPos[ci]; if (Math.hypot(px - c.x, py - c.y) < 56 * view.scale) { cat.hitUntil = now + 700; if (connected()) net.send(JSON.stringify({ t: 'hit', target: cat.id, power: w.dmg })) } }
+    for (let ci = 0; ci < catPos.length; ci++) { const cat = allRef[ci]; if (!cat) continue; const c = catPos[ci]; if (Math.hypot(px - c.x, py - c.y) < 56 * view.scale) { cat.hitUntil = now + 700; if (cat.id !== 'me' && connected()) net.send(JSON.stringify({ t: 'hit', target: cat.id, power: w.dmg })) } }
     spawnSpark(px, py)
   }
   function fireHumanBullet(w, now) {              // pistol / rifle → straight bullet toward the cursor
@@ -745,6 +765,7 @@
   }
   function stepHbullets(now) {
     const W = canvas.clientWidth, H = canvas.clientHeight, s = view.scale
+    if (hbullets.length > 120) hbullets.splice(0, hbullets.length - 120)   // cap
     for (let i = hbullets.length - 1; i >= 0; i--) {
       const p = hbullets[i]
       if (now - p.born > p.life) { hbullets.splice(i, 1); continue }
@@ -752,45 +773,63 @@
       p.x += p.vx; p.y += p.vy
       if (p.x < -20 || p.x > W + 20 || p.y < -20 || p.y > H + 20) { hbullets.splice(i, 1); continue }
       if (inTaskbar(p.x, p.y)) { carveTaskbar(p.x, 0.1); spawnSpark(p.x, p.y); hbullets.splice(i, 1); continue }
-      const pl = hitPlatform(p.x, p.y); if (pl) { damagePlatform(pl, p.dmg); spawnSpark(p.x, p.y); hbullets.splice(i, 1); continue }
+      const waveR = p.waveR || 16 * s
+      // 검기 loses 1 HP per blocking collision (missile/bullet/platform), throttled so one contact = one HP
+      const deplete = () => { if (now < (p.hitCd || 0)) return false; p.hitCd = now + 130; addEffect(p.x, p.y, 1); spawnSpark(p.x, p.y); return (--p.hp) <= 0 }
+      const pl = hitPlatform(p.x, p.y)
+      if (pl) { damagePlatform(pl, p.dmg); if (!p.wave) { spawnSpark(p.x, p.y); hbullets.splice(i, 1); continue } else if (deplete()) { hbullets.splice(i, 1); continue } }
+      const antR = p.wave ? waveR : 12 * s, catR = p.wave ? waveR + 34 * s : 56 * s   // 검기 sweeps wider + pierces
       let hit = false
-      for (const a of ants) if (!a.dead && Math.hypot(p.x - a.x, p.y - a.y) < 12 * s) { antTakeDmg(a, p.dmg); if (a.dead) addAntKill(); hit = true; break }
-      if (!hit) { const ah = missileHitsAnt(p.x, p.y); if (ah && !ah.local) { if (connected()) net.send(JSON.stringify({ t: 'ant-hit', target: ah.pid, ant: ah.id, dmg: p.dmg })); hit = true } }
-      if (!hit) for (let ci = 0; ci < catPos.length; ci++) { const cat = allRef[ci]; if (!cat || cat.id === 'me') continue; const c = catPos[ci]; if (Math.hypot(p.x - c.x, p.y - c.y) < 56 * s) { if (!catShieldCovers(cat, c, p.x, p.y, now)) { cat.hitUntil = now + 700; if (connected()) net.send(JSON.stringify({ t: 'hit', target: cat.id, power: p.dmg })) } hit = true; break } }
-      if (hit) { spawnSpark(p.x, p.y); hbullets.splice(i, 1); continue }
-      ctx.save(); ctx.lineCap = 'round'; ctx.strokeStyle = 'rgba(255,210,90,0.9)'; ctx.lineWidth = (p.big ? 3.5 : 2.5) * s
-      ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - p.vx * 1.1, p.y - p.vy * 1.1); ctx.stroke()
-      ctx.fillStyle = '#fff1b0'; ctx.beginPath(); ctx.arc(p.x, p.y, (p.big ? 3 : 2.2) * s, 0, Math.PI * 2); ctx.fill(); ctx.restore()
+      for (const a of ants) if (!a.dead && Math.hypot(p.x - a.x, p.y - a.y) < antR) { antTakeDmg(a, p.dmg); if (a.dead) addAntKill(); hit = true; if (!p.wave) break }
+      if (!hit || p.wave) { const ah = missileHitsAnt(p.x, p.y); if (ah && !ah.local) { if (connected()) net.send(JSON.stringify({ t: 'ant-hit', target: ah.pid, ant: ah.id, dmg: p.dmg })); hit = true } }
+      for (let ci = 0; ci < catPos.length; ci++) { const cat = allRef[ci]; if (!cat) continue; const c = catPos[ci]; if (Math.hypot(p.x - c.x, p.y - c.y) < catR) { if (!catShieldCovers(cat, c, p.x, p.y, now)) { cat.hitUntil = now + 700; if (cat.id !== 'me' && connected()) net.send(JSON.stringify({ t: 'hit', target: cat.id, power: p.dmg })) } hit = true; if (!p.wave) break } }
+      if (p.wave) {   // enemy missiles/bullets collide with the 검기 → they pop, wave loses HP
+        if (hitRemoteMissile(p.x, p.y, p.dmg) || hitRemoteGBullet(p.x, p.y)) { if (deplete()) { hbullets.splice(i, 1); continue } }
+      }
+      if (hit && !p.wave) { spawnSpark(p.x, p.y); hbullets.splice(i, 1); continue }
+      ctx.save(); ctx.lineCap = 'round'
+      if (p.wave) {   // 검기 — crescent perpendicular to travel, sized by charge
+        ctx.translate(p.x, p.y); ctx.rotate(Math.atan2(p.vy, p.vx))
+        ctx.strokeStyle = 'rgba(150,210,255,0.9)'; ctx.lineWidth = (3 + p.hp) * s; ctx.beginPath(); ctx.arc(0, 0, waveR, -1.15, 1.15); ctx.stroke()
+        ctx.strokeStyle = 'rgba(235,248,255,0.8)'; ctx.lineWidth = 2 * s; ctx.beginPath(); ctx.arc(-3 * s, 0, waveR, -1.05, 1.05); ctx.stroke()
+      } else {
+        ctx.strokeStyle = 'rgba(255,210,90,0.9)'; ctx.lineWidth = (p.big ? 3.5 : 2.5) * s
+        ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - p.vx * 1.1, p.y - p.vy * 1.1); ctx.stroke()
+        ctx.fillStyle = '#fff1b0'; ctx.beginPath(); ctx.arc(p.x, p.y, (p.big ? 3 : 2.2) * s, 0, Math.PI * 2); ctx.fill()
+      }
+      ctx.restore()
     }
   }
   function stepHuman(now) {
     if (!me.humanActive) return
     const s = view.scale, hs = view.scale * HUMAN_SCALE, W = canvas.clientWidth
-    // a black hole drags the human in (it's a weapon, not a character); core = consumed
+    // black hole pull (faster) — but the human can STILL move (WASD) to fight it, like a missile/bullet
+    let bhPull = null
     for (const b of activeBlackholes(now)) {
       const dx = b.x - me.humanX, dy = b.y - me.humanY, d = Math.hypot(dx, dy) || 0.001
       if (d > b.r) continue
       if (d < BH_CORE * W + 6 * s) { spawnDustToHole(me.humanX, me.humanY, b); removeHuman(); return }
-      const t = 1 - d / b.r, step = (0.6 + t * t * 4.5) * s
-      me.humanX += (dx / d) * step; me.humanY += (dy / d) * step; me.humanGround = false
-      drawHuman(now, false); return
+      const t = 1 - d / b.r, sp = (1.4 + t * t * 9) * s   // stronger/faster suction
+      bhPull = { x: (dx / d) * sp, y: (dy / d) * sp }; break
     }
     let moving = false
     if (humanKeys.has('a')) { me.humanX -= HUMAN_SPEED * hs; me.humanFace = -1; moving = true }
     if (humanKeys.has('d')) { me.humanX += HUMAN_SPEED * hs; me.humanFace = 1; moving = true }
-    me.humanX = Math.max(12 * hs, Math.min(W - 12 * hs, me.humanX))
     const floor = antGroundY(me.humanX) - 1
-    if (humanKeys.has('w') && me.humanGround) { me.humanVY = -HUMAN_JUMP * hs; me.humanGround = false }
-    const prevY = me.humanY
-    me.humanGround = false
-    me.humanVY += HUMAN_GRAV * hs; me.humanY += me.humanVY
-    if (humanKeys.has('s')) me.humanY += 5 * hs                           // fast-fall
-    // land on a drawn platform if descending onto it
-    if (me.humanVY >= 0) {
-      const segY = platformFloorAt(me.humanX, me.humanY, prevY)
-      if (segY != null) { me.humanY = segY; me.humanVY = 0; me.humanGround = true }
+    if (bhPull) {                                       // sucked in: pull + your input combine; no gravity/floor
+      if (humanKeys.has('w')) me.humanY -= HUMAN_SPEED * hs
+      if (humanKeys.has('s')) me.humanY += HUMAN_SPEED * hs
+      me.humanX += bhPull.x; me.humanY += bhPull.y; me.humanGround = false; me.humanVY = 0
+    } else {
+      if (humanKeys.has('w') && me.humanGround) { me.humanVY = -HUMAN_JUMP * hs; me.humanGround = false }
+      const prevY = me.humanY
+      me.humanGround = false
+      me.humanVY += HUMAN_GRAV * hs; me.humanY += me.humanVY
+      if (humanKeys.has('s')) me.humanY += 5 * hs                           // fast-fall
+      if (me.humanVY >= 0) { const segY = platformFloorAt(me.humanX, me.humanY, prevY); if (segY != null) { me.humanY = segY; me.humanVY = 0; me.humanGround = true } }
+      if (me.humanY >= floor) { me.humanY = floor; me.humanVY = 0; me.humanGround = true }
     }
-    if (me.humanY >= floor) { me.humanY = floor; me.humanVY = 0; me.humanGround = true }
+    me.humanX = Math.max(12 * hs, Math.min(W - 12 * hs, me.humanX))
     if (humanKeys.has('e')) me.humanFace = cursor.x >= me.humanX ? 1 : -1   // face the cursor while guarding
     // collide with ENEMY weapons (human is local, so only remote threats reach it). 250ms i-frames.
     if (now >= (me.humanHitCd || 0)) {
@@ -819,45 +858,104 @@
         else { humanTakeDmg(1, now); if (!me.humanActive) return }
       }
     }
+    if (me.swordCharging && me.humanWeapon === 'sword') {   // build charge while holding; face the cursor
+      me.humanFace = cursor.x >= me.humanX ? 1 : -1
+      if (lmbDown) me.swordCharge = Math.min(1, (now - me.swordChargeStart) / SWORD_CHARGE_MS)
+      else { me.swordCharging = false; me.swordCharge = 0 }
+    }
+    if (me.humanWeapon === 'rifle' && lmbDown && !platformMode && now >= (me.humanAtkCd || 0)) {   // full-auto
+      me.humanAtkCd = now + HUMAN_WEAPONS.rifle.cd; me.humanPunchUntil = now + 100; fireHumanBullet(HUMAN_WEAPONS.rifle, now)
+    }
     drawHuman(now, moving && me.humanGround)
+  }
+  // human body color follows the cat's fur skin (Stick-Fight-style flat single color)
+  const SKIN_BODY = { default: '#e9e9f0', cream: '#ecd6a8', gray: '#aab0bd', brown: '#a06a3a', black: '#3a3a46', orange: '#e79a3c', pink: '#f0abc6', mint: '#9fe3cb', lavender: '#c7b3ef' }
+  function humanColor() { return SKIN_BODY[me.skin] || SKIN_BODY.default }
+  // draw a weapon pointing +x from the grip origin (y=0 centerline); L = length in px
+  function drawWeapon(kind, L) {
+    ctx.save(); ctx.lineJoin = 'round'; ctx.lineCap = 'round'
+    if (kind === 'sword') {
+      ctx.strokeStyle = '#7a4a24'; ctx.lineWidth = L * 0.13; ctx.beginPath(); ctx.moveTo(-L * 0.14, 0); ctx.lineTo(L * 0.04, 0); ctx.stroke()
+      ctx.strokeStyle = '#d9b25a'; ctx.lineWidth = L * 0.05; ctx.beginPath(); ctx.moveTo(L * 0.05, -L * 0.11); ctx.lineTo(L * 0.05, L * 0.11); ctx.stroke()
+      ctx.fillStyle = '#e3e9f0'; ctx.strokeStyle = '#9aa6b4'; ctx.lineWidth = 1
+      ctx.beginPath(); ctx.moveTo(L * 0.07, -L * 0.05); ctx.lineTo(L * 0.9, -L * 0.03); ctx.lineTo(L, 0); ctx.lineTo(L * 0.9, L * 0.03); ctx.lineTo(L * 0.07, L * 0.05); ctx.closePath(); ctx.fill(); ctx.stroke()
+    } else if (kind === 'pistol') {
+      ctx.fillStyle = '#3a3e4a'; ctx.beginPath(); ctx.roundRect(-L * 0.1, -L * 0.16, L * 0.85, L * 0.3, L * 0.06); ctx.fill()
+      ctx.beginPath(); ctx.roundRect(0, L * 0.05, L * 0.28, L * 0.5, L * 0.05); ctx.fill()
+      ctx.fillStyle = '#20242c'; ctx.fillRect(L * 0.6, -L * 0.09, L * 0.22, L * 0.12)
+    } else if (kind === 'rifle') {   // AK-ish silhouette
+      ctx.fillStyle = '#5a3d22'; ctx.beginPath(); ctx.roundRect(-L * 0.28, -L * 0.05, L * 0.26, L * 0.16, L * 0.03); ctx.fill()   // wood stock
+      ctx.fillStyle = '#43474f'; ctx.beginPath(); ctx.roundRect(-L * 0.06, -L * 0.09, L * 0.72, L * 0.18, L * 0.03); ctx.fill() // receiver
+      ctx.fillStyle = '#2b2f36'; ctx.fillRect(L * 0.62, -L * 0.04, L * 0.4, L * 0.08)                                           // barrel
+      ctx.fillStyle = '#2b2f36'; ctx.fillRect(L * 0.34, -L * 0.15, L * 0.06, L * 0.08)                                          // front sight
+      ctx.save(); ctx.translate(L * 0.24, L * 0.09); ctx.rotate(0.35); ctx.fillStyle = '#3a3e48'; ctx.beginPath(); ctx.roundRect(-L * 0.06, 0, L * 0.13, L * 0.34, L * 0.03); ctx.fill(); ctx.restore() // curved mag
+      ctx.save(); ctx.translate(L * 0.08, L * 0.09); ctx.rotate(0.2); ctx.fillStyle = '#5a3d22'; ctx.fillRect(-L * 0.04, 0, L * 0.1, L * 0.2); ctx.restore()  // grip
+    } else if (kind === 'bazooka') {   // cylindrical tube
+      ctx.fillStyle = '#4c5a3a'; ctx.beginPath(); ctx.roundRect(-L * 0.16, -L * 0.15, L * 1.02, L * 0.3, L * 0.14); ctx.fill()
+      ctx.fillStyle = '#2c3424'; ctx.beginPath(); ctx.ellipse(L * 0.85, 0, L * 0.05, L * 0.16, 0, 0, Math.PI * 2); ctx.fill()   // muzzle mouth
+      ctx.beginPath(); ctx.moveTo(-L * 0.16, -L * 0.15); ctx.lineTo(-L * 0.32, -L * 0.22); ctx.lineTo(-L * 0.32, L * 0.22); ctx.lineTo(-L * 0.16, L * 0.15); ctx.closePath(); ctx.fill()   // rear cone
+      ctx.fillStyle = '#3a3e48'; ctx.beginPath(); ctx.roundRect(L * 0.3, L * 0.12, L * 0.12, L * 0.22, L * 0.03); ctx.fill()    // grip
+      ctx.fillStyle = '#2b2f36'; ctx.fillRect(L * 0.2, -L * 0.26, L * 0.04, L * 0.12)                                           // sight
+    }
+    ctx.restore()
   }
   function drawHuman(now, walking) {
     const s = view.scale * HUMAN_SCALE, x = me.humanX, y = me.humanY, f = me.humanFace || 1
-    const H = 34 * s, headR = 5 * s
-    const hipY = -H * 0.42, shoulderY = -H * 0.78, headCY = -H + headR
+    const H = 34 * s, headR = 6.5 * s, armLen = 11 * s
+    const hipY = -H * 0.42, shoulderY = -H * 0.74, headCY = -H + headR
     const t = walking ? Math.sin(now / 90) : 0
     const guarding = humanKeys.has('e'), punching = now < (me.humanPunchUntil || 0)
+    const wk = me.humanWeapon, aiming = wk === 'pistol' || wk === 'rifle' || wk === 'bazooka'
+    const swingP = now < (me.swingUntil || 0) ? 1 - (me.swingUntil - now) / SWING_MS : -1   // 0..1 while swinging
+    const col = humanColor(), outline = 'rgba(0,0,0,0.5)'
     ctx.save(); ctx.translate(x, y); ctx.lineCap = 'round'; ctx.lineJoin = 'round'
-    ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(0, 1, 9 * s, 2.6 * s, 0, 0, Math.PI * 2); ctx.fill()   // shadow
-    ctx.strokeStyle = '#4a6cf0'; ctx.lineWidth = 3 * s
-    ctx.beginPath()                                     // legs + torso
-    ctx.moveTo(0, hipY); ctx.lineTo(t * 6 * s, 0)
-    ctx.moveTo(0, hipY); ctx.lineTo(-t * 6 * s, 0)
-    ctx.moveTo(0, hipY); ctx.lineTo(0, shoulderY)
-    ctx.moveTo(0, shoulderY); ctx.lineTo(-f * 5 * s, shoulderY + 9 * s)    // back arm
-    ctx.stroke()
-    // front arm: punch (extended) / guard (raised to shield) / normal swing
-    let handX, handY
-    if (punching) { handX = f * 15 * s; handY = shoulderY + 2 * s }
-    else if (guarding) { handX = f * 8 * s; handY = shoulderY + 6 * s }
-    else { handX = f * t * 5 * s; handY = shoulderY + 9 * s }
-    ctx.beginPath(); ctx.moveTo(0, shoulderY); ctx.lineTo(handX, handY); ctx.stroke()
-    ctx.fillStyle = '#ffd9b3'; ctx.beginPath(); ctx.arc(handX, handY, 2 * s, 0, Math.PI * 2); ctx.fill()   // fist
-    if (me.humanWeapon) {   // held weapon icon in the front hand (2x bigger)
-      ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `${26 * s}px sans-serif`
-      if (f < 0) { ctx.translate(handX, handY); ctx.scale(-1, 1); ctx.fillText(HUMAN_WEAPONS[me.humanWeapon].emoji, 0, 0) }
-      else ctx.fillText(HUMAN_WEAPONS[me.humanWeapon].emoji, handX + f * 4 * s, handY)
-      ctx.restore()
+    ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(0, 1, 10 * s, 3 * s, 0, 0, Math.PI * 2); ctx.fill()   // shadow
+    // body — thick single color with a dark outline pass for contrast
+    const limbs = (color, lw) => {
+      ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.beginPath()
+      ctx.moveTo(0, hipY); ctx.lineTo(t * 6 * s, 0); ctx.moveTo(0, hipY); ctx.lineTo(-t * 6 * s, 0)   // legs
+      ctx.moveTo(0, hipY); ctx.lineTo(0, shoulderY)                                                   // torso
+      ctx.moveTo(0, shoulderY); ctx.lineTo(-f * 5 * s, shoulderY + 9 * s); ctx.stroke()               // back arm
     }
-    ctx.fillStyle = '#ffd9b3'; ctx.beginPath(); ctx.arc(0, headCY, headR, 0, Math.PI * 2); ctx.fill()   // head
-    ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 1 * s; ctx.stroke()
-    ctx.fillStyle = '#333'; ctx.beginPath(); ctx.arc(f * headR * 0.45, headCY - headR * 0.1, 1.1 * s, 0, Math.PI * 2); ctx.fill()   // facing eye
-    const hpw = 22 * s, hp01 = Math.max(0, (me.humanHp || 0) / HUMAN_HP), by = headCY - headR - 6 * s   // HP bar
+    limbs(outline, 6 * s); limbs(col, 3.8 * s)
+    // front arm angle (facing-space): aim toward cursor for guns; posed for sword/guard/punch
+    let localAng
+    if (aiming) localAng = Math.atan2(cursor.y - (y + shoulderY), (cursor.x - x) * f)
+    else if (wk === 'sword') localAng = swingP >= 0 ? (-2.1 + swingP * 2.7) : -1.15   // overhead → down slash
+    else if (punching) localAng = 0
+    else if (guarding) localAng = -0.7
+    else localAng = 0.9 + t * 0.3
+    ctx.save(); ctx.scale(f, 1)
+    const hx = Math.cos(localAng) * armLen, hy = shoulderY + Math.sin(localAng) * armLen
+    if (wk === 'sword' && swingP >= 0) {   // slash trail
+      ctx.strokeStyle = 'rgba(190,225,255,0.55)'; ctx.lineWidth = 3.5 * s
+      ctx.beginPath(); ctx.arc(0, shoulderY, armLen + 18 * s, -2.1, localAng); ctx.stroke()
+    }
+    ctx.strokeStyle = outline; ctx.lineWidth = 6 * s; ctx.beginPath(); ctx.moveTo(0, shoulderY); ctx.lineTo(hx, hy); ctx.stroke()
+    ctx.strokeStyle = col; ctx.lineWidth = 3.8 * s; ctx.beginPath(); ctx.moveTo(0, shoulderY); ctx.lineTo(hx, hy); ctx.stroke()
+    if (wk) {
+      ctx.save(); ctx.translate(hx, hy); ctx.rotate(localAng)
+      const L = wk === 'rifle' ? 30 * s : wk === 'bazooka' ? 30 * s : wk === 'sword' ? 22 * s : 13 * s
+      drawWeapon(wk, L)
+      if (wk === 'sword' && me.swordCharge > 0) {   // charge aura on the blade (no gauge)
+        const g = me.swordCharge
+        ctx.globalAlpha = 0.35 + 0.5 * g; ctx.fillStyle = g >= 1 ? '#8fd0ff' : '#cfe6ff'
+        ctx.beginPath(); ctx.arc(L * 0.75, 0, (3 + g * 7) * s, 0, Math.PI * 2); ctx.fill()
+        if (g >= 1) { ctx.globalAlpha = 0.9; ctx.strokeStyle = '#e6f4ff'; ctx.lineWidth = 1.5 * s; ctx.beginPath(); ctx.arc(L * 0.75, 0, 10 * s, 0, Math.PI * 2); ctx.stroke() }
+        ctx.globalAlpha = 1
+      }
+      ctx.restore()
+    } else { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(hx, hy, 2.6 * s, 0, Math.PI * 2); ctx.fill() }   // fist
+    ctx.restore()
+    // head (big round, skin color) + eye
+    ctx.fillStyle = col; ctx.strokeStyle = outline; ctx.lineWidth = 2 * s
+    ctx.beginPath(); ctx.arc(0, headCY, headR, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
+    ctx.fillStyle = '#2a2a30'; ctx.beginPath(); ctx.arc(f * headR * 0.4, headCY, 1.5 * s, 0, Math.PI * 2); ctx.fill()
+    const hpw = 22 * s, hp01 = Math.max(0, (me.humanHp || 0) / HUMAN_HP), by = headCY - headR - 6 * s
     ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(-hpw / 2, by, hpw, 3 * s)
     ctx.fillStyle = hp01 > 0.3 ? '#7ecb7e' : '#d05555'; ctx.fillRect(-hpw / 2, by, hpw * hp01, 3 * s)
     ctx.restore()
-    // 🛡 separate barrier (cat-shield style) floating a bit ABOVE the human, orbiting toward the cursor
-    if (guarding) {
+    if (guarding) {   // 🛡 cat-shield-style barrier above the human, orbiting toward the cursor
       const scx = x, scy = y - H * 0.7, ang = Math.atan2(cursor.y - scy, cursor.x - scx)
       drawShield(scx, scy, ang, 0.95, view.scale * HUMAN_SCALE * 0.24, 1)
     }
@@ -919,7 +1017,7 @@
       if (d > b.r) continue
       if (d < core) return b                       // consumed
       const t = 1 - d / b.r                         // 0 at rim → 1 near center
-      const accel = 0.4 + t * t * 3.2               // stronger near the center
+      const accel = 0.7 + t * t * 5.5               // stronger near the center
       o.vx += (dx / d) * accel; o.vy += (dy / d) * accel
     }
     return null
@@ -1021,7 +1119,7 @@
         const dx = b.x - me.gatX, dy = b.y - me.gatY, d = Math.hypot(dx, dy) || 0.001
         if (d > b.r) continue
         if (d < core + 6 * view.scale) { spawnDustToHole(me.gatX, me.gatY, b); me.gatActive = false; me.gatCdUntil = now + GAT_CD; break }
-        const t = 1 - d / b.r, step = (0.6 + t * t * 4.5) * view.scale   // faster the nearer the center
+        const t = 1 - d / b.r, step = (1.2 + t * t * 8) * view.scale   // faster the nearer the center
         me.gatX += (dx / d) * step; me.gatY += (dy / d) * step
       }
     }
@@ -1480,7 +1578,7 @@
       if (hole) {
         const dx = hole.x - a.x, dy = hole.y - a.y, d = hbest || 1
         if (d < BH_CORE * W) { spawnDustToHole(a.x, a.y, hole); if (hole.mine) addAntKill(); ants.splice(i, 1); continue }
-        const sp = 1.2 + (1 - d / hole.r) * 5
+        const sp = 2 + (1 - d / hole.r) * 8
         a.x += (dx / d) * sp; a.y += (dy / d) * sp; a.onGround = false
         a.dir = dx >= 0 ? 1 : -1; a.step += 0.4
         drawAnt(a, now, false, myCol); continue
@@ -1964,7 +2062,7 @@
     if (dragging) { wx = p.x - dragging.dx; wy = p.y - dragging.dy; clampWidget(); positionHud(); sendHotzone() }
     if (platformMode && lmbDown && curStroke) {   // sample brush points (distance-throttled)
       const last = curStroke.pts[curStroke.pts.length - 1]
-      if (Math.hypot(p.x - last.x, p.y - last.y) > 6) curStroke.pts.push({ x: p.x, y: p.y })
+      if (curStroke.pts.length < 400 && Math.hypot(p.x - last.x, p.y - last.y) > 6) curStroke.pts.push({ x: p.x, y: p.y })
     }
   })
 
