@@ -1,5 +1,7 @@
-const { app, BrowserWindow, ipcMain, globalShortcut, screen } = require('electron')
+const { app, BrowserWindow, ipcMain, globalShortcut, screen, Notification } = require('electron')
 const path = require('path')
+
+let updater = null   // electron-updater instance (set in initAutoUpdate), for restart-to-apply
 
 // Transparent windows on Windows can render a white bar/flash via GPU compositing —
 // disabling GPU compositing is a common fix. (Light overlay, negligible perf cost.)
@@ -21,22 +23,42 @@ function initAutoUpdate() {
   try { ({ autoUpdater } = require('electron-updater')) } catch (e) {
     console.error('[bongo] electron-updater not installed — auto-update disabled:', e.message); return
   }
+  updater = autoUpdater
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true   // fallback: apply on quit if not applied earlier
   const startedAt = Date.now()
   autoUpdater.on('error', (e) => console.error('[bongo] update error:', e && e.message))
-  autoUpdater.on('update-downloaded', () => {
+  autoUpdater.on('update-downloaded', (info) => {
     // If the update finished downloading soon after launch, apply it NOW (silent install +
     // relaunch) so you effectively "update on start". If the app has been running a while,
-    // don't yank the user mid-session — let it install on the next quit instead.
+    // don't yank the user mid-session — NOTIFY them instead (restart applies it).
     if (Date.now() - startedAt < 3 * 60 * 1000) {
       console.log('[bongo] update downloaded — installing on start')
       setImmediate(() => autoUpdater.quitAndInstall(true, true)) // isSilent, isForceRunAfter
     } else {
-      console.log('[bongo] update downloaded — installs on quit')
+      notifyUpdateReady(info && info.version)
     }
   })
   try { autoUpdater.checkForUpdatesAndNotify() } catch (e) { console.error('[bongo] update check failed:', e.message) }
+  // keep checking while the app stays open so long-running users learn about new releases
+  setInterval(() => { try { autoUpdater.checkForUpdates() } catch (e) {} }, 30 * 60 * 1000)
+}
+
+// A new version was downloaded while the app was running → tell the user (OS notification +
+// an in-overlay toast). It installs on next quit automatically, or immediately if they click.
+function notifyUpdateReady(version) {
+  const v = version ? `v${version}` : '새 버전'
+  try {
+    if (Notification.isSupported()) {
+      const n = new Notification({
+        title: 'HongGoCat 업데이트 준비됨',
+        body: `${v}이(가) 준비됐어요 — 클릭하면 지금 재시작해 적용합니다 (안 하면 종료 시 자동 적용).`
+      })
+      n.on('click', () => { if (updater) { try { updater.quitAndInstall(true, true) } catch (e) {} } })
+      n.show()
+    }
+  } catch (e) { console.error('[bongo] notify failed:', e.message) }
+  if (win && !win.isDestroyed()) win.webContents.send('command', { t: 'update-ready', version })
 }
 
 let win = null          // transparent overlay
@@ -254,6 +276,7 @@ function startCursorPoll() {
 
 app.whenReady().then(() => {
   if (!gotTheLock) return // a second instance — bail before creating any window
+  app.setAppUserModelId('com.hrkim.honggocat') // Windows needs this for notifications to show
   createWindow()
   startCursorPoll()
   initAutoUpdate()
@@ -293,6 +316,7 @@ app.whenReady().then(() => {
 })
 
 ipcMain.on('open-settings', toggleSettings)
+ipcMain.on('apply-update', () => { if (updater) { try { updater.quitAndInstall(true, true) } catch (e) {} } })
 // renderer reports the widget rect (window coords) + whether to force interactive (chat/edit)
 ipcMain.on('hotzone', (_e, z) => {
   hotzone = z && z.rect ? z.rect : null

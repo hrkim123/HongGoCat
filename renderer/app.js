@@ -222,8 +222,20 @@
     else if (msg.t === 'slots') {
       if (Array.isArray(msg.slots)) { me.slots = msg.slots.slice(0, 3); while (me.slots.length < 3) me.slots.push('none'); localStorage.setItem('slots', JSON.stringify(me.slots)); pushState() }
     }
+    else if (msg.t === 'update-ready') { showUpdateToast(msg.version) }
     else if (msg.t === 'quit') { inputSource.quit() }
   })
+
+  // "new version ready" toast (shown when an update downloads while the app is running)
+  const updateToast = document.getElementById('update-toast')
+  let updateToastTimer = null
+  function showUpdateToast(version) {
+    if (!updateToast) return
+    updateToast.textContent = `🎉 새 버전${version ? ' v' + version : ''} 준비됨 · 앱 재시작 시 적용`
+    updateToast.classList.remove('hidden')
+    clearTimeout(updateToastTimer)
+    updateToastTimer = setTimeout(() => updateToast.classList.add('hidden'), 30000)
+  }
 
   // ---------- edit mode (drag feature positions) ----------
   const banner = document.getElementById('edit-banner')

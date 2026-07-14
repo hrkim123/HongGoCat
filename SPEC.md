@@ -111,6 +111,7 @@
 16. 쉴드 **10초 지속**, **체력(HP 10, 미사일 10발)** 도입 — HP 감소 시 rim이 갈라지고 색 변화/깜빡임, HP 0에 **파편 파괴 연출**. 쉴드 모양을 **바깥으로 넓힌 테두리형(140° rim, 채움 없음)**으로 변경.
 17. **자동 업데이트 A안 채택**: electron-builder+electron-updater+GitHub Releases 스캐폴딩(`package.json build/publish`, `main.js initAutoUpdate`, `.gitignore`, git init+커밋). 남은 수동 단계는 `DISTRIBUTE.md` 참고. **쉴드가 자기 미사일도 막도록 inward 규칙으로 수정**. **개미 무기** + **작업 표시줄 파괴 연출** 추가.
     - **자동 업데이트 타이밍**: 시작 시 체크·다운로드 → 다운로드 완료가 **실행 후 3분 이내면 즉시 silent 설치+재실행(=켤 때 업데이트)**, 그보다 오래 켜져 있었으면 **종료 시 설치**(세션 중 강제 재시작 방지). CI는 `releaseType: release`로 초안 없이 바로 공개.
+    - **실행 중 새 버전 알림**: `initAutoUpdate`가 **30분마다 checkForUpdates** → 실행 중 새 릴리스가 나오면 다운로드 후 (>3분 세션) **OS 알림(`Notification`, 클릭 시 즉시 재시작 적용) + 오버레이 토스트(`#update-toast`, 정보용·pointer-events:none)** 표시. Windows 알림 위해 `app.setAppUserModelId`. IPC `apply-update`→`quitAndInstall`. (이 알림 기능은 이 코드가 든 버전부터 동작.)
 18. 쉴드 **범위 축소**(R 108→76, 140°→118°) + **면적형(부채꼴 채움)으로 변경, 체력별 균열**. 미사일 **좌클릭 부스터**(2배 직진 + 화염). **합쳐진 미사일은 power만큼 쉴드 데미지**.
 19. 미사일 폭발 **범위(AoE) 공격**(이펙트 크기=피해 반경, `explode`). **오버레이가 작업 표시줄까지 덮도록 창 수정**(resizable:true + setBounds bounds) → 개미가 작업 표시줄 위에 안착, 미사일이 작업 표시줄에 맞으면 폭발/균열.
 20. 쉴드를 **부채꼴 → 떠 있는 방패 플레이트**로 재설계(캐릭터에서 `SHIELD_DIST` 만큼 바깥, 보스+균열). 미사일 **화면 밖 나가면 즉시 제거**(재발사 지연 해소). 개미를 **작업 표시줄 경계선 위**에 서게(안으로 안 파묻힘). 작업 표시줄 높이 자동 대응 확인.

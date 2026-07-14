@@ -77,6 +77,18 @@ html, body {
 }
 #edit-banner.hidden { display: none; }
 
+/* "new version ready" toast — informational, never intercepts clicks */
+#update-toast {
+  position: absolute;
+  left: 50%; top: 40px; transform: translateX(-50%);
+  padding: 8px 16px; border-radius: 16px;
+  background: rgba(30, 34, 44, 0.95); color: #ffe08a;
+  font-size: 13px; font-weight: 600; white-space: nowrap;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+#update-toast.hidden { display: none; }
+
 /* draggable feature handles (edit mode) */
 .handle {
   position: absolute;
