@@ -19,7 +19,7 @@
   try { savedFeat = JSON.parse(localStorage.getItem('feat') || '{}') } catch {}
 
   // Weapons registry (extensible — add new weapons here + a case in fireWeapon()).
-  const WEAPONS = { none: '없음', missile: '🚀 미사일', shield: '🛡 쉴드', ant: '🐜 개미', blackhole: '🕳 블랙홀', gatling: '🔫 게틀링건', human: '🕺 인간' }
+  const WEAPONS = { none: '없음', missile: '🚀 미사일', shield: '🛡 쉴드', ant: '🐜 개미', blackhole: '🕳 블랙홀', gatling: '🔫 게틀링건', human: '🕺 인간', adogen: '🔵 아도겐' }
   // 🔫 Gatling: deploy a turret at the cursor (fixed). Hold LEFT-CLICK to spray bullets toward
   // the cursor. Overheats after ~5s continuous fire (3s lock). HP 10 — enemy missiles/bullets/
   // ants damage it; at 0 it's destroyed (60s cooldown). Bullets collide with everything.
@@ -57,7 +57,7 @@
   // ---------- shop / ownership ----------
   // Every weapon except the basic missile must be PURCHASED in the shop, spending the counter
   // (taps) as currency. One-time purchase → permanently owned (localStorage). Host owns all.
-  const PRICES = { shield: 5000, gatling: 30000, blackhole: 100000, ant: 50000, human: 50000 }
+  const PRICES = { shield: 5000, gatling: 30000, blackhole: 100000, ant: 50000, human: 50000, adogen: 50000 }
   // per-summon cost: even after unlocking, these charge the counter EACH time you summon them
   const USE_COST = { gatling: 500, human: 500, blackhole: 1000 }
   const SHOP_ITEMS = ['shield', 'gatling', 'ant', 'human', 'blackhole']
@@ -174,19 +174,20 @@
       }
       shopListEl.appendChild(row)
     }
-    const hl = document.getElementById('shop-human-list')   // 🕺 human weapons (buy → drop on the ground)
+    const hl = document.getElementById('shop-human-list')   // 🔵 아도겐 (one-time unlock; used by an unarmed human)
     if (hl) {
       hl.innerHTML = ''
-      for (const id of HUMAN_WEAPON_ITEMS) {
-        const w = HUMAN_WEAPONS[id]
-        const row = document.createElement('div'); row.className = 'shop-row'
-        const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = w.name; row.appendChild(nm)
-        const pr = document.createElement('span'); pr.className = 'pr'; pr.textContent = '🪙 ' + w.price.toLocaleString(); row.appendChild(pr)
-        const b = document.createElement('button'); b.className = 'shop-buy'; b.textContent = '소환'
-        b.disabled = tapCount < w.price; b.onclick = () => summonHumanWeapon(id)
+      const own = isOwned('adogen')
+      const row = document.createElement('div'); row.className = 'shop-row' + (own ? ' owned' : '')
+      const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = WEAPONS.adogen; row.appendChild(nm)
+      if (own) { const s = document.createElement('span'); s.className = 'shop-owned'; s.textContent = '보유중'; row.appendChild(s) }
+      else {
+        const pr = document.createElement('span'); pr.className = 'pr'; pr.textContent = '🪙 ' + PRICES.adogen.toLocaleString(); row.appendChild(pr)
+        const b = document.createElement('button'); b.className = 'shop-buy'; b.textContent = '구매'
+        b.disabled = tapCount < PRICES.adogen; b.onclick = () => buyWeapon('adogen')
         row.appendChild(b)
-        hl.appendChild(row)
       }
+      hl.appendChild(row)
     }
     renderSlots()
   }
@@ -634,7 +635,7 @@
     me.humanActive = true
     me.humanX = cursor.x; me.humanY = antGroundY(cursor.x) - 1
     me.humanVX = 0; me.humanVY = 0; me.humanFace = 1; me.humanGround = true
-    me.humanHp = HUMAN_HP; me.humanHitCd = 0; me.humanWeapon = null; me.humanAtkCd = 0
+    me.humanHp = HUMAN_HP; me.humanHitCd = 0; me.humanWeapon = null; me.humanAtkCd = 0; me.charging = false; me.charge = 0
     humanKeys.clear()
     if (inputSource.humanControl) inputSource.humanControl(true)   // ask main to forward WASD
   }
@@ -720,7 +721,8 @@
     if (!me.humanActive) return
     if (humanTryPickup()) return                 // near a ground weapon → pick it up
     const now = performance.now(), wk = me.humanWeapon
-    if (wk === 'sword') { me.swordCharging = true; me.swordChargeStart = now; me.swordCharge = 0; return }  // hold to charge
+    if (wk === 'sword') { me.charging = true; me.chargeKind = 'sword'; me.chargeStart = now; me.charge = 0; return }  // hold to charge
+    if (!wk && isOwned('adogen')) { me.charging = true; me.chargeKind = 'adogen'; me.chargeStart = now; me.charge = 0; return }  // 아도겐 기 모으기
     if (wk === 'rifle') return                    // full-auto handled in stepHuman while held
     if (!wk) { humanPunch(); return }             // bare fists
     if (now < (me.humanAtkCd || 0)) return
@@ -729,14 +731,24 @@
     if (wk === 'bazooka') fireBazooka(w, now)
     else fireHumanBullet(w, now)
   }
-  function humanRelease() {   // left-click UP — sword: quick tap = swing, held = fire a 검기 scaled by charge
-    if (!me.humanActive || !me.swordCharging) return
-    me.swordCharging = false
-    const now = performance.now()
-    me.swingUntil = now + SWING_MS; me.humanAtkCd = now + 260
-    if (me.swordCharge >= SLASH_MIN) fireSlash(now, me.swordCharge)
-    else humanMelee(HUMAN_WEAPONS.sword, now)
-    me.swordCharge = 0
+  function humanRelease() {   // left-click UP — release a charged sword-wave / 아도겐, or a quick swing/punch
+    if (!me.humanActive || !me.charging) return
+    me.charging = false
+    const now = performance.now(), kind = me.chargeKind, ch = me.charge
+    if (kind === 'sword') {
+      me.swingUntil = now + SWING_MS; me.humanAtkCd = now + 260
+      if (ch >= SLASH_MIN) fireSlash(now, ch); else humanMelee(HUMAN_WEAPONS.sword, now)
+    } else if (kind === 'adogen') {
+      me.humanAtkCd = now + 260
+      if (ch >= SLASH_MIN) fireAdogen(now, ch); else humanPunch()
+    }
+    me.charge = 0
+  }
+  function fireAdogen(now, charge) {   // 아도겐: ki blast — size/HP/damage scale with charge (max 5); big ground dig
+    const hs = view.scale * HUMAN_SCALE, oy = me.humanY - 18 * hs
+    const ang = Math.atan2(cursor.y - oy, cursor.x - me.humanX); me.humanFace = Math.cos(ang) >= 0 ? 1 : -1
+    const hp = Math.max(1, Math.round(charge * 5))              // 1..5
+    hbullets.push({ x: me.humanX + Math.cos(ang) * 26 * hs, y: oy + Math.sin(ang) * 26 * hs, vx: Math.cos(ang) * 9, vy: Math.sin(ang) * 9, born: now, life: 1800, dmg: hp, adogen: true, hp, waveR: (10 + charge * 26) * view.scale, ang })
   }
   function fireSlash(now, charge) {   // 검기: crescent wave — size/damage/HP scale with charge (max hp=dmg=3)
     const hs = view.scale * HUMAN_SCALE, oy = me.humanY - 18 * hs
@@ -772,23 +784,38 @@
       const bh = blackholePull(p, now); if (bh) { spawnDustToHole(p.x, p.y, bh); hbullets.splice(i, 1); continue }
       p.x += p.vx; p.y += p.vy
       if (p.x < -20 || p.x > W + 20 || p.y < -20 || p.y > H + 20) { hbullets.splice(i, 1); continue }
-      if (inTaskbar(p.x, p.y)) { carveTaskbar(p.x, 0.1); spawnSpark(p.x, p.y); hbullets.splice(i, 1); continue }
-      const waveR = p.waveR || 16 * s
-      // 검기 loses 1 HP per blocking collision (missile/bullet/platform), throttled so one contact = one HP
+      if (inTaskbar(p.x, p.y)) { carveTaskbar(p.x, p.adogen ? p.hp * 0.8 : 0.1); spawnSpark(p.x, p.y); hbullets.splice(i, 1); continue }   // 아도겐: dig scales with size
+      const energy = p.wave || p.adogen, waveR = p.waveR || 16 * s
+      // energy blasts (검기/아도겐) lose 1 HP per blocking collision (missile/bullet/platform), throttled
       const deplete = () => { if (now < (p.hitCd || 0)) return false; p.hitCd = now + 130; addEffect(p.x, p.y, 1); spawnSpark(p.x, p.y); return (--p.hp) <= 0 }
       const pl = hitPlatform(p.x, p.y)
-      if (pl) { damagePlatform(pl, p.dmg); if (!p.wave) { spawnSpark(p.x, p.y); hbullets.splice(i, 1); continue } else if (deplete()) { hbullets.splice(i, 1); continue } }
-      const antR = p.wave ? waveR : 12 * s, catR = p.wave ? waveR + 34 * s : 56 * s   // 검기 sweeps wider + pierces
+      if (pl) { damagePlatform(pl, p.dmg); if (!energy) { spawnSpark(p.x, p.y); hbullets.splice(i, 1); continue } else if (deplete()) { hbullets.splice(i, 1); continue } }
+      const antR = energy ? waveR : 12 * s   // energy sweeps wider + pierces
       let hit = false
-      for (const a of ants) if (!a.dead && Math.hypot(p.x - a.x, p.y - a.y) < antR) { antTakeDmg(a, p.dmg); if (a.dead) addAntKill(); hit = true; if (!p.wave) break }
-      if (!hit || p.wave) { const ah = missileHitsAnt(p.x, p.y); if (ah && !ah.local) { if (connected()) net.send(JSON.stringify({ t: 'ant-hit', target: ah.pid, ant: ah.id, dmg: p.dmg })); hit = true } }
-      for (let ci = 0; ci < catPos.length; ci++) { const cat = allRef[ci]; if (!cat) continue; const c = catPos[ci]; if (Math.hypot(p.x - c.x, p.y - c.y) < catR) { if (!catShieldCovers(cat, c, p.x, p.y, now)) { cat.hitUntil = now + 700; if (cat.id !== 'me' && connected()) net.send(JSON.stringify({ t: 'hit', target: cat.id, power: p.dmg })) } hit = true; if (!p.wave) break } }
-      if (p.wave) {   // enemy missiles/bullets collide with the 검기 → they pop, wave loses HP
+      for (const a of ants) if (!a.dead && Math.hypot(p.x - a.x, p.y - a.y) < antR) { antTakeDmg(a, p.dmg); if (a.dead) addAntKill(); hit = true; if (!energy) break }
+      if (!hit || energy) { const ah = missileHitsAnt(p.x, p.y); if (ah && !ah.local) { if (connected()) net.send(JSON.stringify({ t: 'ant-hit', target: ah.pid, ant: ah.id, dmg: p.dmg })); hit = true } }
+      // generous full-body cat hitbox (tall ellipse) so shots from the low human don't slip past the sprite
+      const chw = (energy ? waveR + 26 * s : 52 * s), chh = (energy ? waveR + 56 * s : 90 * s)
+      for (let ci = 0; ci < catPos.length; ci++) {
+        const cat = allRef[ci]; if (!cat) continue; const c = catPos[ci]
+        const dx = p.x - c.x, dy = p.y - c.y
+        if ((dx * dx) / (chw * chw) + (dy * dy) / (chh * chh) <= 1) {
+          if (!catShieldCovers(cat, c, p.x, p.y, now)) { cat.hitUntil = now + 700; if (cat.id !== 'me' && connected()) net.send(JSON.stringify({ t: 'hit', target: cat.id, power: p.dmg })) }
+          if (energy && now >= (p.catBurst || 0)) { p.catBurst = now + 120; addEffect(p.x, p.y, 1) }   // burst even while piercing
+          hit = true; if (!energy) break
+        }
+      }
+      if (energy) {   // enemy missiles/bullets collide with the blast → they pop, blast loses HP
         if (hitRemoteMissile(p.x, p.y, p.dmg) || hitRemoteGBullet(p.x, p.y)) { if (deplete()) { hbullets.splice(i, 1); continue } }
       }
-      if (hit && !p.wave) { spawnSpark(p.x, p.y); hbullets.splice(i, 1); continue }
+      if (hit && !energy) { addEffect(p.x, p.y, 1); spawnSpark(p.x, p.y); hbullets.splice(i, 1); continue }   // explode like a missile on contact
       ctx.save(); ctx.lineCap = 'round'
-      if (p.wave) {   // 검기 — crescent perpendicular to travel, sized by charge
+      if (p.adogen) {   // 아도겐 — glowing ki ball
+        const grd = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, waveR)
+        grd.addColorStop(0, 'rgba(235,250,255,0.95)'); grd.addColorStop(0.5, 'rgba(120,200,255,0.8)'); grd.addColorStop(1, 'rgba(80,160,255,0)')
+        ctx.fillStyle = grd; ctx.beginPath(); ctx.arc(p.x, p.y, waveR, 0, Math.PI * 2); ctx.fill()
+        ctx.fillStyle = '#eaf8ff'; ctx.beginPath(); ctx.arc(p.x, p.y, waveR * 0.4, 0, Math.PI * 2); ctx.fill()
+      } else if (p.wave) {   // 검기 — crescent perpendicular to travel
         ctx.translate(p.x, p.y); ctx.rotate(Math.atan2(p.vy, p.vx))
         ctx.strokeStyle = 'rgba(150,210,255,0.9)'; ctx.lineWidth = (3 + p.hp) * s; ctx.beginPath(); ctx.arc(0, 0, waveR, -1.15, 1.15); ctx.stroke()
         ctx.strokeStyle = 'rgba(235,248,255,0.8)'; ctx.lineWidth = 2 * s; ctx.beginPath(); ctx.arc(-3 * s, 0, waveR, -1.05, 1.05); ctx.stroke()
@@ -858,10 +885,10 @@
         else { humanTakeDmg(1, now); if (!me.humanActive) return }
       }
     }
-    if (me.swordCharging && me.humanWeapon === 'sword') {   // build charge while holding; face the cursor
+    if (me.charging) {   // build sword/아도겐 charge while holding; face the cursor
       me.humanFace = cursor.x >= me.humanX ? 1 : -1
-      if (lmbDown) me.swordCharge = Math.min(1, (now - me.swordChargeStart) / SWORD_CHARGE_MS)
-      else { me.swordCharging = false; me.swordCharge = 0 }
+      if (lmbDown) me.charge = Math.min(1, (now - me.chargeStart) / SWORD_CHARGE_MS)
+      else { me.charging = false; me.charge = 0 }
     }
     if (me.humanWeapon === 'rifle' && lmbDown && !platformMode && now >= (me.humanAtkCd || 0)) {   // full-auto
       me.humanAtkCd = now + HUMAN_WEAPONS.rifle.cd; me.humanPunchUntil = now + 100; fireHumanBullet(HUMAN_WEAPONS.rifle, now)
@@ -922,6 +949,7 @@
     let localAng
     if (aiming) localAng = Math.atan2(cursor.y - (y + shoulderY), (cursor.x - x) * f)
     else if (wk === 'sword') localAng = swingP >= 0 ? (-2.1 + swingP * 2.7) : -1.15   // overhead → down slash
+    else if (me.charging && me.chargeKind === 'adogen') localAng = Math.atan2(cursor.y - (y + shoulderY), (cursor.x - x) * f)   // aim the ki-blast
     else if (punching) localAng = 0
     else if (guarding) localAng = -0.7
     else localAng = 0.9 + t * 0.3
@@ -937,15 +965,24 @@
       ctx.save(); ctx.translate(hx, hy); ctx.rotate(localAng)
       const L = wk === 'rifle' ? 30 * s : wk === 'bazooka' ? 30 * s : wk === 'sword' ? 22 * s : 13 * s
       drawWeapon(wk, L)
-      if (wk === 'sword' && me.swordCharge > 0) {   // charge aura on the blade (no gauge)
-        const g = me.swordCharge
+      if (wk === 'sword' && me.charging && me.chargeKind === 'sword' && me.charge > 0) {   // charge aura on the blade (no gauge)
+        const g = me.charge
         ctx.globalAlpha = 0.35 + 0.5 * g; ctx.fillStyle = g >= 1 ? '#8fd0ff' : '#cfe6ff'
         ctx.beginPath(); ctx.arc(L * 0.75, 0, (3 + g * 7) * s, 0, Math.PI * 2); ctx.fill()
         if (g >= 1) { ctx.globalAlpha = 0.9; ctx.strokeStyle = '#e6f4ff'; ctx.lineWidth = 1.5 * s; ctx.beginPath(); ctx.arc(L * 0.75, 0, 10 * s, 0, Math.PI * 2); ctx.stroke() }
         ctx.globalAlpha = 1
       }
       ctx.restore()
-    } else { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(hx, hy, 2.6 * s, 0, Math.PI * 2); ctx.fill() }   // fist
+    } else {   // unarmed: fist, or a growing 아도겐 ki-ball while charging
+      if (me.charging && me.chargeKind === 'adogen') {
+        const g = me.charge, rr = (4 + g * 12) * s
+        ctx.fillStyle = g >= 1 ? '#9be0ff' : '#cdeeff'; ctx.globalAlpha = 0.4 + 0.5 * g
+        ctx.beginPath(); ctx.arc(hx + 4 * s, hy, rr, 0, Math.PI * 2); ctx.fill()
+        ctx.globalAlpha = 0.9; ctx.strokeStyle = '#eaf8ff'; ctx.lineWidth = 1.5 * s; ctx.beginPath(); ctx.arc(hx + 4 * s, hy, rr, 0, Math.PI * 2); ctx.stroke()
+        ctx.globalAlpha = 1
+      }
+      ctx.fillStyle = col; ctx.beginPath(); ctx.arc(hx, hy, 2.6 * s, 0, Math.PI * 2); ctx.fill()
+    }
     ctx.restore()
     // head (big round, skin color) + eye
     ctx.fillStyle = col; ctx.strokeStyle = outline; ctx.lineWidth = 2 * s
