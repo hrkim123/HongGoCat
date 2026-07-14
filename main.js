@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, globalShortcut, screen, Notification } = require('electron')
+const { app, BrowserWindow, ipcMain, globalShortcut, screen, Notification, dialog } = require('electron')
 const path = require('path')
 
 let updater = null   // electron-updater instance (set in initAutoUpdate), for restart-to-apply
@@ -24,47 +24,48 @@ function initAutoUpdate() {
     console.error('[bongo] electron-updater not installed — auto-update disabled:', e.message); return
   }
   updater = autoUpdater
-  autoUpdater.autoDownload = true
-  autoUpdater.autoInstallOnAppQuit = true   // fallback: apply on quit if not applied earlier
-  const startedAt = Date.now()
-  autoUpdater.on('error', (e) => console.error('[bongo] update error:', e && e.message))
-  autoUpdater.on('update-downloaded', (info) => {
-    // If the update finished downloading soon after launch, apply it NOW (silent install +
-    // relaunch) so you effectively "update on start". If the app has been running a while,
-    // don't yank the user mid-session — NOTIFY them instead (restart applies it).
-    if (Date.now() - startedAt < 3 * 60 * 1000) {
-      console.log('[bongo] update downloaded — installing on start')
-      setImmediate(() => autoUpdater.quitAndInstall(true, true)) // isSilent, isForceRunAfter
-    } else {
-      notifyUpdateReady(info && info.version)
-    }
+  // ASK-FIRST flow: never download or install silently, and NEVER install on quit. On launch
+  // (and periodic re-checks) we detect a new version, ask the user with a popup, and only then
+  // download → install → relaunch.
+  autoUpdater.autoDownload = false
+  autoUpdater.autoInstallOnAppQuit = false
+  let promptedVersion = null   // ask at most once per version per session
+  let downloading = false
+  autoUpdater.on('error', (e) => { downloading = false; console.error('[bongo] update error:', e && e.message) })
+  autoUpdater.on('update-available', (info) => { promptUpdate(info && info.version) })
+  autoUpdater.on('update-downloaded', () => {
+    // user already consented → apply now (silent install + relaunch)
+    setImmediate(() => { try { autoUpdater.quitAndInstall(true, true) } catch (e) {} })
   })
-  try { autoUpdater.checkForUpdatesAndNotify() } catch (e) { console.error('[bongo] update check failed:', e.message) }
-  // keep checking while the app stays open so long-running users learn about new releases
-  setInterval(() => { try { autoUpdater.checkForUpdates() } catch (e) {} }, 30 * 60 * 1000)
-}
 
-// A new version was downloaded while the app was running → tell the user (OS notification +
-// an in-overlay toast). It installs on next quit automatically, or immediately if they click.
-function notifyUpdateReady(version) {
-  const v = version ? `v${version}` : '새 버전'
-  try {
-    if (Notification.isSupported()) {
-      const n = new Notification({
-        title: 'HongGoCat 업데이트 준비됨',
-        body: `${v}이(가) 준비됐어요 — 클릭하면 지금 재시작해 적용합니다 (안 하면 종료 시 자동 적용).`
-      })
-      n.on('click', () => { if (updater) { try { updater.quitAndInstall(true, true) } catch (e) {} } })
-      n.show()
-    }
-  } catch (e) { console.error('[bongo] notify failed:', e.message) }
-  if (win && !win.isDestroyed()) win.webContents.send('command', { t: 'update-ready', version })
+  // Ask the user whether to update; on "예" download it (update-downloaded then relaunches).
+  function promptUpdate(version) {
+    const v = version ? `v${version}` : '새 버전'
+    if (downloading || promptedVersion === version) return
+    promptedVersion = version
+    dialog.showMessageBox({
+      type: 'info',
+      buttons: ['업데이트', '나중에'],
+      defaultId: 0, cancelId: 1, noLink: true,
+      title: 'HongGoCat 업데이트',
+      message: `${v}이(가) 있습니다.`,
+      detail: '지금 업데이트를 받고 재시작할까요?'
+    }).then((r) => {
+      if (r.response === 0) { downloading = true; try { autoUpdater.downloadUpdate() } catch (e) { downloading = false } }
+    }).catch(() => {})
+  }
+  updater.promptUpdate = promptUpdate
+
+  try { autoUpdater.checkForUpdates() } catch (e) { console.error('[bongo] update check failed:', e.message) }
+  // re-check while the app stays open (long sessions) — still ask-first, once per version
+  setInterval(() => { try { autoUpdater.checkForUpdates() } catch (e) {} }, 30 * 60 * 1000)
 }
 
 let win = null          // transparent overlay
 let settingsWin = null  // normal settings window
 let winOrigin = { x: 0, y: 0 } // top-left of the (multi-monitor) overlay in screen coords
 let chatting = false          // while true, the overlay is allowed to stay focused (for typing)
+let humanActive = false       // true while the WASD-controllable human weapon is summoned
 
 // Only ever allow ONE overlay — prevents stale/ghost windows from stacking up
 // (repeated launches otherwise leave leftover windows that look like a stray bar).
@@ -293,6 +294,9 @@ app.whenReady().then(() => {
     // number = Explorer/desktop icon-view size. Ctrl+Alt+number isn't a standard shortcut.
     // uiohook keycodes are physical → the number key matches regardless of any shifted symbol.
     const SLOT_KEYS = { [UiohookKey['1']]: 1, [UiohookKey['2']]: 2, [UiohookKey['3']]: 3 }
+    // WASD forwarded to the overlay ONLY while a controllable human is active (privacy: we don't
+    // leak key identity otherwise). The renderer toggles this via the 'human-control' ipc below.
+    const MOVE_KEYS = { [UiohookKey.W]: 'w', [UiohookKey.A]: 'a', [UiohookKey.S]: 's', [UiohookKey.D]: 'd' }
     uIOhook.on('keydown', (e) => {
       // ignore OS auto-repeat while a key is held — act only on the initial press
       if (keysDown.has(e.keycode)) return
@@ -301,12 +305,27 @@ app.whenReady().then(() => {
       if (SLOT_KEYS[e.keycode] && isCtrl() && isAlt()) {
         if (win && !win.isDestroyed()) win.webContents.send('command', { t: 'fire-slot', slot: SLOT_KEYS[e.keycode] })
       }
+      if (humanActive && MOVE_KEYS[e.keycode] && win && !win.isDestroyed()) {
+        win.webContents.send('command', { t: 'human-key', key: MOVE_KEYS[e.keycode], down: true })
+      }
     })
-    uIOhook.on('keyup', (e) => { keysDown.delete(e.keycode) })
+    uIOhook.on('keyup', (e) => {
+      keysDown.delete(e.keycode)
+      // always forward key-up so movement can't get stuck if the human is dismissed mid-hold
+      if (MOVE_KEYS[e.keycode] && win && !win.isDestroyed()) {
+        win.webContents.send('command', { t: 'human-key', key: MOVE_KEYS[e.keycode], down: false })
+      }
+    })
     uIOhook.on('mousedown', (e) => {
       sendInput('mouse')
-      // left click (uiohook button 1) → boost active missiles in their current heading
-      if (e && e.button === 1 && win && !win.isDestroyed()) win.webContents.send('command', { t: 'boost' })
+      // left click (uiohook button 1) → boost missiles + start holding (gatling continuous fire)
+      if (e && e.button === 1 && win && !win.isDestroyed()) {
+        win.webContents.send('command', { t: 'boost' })
+        win.webContents.send('command', { t: 'lmb', down: true })
+      }
+    })
+    uIOhook.on('mouseup', (e) => {
+      if (e && e.button === 1 && win && !win.isDestroyed()) win.webContents.send('command', { t: 'lmb', down: false })
     })
     // mouse wheel / scroll intentionally does NOT count
     try { uIOhook.start() } catch (err) {
@@ -315,6 +334,7 @@ app.whenReady().then(() => {
   }
 })
 
+ipcMain.on('human-control', (_e, active) => { humanActive = !!active })
 ipcMain.on('open-settings', toggleSettings)
 ipcMain.on('apply-update', () => { if (updater) { try { updater.quitAndInstall(true, true) } catch (e) {} } })
 // renderer reports the widget rect (window coords) + whether to force interactive (chat/edit)

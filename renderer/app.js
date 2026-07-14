@@ -19,7 +19,21 @@
   try { savedFeat = JSON.parse(localStorage.getItem('feat') || '{}') } catch {}
 
   // Weapons registry (extensible — add new weapons here + a case in fireWeapon()).
-  const WEAPONS = { none: '없음', missile: '🚀 미사일', shield: '🛡 쉴드', ant: '🐜 개미', blackhole: '🕳 블랙홀' }
+  const WEAPONS = { none: '없음', missile: '🚀 미사일', shield: '🛡 쉴드', ant: '🐜 개미', blackhole: '🕳 블랙홀', gatling: '🔫 게틀링건', human: '🕺 인간' }
+  // 🔫 Gatling: deploy a turret at the cursor (fixed). Hold LEFT-CLICK to spray bullets toward
+  // the cursor. Overheats after ~5s continuous fire (3s lock). HP 10 — enemy missiles/bullets/
+  // ants damage it; at 0 it's destroyed (60s cooldown). Bullets collide with everything.
+  const GAT_HP = 10, GAT_CD = 60000, GAT_DMG = 0.3   // bullet damage (missile = 1)
+  const GAT_HEAT_MAX = 100, GAT_OVERHEAT = 3000      // ~2s continuous fire → 3s lock
+  const GAT_HEAT_RATE = GAT_HEAT_MAX / 2000          // heat per ms while holding fire (time-based)
+  const GAT_COOL_RATE = GAT_HEAT_MAX / 4000          // cool per ms once released
+  const GAT_FIRE_MS = 80, GAT_BSPEED = 13            // bullets live until off-screen or a collision
+  const GAT_SCALE = 3.8, GAT_HIT_R = 46              // turret ~4x bigger; incoming-hit radius
+  const gbullets = []                 // my bullets { id, x, y, vx, vy, born }
+  let gbulletId = 1
+  const remoteGatlings = new Map()    // peerId -> { nx, ny, hp, ang }
+  const remoteGBullets = new Map()    // peerId -> { items: Map, ts }
+  let lmbDown = false                 // left mouse held (from main's global hook)
   // 🕳 Black hole: cast at the cursor, fixed for 10s, 60s cooldown. Pulls missiles/ants within
   // its radius toward the center (stronger nearer); reaching the core dust-particles them away.
   const BH_DUR = 10000, BH_CD = 60000
@@ -101,7 +115,7 @@
   }
   renderCounter()
   setInterval(() => { if (counterDirty) { localStorage.setItem('taps', String(tapCount)); counterDirty = false } }, 1000)
-  setInterval(() => { if (carveDirty) { try { localStorage.setItem('bardig', JSON.stringify((carve || []).map((v) => Math.round(v)))) } catch {} carveDirty = false } }, 1500)
+  setInterval(() => { if (carveDirty) { try { localStorage.setItem('bardig', JSON.stringify((carve || []).map((v) => Math.round(v)))); localStorage.setItem('bardmg', String(barDamage)) } catch {} carveDirty = false } }, 1500)
   window.addEventListener('beforeunload', () => localStorage.setItem('taps', String(tapCount)))
 
   let net = null, sendBudget = 0, budgetRefill = performance.now()
@@ -151,6 +165,9 @@
           else peers.set(p.id, { id: p.id, name: p.name, animal: 'cat', tint: p.skin || 'default', pattern: p.pattern || 'solid', hat: p.hat || 'none', feat: {}, ...newAnimState() })
         }
         for (const id of [...peers.keys()]) if (!seen.has(id)) peers.delete(id)
+        // drop any remote entities belonging to peers who left (no lingering state)
+        for (const m of [remoteMissiles, remoteShields, remoteAnts, remoteBlackholes, remoteGatlings, remoteGBullets])
+          for (const id of [...m.keys()]) if (!seen.has(id)) m.delete(id)
         pushState()   // reflect the new count in the settings window
       }
       else if (msg.t === 'pos') { const p = peers.get(msg.id); if (p) { p.nx = msg.nx; p.ny = msg.ny; p.taps = msg.taps } }
@@ -170,14 +187,21 @@
         if (msg.ttl > 0) remoteBlackholes.set(msg.id, { nx: msg.nx, ny: msg.ny, until: performance.now() + msg.ttl })
         else remoteBlackholes.delete(msg.id)
       }
+      else if (msg.t === 'dig') { carveTaskbar((msg.nx || 0) * canvas.clientWidth, msg.power || 1, false) }  // shared taskbar damage
+      else if (msg.t === 'gatling') {
+        if (msg.active) remoteGatlings.set(msg.id, { nx: msg.nx, ny: msg.ny, hp: msg.hp, ang: msg.ang })
+        else remoteGatlings.delete(msg.id)
+      }
+      else if (msg.t === 'gbullets') { mergeRemote(remoteGBullets, msg.id, msg.list, 'nx', 'ny') }
+      else if (msg.t === 'gat-hit') { if (msg.target === me.netId) damageMyGatling(msg.dmg || 1) }
       else if (msg.t === 'error' && msg.reason === 'room_full') { setStatus('방이 가득 찼어요'); ws.close() }
     }
-    ws.onclose = () => { if (net === ws) { net = null; peers.clear(); remoteAnts.clear(); remoteBlackholes.clear(); me.netId = undefined; roomCount = 0; setStatus('오프라인 — 혼자 연주 중') } }
+    ws.onclose = () => { if (net === ws) { net = null; peers.clear(); remoteAnts.clear(); remoteBlackholes.clear(); remoteGatlings.clear(); remoteGBullets.clear(); me.netId = undefined; roomCount = 0; setStatus('오프라인 — 혼자 연주 중') } }
     ws.onerror = () => setStatus('접속 실패')
   }
   function disconnect() {
     if (net) { const ws = net; net = null; ws.close() }
-    peers.clear(); remoteMissiles.clear(); remoteShields.clear(); remoteAnts.clear(); remoteBlackholes.clear(); me.netId = undefined; roomCount = 0
+    peers.clear(); remoteMissiles.clear(); remoteShields.clear(); remoteAnts.clear(); remoteBlackholes.clear(); remoteGatlings.clear(); remoteGBullets.clear(); me.netId = undefined; roomCount = 0
   }
   function sendUpdate() {
     if (connected()) net.send(JSON.stringify(Object.assign({ t: 'update' }, profileMsg())))
@@ -241,6 +265,8 @@
     else if (msg.t === 'edit') { setEditing(!!msg.on) }
     else if (msg.t === 'chat') { openChat() }
     else if (msg.t === 'boost') { boostMissiles() }
+    else if (msg.t === 'lmb') { lmbDown = !!msg.down }
+    else if (msg.t === 'human-key') { if (msg.down) humanKeys.add(msg.key); else humanKeys.delete(msg.key) }
     else if (msg.t === 'fire-missile') { fireWeapon('missile') }
     else if (msg.t === 'fire-slot') { fireWeapon(me.slots[(msg.slot || 1) - 1] || 'none') }
     else if (msg.t === 'slots') {
@@ -394,7 +420,61 @@
     else if (id === 'shield') activateShield()
     else if (id === 'ant') summonAnt()
     else if (id === 'blackhole') activateBlackhole()
+    else if (id === 'gatling') deployGatling()
+    else if (id === 'human') deployHuman()
     // future: else if (id === 'rock') fireRock() ...
+  }
+
+  // ---------- 🕺 controllable human (WASD) — LOCAL ONLY, never broadcast (others can't see it) ----------
+  const HUMAN_SPEED = 3.4, HUMAN_JUMP = 12, HUMAN_GRAV = 0.62
+  const humanKeys = new Set()
+  function deployHuman() {
+    if (me.humanActive) { removeHuman(); return }   // fire again → dismiss
+    me.humanActive = true
+    me.humanX = cursor.x; me.humanY = antGroundY(cursor.x) - 1
+    me.humanVX = 0; me.humanVY = 0; me.humanFace = 1; me.humanGround = true
+    humanKeys.clear()
+    if (inputSource.humanControl) inputSource.humanControl(true)   // ask main to forward WASD
+  }
+  function removeHuman() {
+    me.humanActive = false; humanKeys.clear()
+    if (inputSource.humanControl) inputSource.humanControl(false)
+  }
+  function stepHuman(now) {
+    if (!me.humanActive) return
+    const s = view.scale, W = canvas.clientWidth
+    let moving = false
+    if (humanKeys.has('a')) { me.humanX -= HUMAN_SPEED * s; me.humanFace = -1; moving = true }
+    if (humanKeys.has('d')) { me.humanX += HUMAN_SPEED * s; me.humanFace = 1; moving = true }
+    me.humanX = Math.max(12 * s, Math.min(W - 12 * s, me.humanX))
+    const floor = antGroundY(me.humanX) - 1
+    if (humanKeys.has('w') && me.humanGround) { me.humanVY = -HUMAN_JUMP * s; me.humanGround = false }
+    me.humanVY += HUMAN_GRAV * s; me.humanY += me.humanVY
+    if (humanKeys.has('s') && !me.humanGround) me.humanY += 5 * s        // fast-fall
+    if (me.humanY >= floor) { me.humanY = floor; me.humanVY = 0; me.humanGround = true }
+    drawHuman(now, moving && me.humanGround)
+  }
+  function drawHuman(now, walking) {
+    const s = view.scale, x = me.humanX, y = me.humanY, f = me.humanFace || 1
+    const H = 34 * s, headR = 5 * s
+    const hipY = -H * 0.42, shoulderY = -H * 0.78, headCY = -H + headR
+    const t = walking ? Math.sin(now / 90) : 0
+    ctx.save(); ctx.translate(x, y); ctx.lineCap = 'round'; ctx.lineJoin = 'round'
+    // soft shadow on the ground
+    ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(0, 1, 9 * s, 2.6 * s, 0, 0, Math.PI * 2); ctx.fill()
+    const col = '#4a6cf0'
+    ctx.strokeStyle = col; ctx.lineWidth = 3 * s
+    ctx.beginPath()                                     // legs
+    ctx.moveTo(0, hipY); ctx.lineTo(t * 6 * s, 0)
+    ctx.moveTo(0, hipY); ctx.lineTo(-t * 6 * s, 0)
+    ctx.moveTo(0, hipY); ctx.lineTo(0, shoulderY)       // torso
+    ctx.moveTo(0, shoulderY); ctx.lineTo(-t * 5 * s, shoulderY + 9 * s)   // arms
+    ctx.moveTo(0, shoulderY); ctx.lineTo(t * 5 * s, shoulderY + 9 * s)
+    ctx.stroke()
+    ctx.fillStyle = '#ffd9b3'; ctx.beginPath(); ctx.arc(0, headCY, headR, 0, Math.PI * 2); ctx.fill()   // head
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 1 * s; ctx.stroke()
+    ctx.fillStyle = '#333'; ctx.beginPath(); ctx.arc(f * headR * 0.45, headCY - headR * 0.1, 1.1 * s, 0, Math.PI * 2); ctx.fill()   // facing eye
+    ctx.restore()
   }
 
   // Black hole — cast at the cursor, fixed there for 10s, 60s cooldown. Gated by achievement.
@@ -466,6 +546,7 @@
     }
   }
   function drawBhDust(now) {
+    if (bhDust.length > 240) bhDust.splice(0, bhDust.length - 240)   // cap: drop oldest during bursts
     for (let i = bhDust.length - 1; i >= 0; i--) {
       const p = bhDust[i], t = (now - p.born) / p.life
       if (t >= 1) { bhDust.splice(i, 1); continue }
@@ -486,6 +567,175 @@
       showToast('🎉 업적 달성! 개미 학살자 — 🕳 블랙홀 해금!')
     }
     pushState()
+  }
+
+  // ---------- 🔫 gatling gun ----------
+  function deployGatling() {
+    const now = performance.now()
+    if (me.gatActive || now < (me.gatCdUntil || 0)) return   // one at a time; respect destroy cooldown
+    me.gatActive = true; me.gatX = cursor.x; me.gatY = cursor.y
+    me.gatHp = GAT_HP; me.gatHeat = 0; me.gatOverUntil = 0; me.gatLastShot = 0
+    me.gatAng = 0
+  }
+  function damageMyGatling(dmg) {
+    if (!me.gatActive) return
+    me.gatHp -= (dmg || 1)
+    if (me.gatHp <= 0) { spawnGatDestroy(me.gatX, me.gatY); me.gatActive = false; me.gatCdUntil = performance.now() + GAT_CD }
+  }
+  function spawnSpark(x, y) {
+    for (let k = 0; k < 5; k++) {
+      const a = Math.random() * Math.PI * 2, sp = 1 + Math.random() * 2.5
+      debris.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, born: performance.now(), life: 180 + Math.random() * 120, sz: 1.4 + Math.random() * 1.6, color: k % 2 ? '#fff2a0' : '#ffcf47' })
+    }
+  }
+  function spawnGatDestroy(x, y) {
+    addEffect(x, y, 3)                       // orange blast
+    for (let k = 0; k < 16; k++) {           // flying metal bolts/debris
+      const a = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI, sp = 2 + Math.random() * 4
+      debris.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 2, born: performance.now(), life: 700 + Math.random() * 400, sz: 2 + Math.random() * 2.5, color: k % 3 ? '#8a8f9c' : '#4a4e5a' })
+    }
+  }
+  // all active gatlings (mine + peers') as {x,y,hp,ang,mine,pid}
+  function activeGatlings() {
+    const W = canvas.clientWidth, H = canvas.clientHeight, list = []
+    if (me.gatActive) list.push({ x: me.gatX, y: me.gatY, hp: me.gatHp, ang: me.gatAng, mine: true })
+    for (const [pid, g] of remoteGatlings) list.push({ x: g.nx * W, y: g.ny * H, hp: g.hp, ang: g.ang || 0, mine: false, pid })
+    return list
+  }
+  function hitRemoteGatling(x, y) {          // returns the peer gatling at (x,y), for bullets/missiles
+    const W = canvas.clientWidth, H = canvas.clientHeight
+    for (const [pid, g] of remoteGatlings) { if (Math.hypot(x - g.nx * W, y - g.ny * H) < GAT_HIT_R * view.scale) return { pid } }
+    return null
+  }
+  function hitRemoteGBullet(x, y) {          // any peer bullet near (x,y)?
+    const now = performance.now()
+    for (const [, rec] of remoteGBullets) {
+      if (now - rec.ts > 400) continue
+      for (const it of rec.items.values()) if (Math.hypot(x - it.sx * canvas.clientWidth, y - it.sy * canvas.clientHeight) < 10 * view.scale) return true
+    }
+    return false
+  }
+  // fire + advance my bullets; collisions with taskbar / ants / black hole / enemy bullets/missiles/guns
+  function stepGatling(now) {
+    const W = canvas.clientWidth, H = canvas.clientHeight
+    if (me.gatActive) {
+      // a black hole drags the WHOLE turret in; reaching the core consumes (destroys) it
+      const core = BH_CORE * W
+      for (const b of activeBlackholes(now)) {
+        const dx = b.x - me.gatX, dy = b.y - me.gatY, d = Math.hypot(dx, dy) || 0.001
+        if (d > b.r) continue
+        if (d < core + 6 * view.scale) { spawnDustToHole(me.gatX, me.gatY, b); me.gatActive = false; me.gatCdUntil = now + GAT_CD; break }
+        const t = 1 - d / b.r, step = (0.6 + t * t * 4.5) * view.scale   // faster the nearer the center
+        me.gatX += (dx / d) * step; me.gatY += (dy / d) * step
+      }
+    }
+    if (me.gatActive) {
+      me.gatAng = Math.atan2(cursor.y - me.gatY, cursor.x - me.gatX)
+      const dt = Math.min(100, now - (me.gatHeatT || now)); me.gatHeatT = now
+      const overheated = now < (me.gatOverUntil || 0)
+      if (overheated) {
+        me.gatHeat = GAT_HEAT_MAX                                   // stay maxed (red) during the lock
+      } else {
+        if (me.gatOverUntil && me.gatHeat >= GAT_HEAT_MAX) { me.gatHeat = 0; me.gatOverUntil = 0 }  // just recovered → reset
+        if (lmbDown) {
+          me.gatHeat = Math.min(GAT_HEAT_MAX, me.gatHeat + GAT_HEAT_RATE * dt)   // builds by TIME held, not per shot
+          if (me.gatHeat >= GAT_HEAT_MAX) me.gatOverUntil = now + GAT_OVERHEAT
+          if (now - me.gatLastShot >= GAT_FIRE_MS) {
+            me.gatLastShot = now
+            const a = me.gatAng + (Math.random() - 0.5) * 0.08, muzzle = 26 * view.scale * GAT_SCALE
+            gbullets.push({ id: gbulletId++, x: me.gatX + Math.cos(me.gatAng) * muzzle, y: me.gatY + Math.sin(me.gatAng) * muzzle, vx: Math.cos(a) * GAT_BSPEED, vy: Math.sin(a) * GAT_BSPEED, born: now })
+            if (gbullets.length > 200) gbullets.shift()
+          }
+        } else {
+          me.gatHeat = Math.max(0, me.gatHeat - GAT_COOL_RATE * dt)  // cool only when the button is released
+        }
+      }
+    }
+    const s = view.scale
+    for (let i = gbullets.length - 1; i >= 0; i--) {
+      const p = gbullets[i]
+      const bh = blackholePull(p, now)          // black hole sucks bullets in
+      if (bh) { spawnDustToHole(p.x, p.y, bh); gbullets.splice(i, 1); continue }
+      p.x += p.vx; p.y += p.vy
+      // NO time limit: a bullet lives until it leaves the overlay or hits something
+      if (p.x < -20 || p.x > W + 20 || p.y < -20 || p.y > H + 20) { gbullets.splice(i, 1); continue }
+      if (inTaskbar(p.x, p.y)) { carveTaskbar(p.x, 1); spawnSpark(p.x, p.y); gbullets.splice(i, 1); continue }
+      // local ants
+      let hitLocalAnt = false
+      for (const an of ants) if (!an.dead && Math.hypot(p.x - an.x, p.y - an.y) < 14 * s) { antTakeDmg(an, GAT_DMG); if (an.dead) addAntKill(); hitLocalAnt = true; break }
+      if (hitLocalAnt) { spawnSpark(p.x, p.y); gbullets.splice(i, 1); continue }
+      // remote ants
+      if (missileHitsAnt(p.x, p.y)) { const ah = missileHitsAnt(p.x, p.y); if (ah && !ah.local && connected()) net.send(JSON.stringify({ t: 'ant-hit', target: ah.pid, ant: ah.id, dmg: GAT_DMG })); spawnSpark(p.x, p.y); gbullets.splice(i, 1); continue }
+      // enemy bullets / missiles → mutual destruction (each side destroys its own on overlap)
+      if (hitRemoteGBullet(p.x, p.y) || hitRemoteMissile(p.x, p.y, GAT_DMG)) { spawnSpark(p.x, p.y); gbullets.splice(i, 1); continue }
+      // enemy gatling turret → damage it
+      const rg = hitRemoteGatling(p.x, p.y)
+      if (rg) { if (connected()) net.send(JSON.stringify({ t: 'gat-hit', target: rg.pid, dmg: GAT_DMG })); spawnSpark(p.x, p.y); gbullets.splice(i, 1); continue }
+      // a shield (mine or a peer's) absorbs the bullet
+      const sblk = shieldBlocks(p, now)
+      if (sblk) {
+        if (sblk.id === 'me') hitMyShield(GAT_DMG)
+        else if (connected()) net.send(JSON.stringify({ t: 'shield-hit', target: sblk.id, power: GAT_DMG }))
+        spawnSpark(p.x, p.y); gbullets.splice(i, 1); continue
+      }
+      // enemy CHARACTER body → hit reaction (skip my own cat; respect their shield)
+      let hitCat = false
+      for (let ci = 0; ci < catPos.length; ci++) {
+        const cat = allRef[ci]; if (!cat || cat.id === 'me') continue
+        const c = catPos[ci]
+        if (Math.hypot(p.x - c.x, p.y - c.y) < 56 * view.scale) {
+          if (!catShieldCovers(cat, c, p.x, p.y, now)) { cat.hitUntil = now + 800; if (connected()) net.send(JSON.stringify({ t: 'hit', target: cat.id, power: GAT_DMG })) }
+          hitCat = true; break
+        }
+      }
+      if (hitCat) { spawnSpark(p.x, p.y); gbullets.splice(i, 1); continue }
+      // draw bullet: bright core + tracer
+      ctx.save(); ctx.lineCap = 'round'
+      ctx.strokeStyle = 'rgba(255,180,60,0.85)'; ctx.lineWidth = 4 * s
+      ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - p.vx * 1.1, p.y - p.vy * 1.1); ctx.stroke()
+      ctx.fillStyle = '#fff1b0'; ctx.beginPath(); ctx.arc(p.x, p.y, 3.6 * s, 0, Math.PI * 2); ctx.fill()
+      ctx.restore()
+    }
+  }
+  function drawGatling(g) {
+    const s = view.scale * GAT_SCALE          // turret geometry is ~4x the base scale
+    ctx.save(); ctx.translate(g.x, g.y)
+    // base
+    ctx.fillStyle = '#3a3e4a'; ctx.beginPath(); ctx.ellipse(0, 6 * s, 14 * s, 6 * s, 0, 0, Math.PI * 2); ctx.fill()
+    // rotating barrels toward aim
+    ctx.save(); ctx.rotate(g.ang)
+    ctx.fillStyle = '#5b6070'; ctx.strokeStyle = '#2a2e38'; ctx.lineWidth = 1 * s
+    ctx.beginPath(); ctx.roundRect(-6 * s, -6 * s, 26 * s, 12 * s, 3 * s); ctx.fill(); ctx.stroke()
+    ctx.fillStyle = '#3a3e48'
+    for (let b = -1; b <= 1; b++) { ctx.beginPath(); ctx.roundRect(14 * s, (b * 3.5 - 1.5) * s, 12 * s, 3 * s, 1.5 * s); ctx.fill() }
+    ctx.restore()
+    // HP + heat bars: sized/positioned in BASE scale so they stay readable above the big body
+    const bs = view.scale, top = -6 * s - 10 * bs
+    const hpw = 44 * bs, hp = Math.max(0, g.hp) / GAT_HP
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(-hpw / 2, top, hpw, 5 * bs)
+    ctx.fillStyle = hp > 0.3 ? '#7ecb7e' : '#d05555'; ctx.fillRect(-hpw / 2, top, hpw * hp, 5 * bs)
+    if (g.mine) {
+      const h01 = Math.min(1, (me.gatHeat || 0) / GAT_HEAT_MAX), over = performance.now() < (me.gatOverUntil || 0)
+      ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(-hpw / 2, top - 6 * bs, hpw, 4 * bs)
+      ctx.fillStyle = over ? '#ff5a5a' : (h01 > 0.7 ? '#ffa53a' : '#8fb7ff'); ctx.fillRect(-hpw / 2, top - 6 * bs, hpw * h01, 4 * bs)
+    }
+    ctx.restore()
+  }
+  function drawGatlings() { for (const g of activeGatlings()) drawGatling(g) }
+  function drawRemoteGBullets(now) {
+    const W = canvas.clientWidth, H = canvas.clientHeight
+    for (const [pid, rec] of [...remoteGBullets]) {
+      if (now - rec.ts > 400) { remoteGBullets.delete(pid); continue }
+      for (const it of rec.items.values()) {
+        it.sx += (it.nx - it.sx) * 0.5; it.sy += (it.ny - it.sy) * 0.5
+        ctx.save(); ctx.fillStyle = '#fff1b0'; ctx.beginPath(); ctx.arc(it.sx * W, it.sy * H, 3.6 * view.scale, 0, Math.PI * 2); ctx.fill(); ctx.restore()
+      }
+    }
+  }
+  function nearestEnemyGatling(x) {
+    let best = null, bd = Infinity, W = canvas.clientWidth
+    for (const [pid, g] of remoteGatlings) { const d = Math.abs(g.nx * W - x); if (d < bd) { bd = d; best = { pid, x: g.nx * W } } }
+    return best
   }
 
   // Shield: a compact 118° FILLED sector in front of the cat, facing the cursor. Blocks
@@ -638,6 +888,9 @@
   const CARVE_SEG = 6
   let carve = null, carveDirty = false
   try { const a = JSON.parse(localStorage.getItem('bardig') || 'null'); if (Array.isArray(a)) carve = a } catch {}
+  // total accumulated damage → global stages: 0 pits, 1 cracks spread over whole bar, 2 shattered
+  let barDamage = parseInt(localStorage.getItem('bardmg') || '0', 10) || 0
+  const BAR_CRACK_START = 12, BAR_COLLAPSE = 130   // cracks begin, then whole bar caves in
   function taskbarRect() {
     if (!primaryRect) return null
     const H = canvas.clientHeight
@@ -645,9 +898,18 @@
     if (top < H - 2) return { top, h: H - top, x: primaryRect.x, w: primaryRect.w }
     return null
   }
+  // dug depth at a given screen x (0 = intact surface)
+  function carveDepthAt(x) {
+    if (!carve) return 0
+    const s = Math.round(x / CARVE_SEG)
+    return (s >= 0 && s < carve.length) ? carve[s] : 0
+  }
+  // the "solid surface" y at x = taskbar top + how deep it's been dug there
+  function taskbarSurfaceY(x) { const tb = taskbarRect(); return tb ? tb.top + carveDepthAt(x) : canvas.clientHeight }
+  // carve-aware: a missile reaches the DUG floor (not the flat top) before it detonates
   function inTaskbar(x, y) {
     const tb = taskbarRect()
-    return tb ? (y >= tb.top - 6 && x >= tb.x - 2 && x <= tb.x + tb.w + 2) : false
+    return tb ? (x >= tb.x - 2 && x <= tb.x + tb.w + 2 && y >= tb.top + carveDepthAt(x) - 6) : false
   }
   function frnd(seed) { const s = Math.sin(seed) * 43758.5453; return s - Math.floor(s) }  // stable per-seed noise
   function spawnDebris(x, y, n, color) {
@@ -664,8 +926,9 @@
     }
     return carve
   }
-  // gouge the taskbar at x — deepens (accumulates) a crater; capped at ~taskbar height
-  function carveTaskbar(x, power) {
+  // gouge the taskbar at x — deepens (accumulates) a crater; capped at ~taskbar height.
+  // `local` hits broadcast so everyone's taskbar takes the same damage ("break it together").
+  function carveTaskbar(x, power, local) {
     const tb = taskbarRect(); if (!tb) return
     ensureCarve()
     const ci = Math.round(x / CARVE_SEG), rad = 5 + Math.min(power, 6) * 2, maxD = tb.h * 0.72
@@ -674,37 +937,72 @@
       const f = 1 - Math.abs(s - ci) / (rad + 1)
       carve[s] = Math.min(maxD, carve[s] + (7 + power * 4) * f * f)
     }
+    barDamage += power
     carveDirty = true
     spawnDebris(x, tb.top + 3, 8, '#3a3a42')
+    if (local !== false && connected() && net) net.send(JSON.stringify({ t: 'dig', nx: +(x / canvas.clientWidth).toFixed(4), power }))
   }
-  function resetTaskbarDig() { carve = null; ensureCarve(); localStorage.removeItem('bardig'); carveDirty = false }
+  function resetTaskbarDig() { carve = null; ensureCarve(); barDamage = 0; localStorage.removeItem('bardig'); localStorage.removeItem('bardmg'); carveDirty = false }
   // draw the accumulated pits: dark excavated region between the surface (tb.top) and the
   // carved profile (tb.top + carve[s]), with a rough chipped rim
   function drawTaskbarDig() {
     const tb = taskbarRect(); if (!tb || !carve) return
     const W = canvas.clientWidth
     let any = false; for (let s = 0; s < carve.length; s++) if (carve[s] > 0.5) { any = true; break }
-    if (!any) return
-    const prof = (s) => tb.top + carve[s] + (carve[s] > 0.5 ? (frnd(s) - 0.5) * 3 : 0)
-    ctx.save()
-    ctx.beginPath(); ctx.moveTo(0, tb.top)
-    for (let s = 0; s < carve.length; s++) ctx.lineTo(s * CARVE_SEG, prof(s))
-    ctx.lineTo(W, tb.top); ctx.closePath()
-    const g = ctx.createLinearGradient(0, tb.top, 0, tb.top + tb.h)
-    g.addColorStop(0, 'rgba(6,5,9,0.95)'); g.addColorStop(1, 'rgba(14,12,20,0.85)')
-    ctx.fillStyle = g; ctx.fill()
-    // chipped rim highlight along the dug edge
-    ctx.beginPath(); let down = false
-    for (let s = 0; s < carve.length; s++) {
-      const x = s * CARVE_SEG
-      if (carve[s] > 0.5) { if (!down) { ctx.moveTo(x, prof(s)); down = true } else ctx.lineTo(x, prof(s)) }
-      else down = false
+    if (!any && barDamage < BAR_CRACK_START) return
+    // ---- local pits (excavation between surface and carved profile) ----
+    if (any) {
+      const prof = (s) => tb.top + carve[s] + (carve[s] > 0.5 ? (frnd(s) - 0.5) * 3 : 0)
+      ctx.save()
+      ctx.beginPath(); ctx.moveTo(0, tb.top)
+      for (let s = 0; s < carve.length; s++) ctx.lineTo(s * CARVE_SEG, prof(s))
+      ctx.lineTo(W, tb.top); ctx.closePath()
+      const g = ctx.createLinearGradient(0, tb.top, 0, tb.top + tb.h)
+      g.addColorStop(0, 'rgba(6,5,9,0.95)'); g.addColorStop(1, 'rgba(14,12,20,0.85)')
+      ctx.fillStyle = g; ctx.fill()
+      ctx.beginPath(); let down = false
+      for (let s = 0; s < carve.length; s++) {
+        const x = s * CARVE_SEG
+        if (carve[s] > 0.5) { if (!down) { ctx.moveTo(x, prof(s)); down = true } else ctx.lineTo(x, prof(s)) }
+        else down = false
+      }
+      ctx.strokeStyle = 'rgba(200,205,220,0.4)'; ctx.lineWidth = 1.4; ctx.lineCap = 'round'; ctx.stroke()
+      ctx.restore()
     }
-    ctx.strokeStyle = 'rgba(200,205,220,0.4)'; ctx.lineWidth = 1.4; ctx.lineCap = 'round'; ctx.stroke()
-    ctx.restore()
+    // ---- crack network across the WHOLE bar, intensifying continuously with damage ----
+    const crackI = Math.max(0, Math.min(1, (barDamage - BAR_CRACK_START) / (BAR_COLLAPSE - BAR_CRACK_START)))
+    if (crackI > 0) {
+      const MAXC = 48, n = Math.ceil(crackI * MAXC), alpha = 0.2 + crackI * 0.55
+      ctx.save(); ctx.lineCap = 'round'
+      for (let k = 0; k < n; k++) {
+        const bx = ((k + 0.3 + 0.4 * frnd(k * 3.1)) / MAXC) * W    // evenly spread across the width
+        const depth = tb.h * (0.4 + frnd(k * 1.7) * 0.55), segs = 3 + Math.floor(frnd(k * 2.3) * 3)
+        let x = bx, y = tb.top + 1
+        ctx.beginPath(); ctx.moveTo(x, y)
+        for (let gg = 1; gg <= segs; gg++) { x += (frnd(k + gg * 5) - 0.5) * 26; y += depth / segs; ctx.lineTo(x, Math.min(tb.top + tb.h, y)) }
+        const my = tb.top + depth * 0.4                            // one branch off the middle
+        ctx.moveTo(bx, my); ctx.lineTo(bx + (frnd(k) - 0.5) * 34, Math.min(tb.top + tb.h, my + depth * 0.3))
+        ctx.strokeStyle = `rgba(12,10,16,${alpha})`; ctx.lineWidth = 1.4; ctx.stroke()
+        ctx.strokeStyle = `rgba(210,215,230,${alpha * 0.3})`; ctx.lineWidth = 0.6; ctx.stroke()
+      }
+      ctx.restore()
+    }
+    // ---- collapse: at full damage the whole bar caves in ----
+    if (barDamage >= BAR_COLLAPSE) {
+      ctx.save()
+      ctx.beginPath(); ctx.moveTo(0, tb.top + tb.h); ctx.lineTo(0, tb.top + 4)
+      for (let x = 0; x <= W; x += 18) ctx.lineTo(x, tb.top + 2 + frnd(x * 0.7) * 16)
+      ctx.lineTo(W, tb.top + tb.h); ctx.closePath()
+      const g2 = ctx.createLinearGradient(0, tb.top, 0, tb.top + tb.h)
+      g2.addColorStop(0, 'rgba(4,3,7,0.94)'); g2.addColorStop(1, 'rgba(12,10,18,0.9)')
+      ctx.fillStyle = g2; ctx.fill()
+      ctx.strokeStyle = 'rgba(170,175,190,0.35)'; ctx.lineWidth = 1.2; ctx.stroke()
+      ctx.restore()
+    }
   }
   function drawDebris(now) {
     const tb = taskbarRect(); const floor = tb ? tb.top + tb.h - 2 : canvas.clientHeight - 2
+    if (debris.length > 320) debris.splice(0, debris.length - 320)   // cap: drop oldest during bursts
     for (let i = debris.length - 1; i >= 0; i--) {
       const d = debris[i], t = (now - d.born) / d.life
       if (t >= 1) { debris.splice(i, 1); continue }
@@ -714,7 +1012,6 @@
       ctx.fillRect(d.x - d.sz / 2, d.y - d.sz / 2, d.sz, d.sz); ctx.restore()
     }
   }
-  function drawTaskbarFX(now) { drawTaskbarDig(); drawDebris(now) }
 
   // ---------- ants (🐜) — crawl on the taskbar, fight enemy ants, die in 3 hits ----------
   const ants = []              // MY ants (I simulate them authoritatively)
@@ -728,7 +1025,8 @@
   let nextAntId = 1
   // Ants stand ON the taskbar's top boundary line (feet on the line, body above it) — not
   // sunk inside the bar. Falls back to the screen bottom if there's no detectable taskbar.
-  function antGroundY() { const tb = taskbarRect(); return (tb ? tb.top : canvas.clientHeight) - 5 * view.scale }
+  // ants stand on the DUG surface at their x (dip into pits), not the flat taskbar top
+  function antGroundY(x) { const tb = taskbarRect(); return (tb ? tb.top + carveDepthAt(x || 0) : canvas.clientHeight) - 5 * view.scale }
   function summonAnt() {
     if (ants.filter((a) => !a.dead).length >= MAX_ANTS) return
     ants.push({ id: nextAntId++, x: cursor.x, y: cursor.y, vy: 0, onGround: false, hp: ANT_HP,
@@ -736,7 +1034,8 @@
   }
   // peer ants: normalized X → my screen; pinned to MY taskbar line so they always crawl on it
   function remoteAntScreenPos(peerId, a) {
-    return { x: (a.sx != null ? a.sx : a.nx) * canvas.clientWidth, y: antGroundY(), id: a.id, hp: a.hp, dead: a.dead }
+    const sx = (a.sx != null ? a.sx : a.nx) * canvas.clientWidth
+    return { x: sx, y: antGroundY(sx), id: a.id, hp: a.hp, dead: a.dead }
   }
   function nearestEnemyAnt(x) {
     const now = performance.now(); let best = null, bd = Infinity
@@ -776,7 +1075,7 @@
     return null
   }
   function stepAnts(now) {
-    const gy = antGroundY(), W = canvas.clientWidth, myCol = antColor(me.skin)
+    const W = canvas.clientWidth, myCol = antColor(me.skin)
     for (let i = ants.length - 1; i >= 0; i--) {
       const a = ants[i]
       if (a.dead) {
@@ -795,18 +1094,24 @@
         a.dir = dx >= 0 ? 1 : -1; a.step += 0.4
         drawAnt(a, now, false, myCol); continue
       }
+      const gy = antGroundY(a.x)   // dug-surface height at this ant's x
       if (!a.onGround) {                        // fall from the cursor onto the bar
         a.vy += 0.5; a.y += a.vy
         if (a.y >= gy) { a.y = gy; a.vy = 0; a.onGround = true }
         drawAnt(a, now, false, myCol); continue
       }
-      const enemy = nearestEnemyAnt(a.x)
+      // target the nearest enemy — an ant OR a gatling turret (both take melee damage)
+      const eAnt = nearestEnemyAnt(a.x), eGat = nearestEnemyGatling(a.x)
+      let tgt = null
+      const dAnt = eAnt ? Math.abs(eAnt.s.x - a.x) : Infinity, dGat = eGat ? Math.abs(eGat.x - a.x) : Infinity
+      if (dAnt <= dGat && eAnt) tgt = { x: eAnt.s.x, msg: { t: 'ant-hit', target: eAnt.pid, ant: eAnt.s.id, dmg: 1 } }
+      else if (eGat) tgt = { x: eGat.x, msg: { t: 'gat-hit', target: eGat.pid, dmg: 1 } }
       let moving = true
-      if (enemy) {                              // always march toward the nearest enemy ant
-        a.dir = enemy.s.x >= a.x ? 1 : -1
-        if (Math.abs(enemy.s.x - a.x) <= 22) {  // melee range (ants are ~2x now)
+      if (tgt) {                                // march toward the nearest enemy
+        a.dir = tgt.x >= a.x ? 1 : -1
+        if (Math.abs(tgt.x - a.x) <= 22) {      // melee range (ants are ~2x now)
           moving = false
-          if (now >= a.atkCd) { a.atkCd = now + 600; if (connected()) net.send(JSON.stringify({ t: 'ant-hit', target: enemy.pid, ant: enemy.s.id, dmg: 1 })) }
+          if (now >= a.atkCd) { a.atkCd = now + 600; if (connected()) net.send(JSON.stringify(tgt.msg)) }
         }
       } else if (now >= a.wanderUntil) {
         a.wanderUntil = now + 700 + Math.random() * 1400; if (Math.random() < 0.35) a.dir *= -1
@@ -817,16 +1122,15 @@
     }
   }
   function drawRemoteAnts(now) {
-    const W = canvas.clientWidth, gy = antGroundY()
+    const W = canvas.clientWidth
     for (const [pid, rec] of [...remoteAnts]) {
       if (now - rec.ts > 1000) { remoteAnts.delete(pid); continue }
       const col = antColor((peers.get(pid) || {}).tint)   // color by that peer's fur skin
       for (const a of rec.items.values()) {
         if (a.dead) continue
-        const px = a.sx
         a.sx += (a.nx - a.sx) * SMOOTH   // glide toward latest (normalized X)
-        if (a.sx - px > 0.001) a.dir = 1; else if (a.sx - px < -0.001) a.dir = -1
-        drawAnt({ x: a.sx * W, y: gy, dir: a.dir, step: now / 90, hp: a.hp }, now, false, col)
+        const ax = a.sx * W
+        drawAnt({ x: ax, y: antGroundY(ax), dir: a.dir || 1, step: now / 90, hp: a.hp }, now, false, col)  // dir from owner
       }
     }
   }
@@ -1073,8 +1377,11 @@
           else if (connected()) net.send(JSON.stringify({ t: 'shield-hit', target: blk.id, power: p.power }))
           projectiles.splice(i, 1); continue
         }
-        // detonate on contact with an ant, a cat, a peer missile, OR the taskbar → AoE blast
-        if (missileHitsAnt(p.x, p.y) || hitTestCats(p.x, p.y) || hitRemoteMissile(p.x, p.y, p.power) || inTaskbar(p.x, p.y)) {
+        // missile hits an enemy gatling turret → damage it, then blast
+        const rgm = hitRemoteGatling(p.x, p.y)
+        if (rgm) { if (connected()) net.send(JSON.stringify({ t: 'gat-hit', target: rgm.pid, dmg: p.power })); explode(p.x, p.y, p.power); projectiles.splice(i, 1); continue }
+        // detonate on contact with an ant, cat, peer missile, peer gatling bullet, OR taskbar
+        if (missileHitsAnt(p.x, p.y) || hitTestCats(p.x, p.y) || hitRemoteMissile(p.x, p.y, p.power) || hitRemoteGBullet(p.x, p.y) || inTaskbar(p.x, p.y)) {
           explode(p.x, p.y, p.power)
           projectiles.splice(i, 1); continue
         }
@@ -1104,7 +1411,7 @@
   }
 
   // stream my missiles (relative to my cat) + shield state so peers can see/collide/block
-  let sentMissiles = false, sentShield = false, sentAnts = false, sentBh = false
+  let sentMissiles = false, sentShield = false, sentAnts = false, sentBh = false, sentGat = false, sentGB = false
   setInterval(() => {
     if (!connected()) return
     const now = performance.now()
@@ -1128,13 +1435,22 @@
     if (ants.length) {
       sentAnts = true
       // ants: normalized X only (peers pin them to THEIR taskbar line, see drawRemoteAnts)
-      net.send(JSON.stringify({ t: 'ants', list: ants.map((a) => ({ id: a.id, nx: +(a.x / NW).toFixed(4), hp: a.hp, dead: a.dead })) }))
+      net.send(JSON.stringify({ t: 'ants', list: ants.map((a) => ({ id: a.id, nx: +(a.x / NW).toFixed(4), hp: a.hp, dead: a.dead, dir: a.dir })) }))
     } else if (sentAnts) { net.send(JSON.stringify({ t: 'ants', list: [] })); sentAnts = false }
 
     if (me.bhUntil && now < me.bhUntil) {
       sentBh = true
       net.send(JSON.stringify({ t: 'blackhole', nx: +(me.bhX / NW).toFixed(4), ny: +(me.bhY / NH).toFixed(4), ttl: Math.round(me.bhUntil - now) }))
     } else if (sentBh) { net.send(JSON.stringify({ t: 'blackhole', ttl: 0 })); sentBh = false }
+
+    if (me.gatActive) {
+      sentGat = true
+      net.send(JSON.stringify({ t: 'gatling', active: 1, nx: +(me.gatX / NW).toFixed(4), ny: +(me.gatY / NH).toFixed(4), hp: me.gatHp, ang: +(me.gatAng || 0).toFixed(2) }))
+    } else if (sentGat) { net.send(JSON.stringify({ t: 'gatling', active: 0 })); sentGat = false }
+    if (gbullets.length) {
+      sentGB = true
+      net.send(JSON.stringify({ t: 'gbullets', list: gbullets.slice(-40).map((p) => ({ id: p.id, nx: +(p.x / NW).toFixed(4), ny: +(p.y / NH).toFixed(4) })) }))
+    } else if (sentGB) { net.send(JSON.stringify({ t: 'gbullets', list: [] })); sentGB = false }
 
     // my widget position (normalized 0..1 to my screen) + interaction count, so peers place
     // my cat where I put it and can see my counter
@@ -1150,7 +1466,7 @@
   // blocks your normal desktop use. Interactive only while the cursor is over the widget.
   const SCALE = 0.8    // widget (cat + desk + bar) drawn 20% smaller (counter text stays CSS-sized)
   const BAR_SPACE = 34 // room below the cell for the DOM #hud-bar
-  const GRID_COLS = 6, GRID_ROWS = 4   // drag-snap preset anchors
+  const GRID_COLS = 8, GRID_ROWS = 4   // drag-snap preset anchors
   const SIDE = 0   // HUD bar inset; 0 → bar width == desk width (both = cellPxW), always aligned
   const hudBar = document.getElementById('hud-bar')
   const cellPxW = CELL_W * SCALE
@@ -1348,14 +1664,19 @@
     // missiles are never hidden behind the counter bar ----
     ctx = fxctx
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, cW, cH)
+    drawTaskbarDig()        // taskbar surface/cracks/collapse — FURTHEST BACK so missiles/ants pass in FRONT of it
     drawBlackholes(now)
     drawShields(now)
     stepProjectiles(now)
     drawShieldShards(now)
     drawRemoteMissiles(now)
-    drawTaskbarFX(now)
+    drawDebris(now)
     stepAnts(now)
     drawRemoteAnts(now)
+    drawGatlings()
+    stepGatling(now)
+    drawRemoteGBullets(now)
+    stepHuman(now)
     drawBhDust(now)
     ctx = stagectx
 

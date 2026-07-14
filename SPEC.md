@@ -76,7 +76,7 @@
 - **멀티**: 내 미사일 위치를 **내 고양이 기준 상대좌표**로 90ms마다 브로드캐스트 → 상대에게도 보임. 내 미사일 ↔ 상대 미사일 충돌 시 폭발. 내 미사일이 상대 고양이 명중 시 `hit` 전송 → 상대 화면에서도 반응.
 
 ### 🐜 개미 무기 + 작업 표시줄 파괴 연출 ("바탕화면 부시기" 참고)
-- **작업 표시줄 "파임(dig)" FX**: 미사일 폭발이 작업 표시줄 영역에서 일어나면 **그 자리가 점점 깊게 파임**(슈팅게임 땅 파이듯). `carve[]` 높이맵(열당 `CARVE_SEG=6px` 깊이)에 `carveTaskbar(x,power)`로 크레이터 누적(반복 타격 시 심화, 최대 ≈표시줄 높이). `drawTaskbarDig`가 표면(tb.top)↔파인 프로필 사이를 어두운 구덩이+거친 테두리로 그림 + 파편(debris). **영구 저장**(`localStorage.bardig`, 1.5s 스로틀). **복구**: 설정창 “🧱 작업 표시줄 복구” → `reset-taskbar`→`resetTaskbarDig`. 실측: 반복 타격 크레이터 34px, 약한 타격 14px, 미타격 0(온전).
+- **작업 표시줄 "파임(dig)" FX (멀티 공유 + 단계별 붕괴)**: 미사일 폭발이 작업 표시줄에서 일어나면 **그 자리가 점점 깊게 파임**(슈팅게임 땅 파이듯). **파임은 broadcast(`dig`, 정규화 X+power)로 공유** → 모두의 작업 표시줄에 모두의 공격이 누적("다 같이 부수기"). 총 누적 데미지 `barDamage`로 **단계**: 0=구덩이만, 1(≥45)=**전체 바에 균열 번짐**, 2(≥130)=**전체 바 붕괴(어두운 채움+깨진 상단선)**. `resetTaskbarDig`가 파임+데미지+단계 모두 복구. `carve[]` 높이맵(열당 `CARVE_SEG=6px` 깊이)에 `carveTaskbar(x,power)`로 크레이터 누적(반복 타격 시 심화, 최대 ≈표시줄 높이). `drawTaskbarDig`가 표면(tb.top)↔파인 프로필 사이를 어두운 구덩이+거친 테두리로 그림 + 파편(debris). **영구 저장**(`localStorage.bardig`, 1.5s 스로틀). **복구**: 설정창 “🧱 작업 표시줄 복구” → `reset-taskbar`→`resetTaskbarDig`. 실측: 반복 타격 크레이터 34px, 약한 타격 14px, 미타격 0(온전).
 - **개미(🐜)**: 커서 위치에 소환 → 작업 표시줄로 낙하 → **작업 표시줄 경계선 위(top)에 발을 딛고**(`antGroundY = taskbarRect().top - 5×scale`, 안으로 파묻히지 않음) 배회, 상대 개미가 있으면 근접해서 서로 공격.
   - **작업 표시줄 자동 대응**: `taskbarRect()`가 OS 작업영역(workArea) vs 모니터 bounds 차이로 계산 → 사용자마다 다른 **하단 작업 표시줄 높이/유무에 자동 적응**. (자동숨김이면 workArea==bounds라 미검출 → 화면 최하단에 안착. 상/좌/우 작업 표시줄은 미지원 — 하단 기준.)
   - **인원당 최대 5마리**(`MAX_ANTS`), **체력 3**(`ANT_HP`). 근접 공격 1대(600ms 쿨), 3번 맞으면 **사망(피 튀김 debris + 잠깐 시체 후 소멸)**. 피격 시 머리 위 **HP 점(pips)** 표시.
@@ -90,6 +90,26 @@
 - **업적 "🐜 개미 학살자"**: 내 미사일/블랙홀로 **개미 100마리 처치**(`antKills` localStorage 누적, 자기 개미 포함 → 솔로 테스트 가능) → **블랙홀 해금**. 달성 시 토스트. 설정창 **🏆 업적 팝업**(진행도 바 + 상태). 무기 슬롯에서 블랙홀은 미해금 시 **🔒 잠금(비활성)**.
 - **호스트 = 전 무기 해금(서버 판별)**: 서버가 **loopback(=서버와 같은 PC, `ws://localhost`)** 접속 클라를 `host:true`로 `joined`에 전달 → 그 PC는 `localStorage.host=1` 저장, 업적 무관 전 무기 사용. 친구는 다른 IP라 위장 불가. 오프라인/비호스트는 업적 게이팅.
 - **디버그(호스트 전용)**: 업적 팝업에 `＋10 처치`/`업적 초기화` → `achv-add`/`achv-reset` IPC.
+
+### 🔫 게틀링건 무기
+- `Ctrl+Alt+슬롯` → 커서 위치에 **터렛 고정 거치**(1인 1개, 크기 `GAT_SCALE=3.8`으로 ~4배 크게). **왼쪽 클릭 누르는 동안** 커서 방향으로 **연사**(80ms 간격). **과열 게이지(시간 기반)**: `GAT_HEAT_RATE=100/5000ms`로 ~5초 연속 사격 → 과열 → **3초 발사 불가**, 해제 시 열 0으로 리셋. ⚠️ 예전엔 발사 간격(비발사 프레임)마다 냉각돼 **영원히 과열 안 되는 버그**가 있었음 → 냉각은 **버튼 뗐을 때만**. **HP 10** — 상대 미사일/총알/개미에 맞으면 감소(피격 반경 `GAT_HIT_R=46`), 0이면 **파괴 연출** + 60초 쿨타임.
+- **총알**: 크게(밝은 코어+굵은 트레이서). **시간 제한 없음 — 오버레이 밖으로 나가거나 충돌 전까지 유지**. 데미지 **총알당 0.3**(`GAT_DMG`, 미사일=1). 상대 총알·미사일·개미·작업 표시줄과 충돌. **블랙홀** 범위엔 빨려들어가 소멸.
+- **블랙홀이 터렛 자체도 빨아들임**: 터렛이 블랙홀 반경 안이면 중심으로 끌려가고(가까울수록 빠름) 코어 도달 시 입자화 소멸 + 60초 쿨타임.
+- 멀티: `gatling`(터렛 nx,ny,hp,ang), `gbullets`(총알 정규화 좌표), `gat-hit` 릴레이. 개미도 상대 터렛을 근접 공격(가장 가까운 적 개미/터렛 중 택1).
+- 좌클릭 상태는 main의 uiohook mousedown/up(button 1)→`lmb` 커맨드로 전달.
+
+### 지형 반영 (파인 곳 고려)
+- `carveDepthAt(x)`로 파인 깊이 조회. **미사일은 파인 바닥까지 내려가 터지고**(`inTaskbar`가 `tb.top+깊이` 기준), **개미는 파인 지형을 따라 걸음**(`antGroundY(x)`가 파인 깊이만큼 내려감).
+
+### 🕺 인간 무기 (WASD 조종, 로컬 전용)
+- 커서 위치에 조종 가능한 인간 소환(슬롯 키 다시 누르면 제거). **W/A/S/D**로 이동: A·D 좌우, W 점프(`HUMAN_JUMP`), S 빠른 낙하, 중력 `HUMAN_GRAV`. 바닥은 `antGroundY(x)`(작업 표시줄 파인 지형 반영).
+- 전역 키 입력: 인간 활성 중에만 main이 uiohook로 WASD를 `human-key`로 오버레이에 전달(프라이버시 — 평소엔 키 신원 전송 안 함). 렌더러가 `human-control`(preload) ipc로 on/off 토글. keyup은 항상 전달(홀드 중 제거돼도 스턱 방지).
+- **멀티 브로드캐스트 없음(로컬 전용)** → 상대에게는 안 보임(요청: "호스트를 제외한 인원에게는 안 보이게").
+
+### 작업 표시줄 균열/붕괴 연출 (전체 영역 누적)
+- 누적 데미지 `barDamage`에 비례해 **작업 표시줄 전체 폭에 균열이 점점 심해짐**: `crackI = clamp((barDamage-BAR_CRACK_START)/(BAR_COLLAPSE-BAR_CRACK_START),0,1)`. 균열 수(0→48)와 진하기(α 0.2→0.75)가 함께 증가, `frnd` 시드로 폭 전체에 고르게 분포(특정 부분만 금 가지 않음).
+- `barDamage ≥ BAR_COLLAPSE(130)`이면 **작업 표시줄 전체가 무너진(어두운 함몰) 연출**. (`BAR_CRACK_START=12`)
+- 메모리: 파티클 배열 매 프레임 상한 컷(`debris≤320`, `bhDust≤240`, 오래된 것부터 제거). 방 떠난 피어의 원격 엔티티 맵(missiles/shields/ants/blackholes/gatlings/gbullets) roster에서 정리.
 
 ### 멀티플레이 (서버 릴레이)
 - `server/server.js`: 방 코드 입장(방당 최대 12명, `MAX_ROOM_SIZE`). 릴레이 메시지: `join/roster/pos/pulse/chat/throw/missiles/hit/shield/shield-hit/ants/ant-hit/blackhole/update`. `joined`에 `host`(loopback 여부) 포함.
@@ -120,8 +140,8 @@
 15. **배포/셋업 안내**(폴더 공유 or exe 패키징), **자동 업데이트 가능성 안내**(electron-updater+GitHub Releases), 설정 창에 **접속 인원 / 정원 표기** 추가.
 16. 쉴드 **10초 지속**, **체력(HP 10, 미사일 10발)** 도입 — HP 감소 시 rim이 갈라지고 색 변화/깜빡임, HP 0에 **파편 파괴 연출**. 쉴드 모양을 **바깥으로 넓힌 테두리형(140° rim, 채움 없음)**으로 변경.
 17. **자동 업데이트 A안 채택**: electron-builder+electron-updater+GitHub Releases 스캐폴딩(`package.json build/publish`, `main.js initAutoUpdate`, `.gitignore`, git init+커밋). 남은 수동 단계는 `DISTRIBUTE.md` 참고. **쉴드가 자기 미사일도 막도록 inward 규칙으로 수정**. **개미 무기** + **작업 표시줄 파괴 연출** 추가.
-    - **자동 업데이트 타이밍**: 시작 시 체크·다운로드 → 다운로드 완료가 **실행 후 3분 이내면 즉시 silent 설치+재실행(=켤 때 업데이트)**, 그보다 오래 켜져 있었으면 **종료 시 설치**(세션 중 강제 재시작 방지). CI는 `releaseType: release`로 초안 없이 바로 공개.
-    - **실행 중 새 버전 알림**: `initAutoUpdate`가 **30분마다 checkForUpdates** → 실행 중 새 릴리스가 나오면 다운로드 후 (>3분 세션) **OS 알림(`Notification`, 클릭 시 즉시 재시작 적용) + 오버레이 토스트(`#update-toast`, 정보용·pointer-events:none)** 표시. Windows 알림 위해 `app.setAppUserModelId`. IPC `apply-update`→`quitAndInstall`. (이 알림 기능은 이 코드가 든 버전부터 동작.)
+    - **자동 업데이트 = 물어보기 방식(ask-first)**: `autoDownload=false`, `autoInstallOnAppQuit=false`(**종료 시 설치 안 함**). **실행 시 `checkForUpdates`** → `update-available`면 네이티브 팝업(`dialog.showMessageBox`, "업데이트 / 나중에")으로 물어봄 → **승낙 시에만 `downloadUpdate`** → `update-downloaded`에서 **`quitAndInstall`(설치+재시작)**. 버전당 세션 1회만 질문(`promptedVersion`). 30분마다 재검사하되 동일 정책. CI는 `releaseType: release`로 초안 없이 바로 공개.
+    - (이전엔 "3분 내면 켤 때 즉시 silent 설치, 아니면 종료 시 설치" + 실행 중 OS 알림/토스트였음. 종료-시-설치 로직은 제거됨. `#update-toast`/`apply-update` ipc는 코드에 남아있으나 미사용.)
 18. 쉴드 **범위 축소**(R 108→76, 140°→118°) + **면적형(부채꼴 채움)으로 변경, 체력별 균열**. 미사일 **좌클릭 부스터**(2배 직진 + 화염). **합쳐진 미사일은 power만큼 쉴드 데미지**.
 19. 미사일 폭발 **범위(AoE) 공격**(이펙트 크기=피해 반경, `explode`). **오버레이가 작업 표시줄까지 덮도록 창 수정**(resizable:true + setBounds bounds) → 개미가 작업 표시줄 위에 안착, 미사일이 작업 표시줄에 맞으면 폭발/균열.
 20. 쉴드를 **부채꼴 → 떠 있는 방패 플레이트**로 재설계(캐릭터에서 `SHIELD_DIST` 만큼 바깥, 보스+균열). 미사일 **화면 밖 나가면 즉시 제거**(재발사 지연 해소). 개미를 **작업 표시줄 경계선 위**에 서게(안으로 안 파묻힘). 작업 표시줄 높이 자동 대응 확인.
