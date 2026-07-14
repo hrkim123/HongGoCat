@@ -57,7 +57,7 @@
   // ---------- shop / ownership ----------
   // Every weapon except the basic missile must be PURCHASED in the shop, spending the counter
   // (taps) as currency. One-time purchase → permanently owned (localStorage). Host owns all.
-  const PRICES = { shield: 5000, gatling: 30000, blackhole: 100000, ant: 50000, human: 50000, adogen: 50000 }
+  const PRICES = { shield: 10000, gatling: 10000, blackhole: 10000, ant: 10000, human: 10000, adogen: 10000 }   // all unlocks 10k
   // per-summon cost: even after unlocking, these charge the counter EACH time you summon them
   const USE_COST = { gatling: 500, human: 500, blackhole: 1000 }
   const SHOP_ITEMS = ['shield', 'gatling', 'ant', 'human', 'blackhole']
@@ -1641,7 +1641,7 @@
         a.dir = tgt.x >= a.x ? 1 : -1
         if (Math.abs(tgt.x - a.x) <= 22) {      // melee range (ants are ~2x now)
           moving = false
-          if (now >= a.atkCd) { a.atkCd = now + 600; if (connected()) net.send(JSON.stringify(tgt.msg)) }
+          if (now >= a.atkCd) { a.atkCd = now + 600; a.atkFlash = now + 220; spawnBlood(tgt.x, a.y - 4 * view.scale, 5); if (connected()) net.send(JSON.stringify(tgt.msg)) }   // bite: lunge + red burst at the target
         }
       } else if (now >= a.wanderUntil) {
         a.wanderUntil = now + 700 + Math.random() * 1400; if (Math.random() < 0.35) a.dir *= -1
@@ -1667,7 +1667,9 @@
   function drawAnt(a, now, fighting, color) {
     const s = view.scale * ANT_DRAW, dir = a.dir || 1
     const body = color || '#5b5b66', leg = 'rgba(18,16,24,0.9)'   // body = owner color, dark legs
-    ctx.save(); ctx.translate(a.x, a.y); ctx.scale(s * dir, s)
+    const biting = a.atkFlash && now < a.atkFlash
+    const lunge = biting ? Math.sin((1 - (a.atkFlash - now) / 220) * Math.PI) * 5 * s : 0   // quick forward jab
+    ctx.save(); ctx.translate(a.x + dir * lunge, a.y); ctx.scale(s * dir, s)
     ctx.strokeStyle = leg; ctx.lineWidth = 1.1; ctx.lineCap = 'round'
     for (let L = -1; L <= 1; L++) {
       const lift = Math.sin(a.step + L * 1.1) * 2
@@ -1680,8 +1682,13 @@
     ctx.beginPath(); ctx.ellipse(5, -4, 3.2, 3, 0, 0, Math.PI * 2); ctx.fill()  // head
     ctx.strokeStyle = leg
     ctx.beginPath(); ctx.moveTo(6, -6); ctx.lineTo(9, -10); ctx.moveTo(7, -6); ctx.lineTo(11, -8); ctx.stroke()  // antennae
-    if (fighting && Math.floor(now / 120) % 2 === 0) {
-      ctx.beginPath(); ctx.moveTo(8, -5); ctx.lineTo(11, -6); ctx.moveTo(8, -3); ctx.lineTo(11, -2); ctx.stroke()  // mandibles snap
+    if (biting) {   // wide-open mandibles + bright chomp burst at the mouth
+      ctx.strokeStyle = leg; ctx.lineWidth = 1.8
+      ctx.beginPath(); ctx.moveTo(7, -6); ctx.lineTo(13, -9); ctx.moveTo(7, -2); ctx.lineTo(13, 1); ctx.stroke()
+      ctx.strokeStyle = 'rgba(255,235,150,0.95)'; ctx.lineWidth = 1.4
+      for (let k = 0; k < 5; k++) { const ang = k * 1.257 + 0.3; ctx.beginPath(); ctx.moveTo(12, -4); ctx.lineTo(12 + Math.cos(ang) * 5, -4 + Math.sin(ang) * 5); ctx.stroke() }
+    } else if (fighting && Math.floor(now / 120) % 2 === 0) {
+      ctx.beginPath(); ctx.moveTo(8, -5); ctx.lineTo(11, -6); ctx.moveTo(8, -3); ctx.lineTo(11, -2); ctx.stroke()  // idle mandible snap
     }
     ctx.restore()
     if (a.hp < ANT_HP) {   // damage pips
