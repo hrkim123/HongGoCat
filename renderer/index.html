@@ -23,6 +23,34 @@
     <input id="chat-input" maxlength="80" placeholder="메시지 입력 후 Enter · Esc로 닫기">
   </div>
 
+  <!-- shop button (beside the character) + popup — buy weapons with the counter as currency -->
+  <button id="btn-shop" class="no-drag hidden" title="상점 열기">🛒</button>
+  <div id="shop" class="no-drag hidden">
+    <div id="shop-head">
+      <span class="shop-title">🛒 상점</span>
+      <span id="shop-coin" title="보유 재화 (카운트)">0</span>
+      <button id="shop-close" aria-label="닫기">✕</button>
+    </div>
+    <div id="shop-list"></div>
+    <details id="shop-info">
+      <summary>ⓘ 무기 설명</summary>
+      <div class="wpn"><b>🚀 미사일</b><p>커서를 따라가 명중 시 폭발(범위 피해). 여러 발이 겹치면 합쳐져 커지고(최대 5) 황금색이 됩니다. <b>왼쪽 클릭</b>으로 마지막 방향 <b>3배 속도</b> 부스터. (기본 무료)</p></div>
+      <div class="wpn"><b>🛡 쉴드</b><p>커서 방향에 방패를 10초간 소환해 미사일을 막습니다. 체력 10 — 맞을수록 금이 가다 깨지고 3초 쿨타임.</p></div>
+      <div class="wpn"><b>🔫 게틀링건</b><p>커서에 터렛 거치 → 왼쪽 클릭 누르는 동안 연사. ~2초 사격 시 과열(3초, 연기). 체력 10, 총알당 데미지 0.3. 인간과 동시 소환 불가.</p></div>
+      <div class="wpn"><b>🐜 개미</b><p>커서 위치에 소환(최대 5). 작업 표시줄 위를 기어다니며 상대 개미·터렛과 싸움. 체력 1.</p></div>
+      <div class="wpn"><b>🕺 인간</b><p>커서에 소환, <b>W/A/S/D</b>로 이동(점프·빠른낙하). 체력 5, 상대 무기와 충돌. 게틀링과 동시 소환 불가. (본인에게만 보임)</p></div>
+      <div class="wpn"><b>🕳 블랙홀</b><p>커서에 10초 소환(쿨 60초). 범위 안 캐릭터 외 모든 무기를 중심으로 빨아들여 소멸. <b>상점 전용</b>.</p></div>
+      <p class="modal-note">단축키: Ctrl+Alt+1 / 2 / 3 으로 각 슬롯 무기 사용</p>
+    </details>
+    <div id="shop-slots">
+      <div class="shop-sub">🎯 무기 슬롯 (미보유는 🔒)</div>
+      <label>Ctrl+Alt+1<select id="shop-slot-0" class="shop-slot"></select></label>
+      <label>Ctrl+Alt+2<select id="shop-slot-1" class="shop-slot"></select></label>
+      <label>Ctrl+Alt+3<select id="shop-slot-2" class="shop-slot"></select></label>
+    </div>
+    <div id="shop-note">기본 🚀 미사일은 무료 · 카운트를 재화로 사용합니다</div>
+  </div>
+
   <div id="edit-banner" class="hidden">✏️ 편집 모드 — 핸들을 드래그해 위치 조정</div>
   <div id="update-toast" class="hidden">🎉 새 버전 준비됨 · 앱 재시작 시 적용</div>
 

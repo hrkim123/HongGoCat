@@ -92,6 +92,8 @@ wss.on('connection', (ws, req) => {
       broadcast(joinedRoom, { t: 'blackhole', id, nx: msg.nx, ny: msg.ny, ttl: msg.ttl }, id)
     } else if (msg.t === 'dig') {
       broadcast(joinedRoom, { t: 'dig', id, nx: msg.nx, power: msg.power }, id)
+    } else if (msg.t === 'digreset') {
+      broadcast(joinedRoom, { t: 'digreset', id }, id)
     } else if (msg.t === 'gatling') {
       broadcast(joinedRoom, { t: 'gatling', id, active: msg.active, nx: msg.nx, ny: msg.ny, hp: msg.hp, ang: msg.ang }, id)
     } else if (msg.t === 'gbullets' && Array.isArray(msg.list)) {

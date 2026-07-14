@@ -5,7 +5,6 @@
   const inName = $('in-name'), inSkin = $('in-skin'), inPattern = $('in-pattern'), inHat = $('in-hat')
   const inEdit = $('in-edit'), inServer = $('in-server'), inRoom = $('in-room')
   const btnConnect = $('btn-connect'), btnDisconnect = $('btn-disconnect')
-  const slotSel = [$('slot-0'), $('slot-1'), $('slot-2')]
   const statusEl = $('status'), capacityEl = $('capacity')
 
   if (!api) { statusEl.textContent = '이 창은 홍고캣 앱에서 열어야 합니다'; return }
@@ -17,12 +16,18 @@
     if (document.activeElement !== inName) inName.value = s.name || ''
     inSkin.value = s.skin || 'default'
     inPattern.value = s.pattern || 'solid'
-    inHat.value = s.hat || 'none'
+    // hats: lock (🔒 + disable) any not owned; 'none' always allowed
+    const ownedHats = new Set(s.ownedHats || [])
+    for (const opt of inHat.options) {
+      const owned = opt.value === 'none' || ownedHats.has(opt.value)
+      opt.disabled = !owned
+      if (!owned && !opt.textContent.startsWith('🔒')) opt.textContent = '🔒 ' + opt.textContent
+      else if (owned && opt.textContent.startsWith('🔒 ')) opt.textContent = opt.textContent.slice(2)
+    }
+    inHat.value = (s.hat && (s.hat === 'none' || ownedHats.has(s.hat))) ? s.hat : 'none'
     inEdit.checked = !!s.editing
     if (document.activeElement !== inServer) inServer.value = s.server || 'ws://localhost:8787'
     if (document.activeElement !== inRoom) inRoom.value = s.room || ''
-    const slots = Array.isArray(s.slots) ? s.slots : ['missile', 'none', 'none']
-    slotSel.forEach((sel, i) => { if (sel && document.activeElement !== sel) sel.value = slots[i] || 'none' })
     statusEl.textContent = s.status || ''
     statusEl.style.color = s.connected ? '#8fd18f' : '#c9a2b0'
     btnConnect.disabled = !!s.connected
@@ -31,28 +36,15 @@
     capacityEl.textContent = s.connected
       ? `접속 인원: ${s.count || 0} / ${max}명`
       : `접속 인원: — / ${max}명 (오프라인)`
-    updateAchievements(s)
+    const ht = $('host-tools'); if (ht) ht.classList.toggle('hidden', !s.isHost)   // host-only tools section
+    // achievement: 🎯 저격수 (enemy-cat missile hits)
+    const ch = s.catHits || 0, chGoal = s.catHitGoal || 500, chDone = !!s.catHitRewarded
+    const chFill = $('achv-cathit-fill'), chSt = $('achv-cathit-status'), chCard = $('achv-cathit')
+    if (chFill) chFill.style.width = Math.min(100, (ch / chGoal) * 100) + '%'
+    if (chSt) chSt.textContent = chDone ? `달성! ${ch} / ${chGoal} ✓ (보상 지급됨)` : `${ch} / ${chGoal}`
+    if (chCard) chCard.classList.toggle('done', chDone)
     ready = true
   })
-
-  // ----- achievements + weapon gating -----
-  function updateAchievements(s) {
-    const kills = s.antKills || 0, goal = s.antGoal || 100, bhOk = !!s.bhAvailable
-    // gate the black-hole option in each slot dropdown (locked until unlocked/host)
-    slotSel.forEach((sel) => {
-      const opt = sel && sel.querySelector('option[value="blackhole"]')
-      if (!opt) return
-      opt.disabled = !bhOk
-      opt.textContent = bhOk ? '🕳 블랙홀' : `🕳 블랙홀 🔒 (개미 ${kills}/${goal})`
-    })
-    // achievement modal progress
-    const fill = $('achv-antslayer-fill'), st = $('achv-antslayer-status'), card = $('achv-antslayer')
-    if (fill) fill.style.width = Math.min(100, (kills / goal) * 100) + '%'
-    const done = kills >= goal || s.isHost
-    if (st) st.textContent = s.isHost ? '호스트 — 해금됨' : (done ? `달성! ${kills} / ${goal} ✓` : `${kills} / ${goal}`)
-    if (card) card.classList.toggle('done', done)
-    const dbg = $('achv-debug'); if (dbg) dbg.classList.toggle('hidden', !s.isHost)
-  }
 
   function sendProfile() {
     api.toOverlay({ t: 'profile', name: inName.value, skin: inSkin.value, pattern: inPattern.value, hat: inHat.value })
@@ -62,8 +54,6 @@
   inPattern.addEventListener('change', sendProfile)
   inHat.addEventListener('change', sendProfile)
   inEdit.addEventListener('change', () => api.toOverlay({ t: 'edit', on: inEdit.checked }))
-  slotSel.forEach((sel) => sel && sel.addEventListener('change', () =>
-    api.toOverlay({ t: 'slots', slots: slotSel.map((s) => s.value) })))
 
   btnConnect.onclick = () => {
     sendProfile()
@@ -71,18 +61,12 @@
     if (!url || !room) { statusEl.textContent = '서버 주소와 방 코드를 입력하세요'; statusEl.style.color = '#c9a2b0'; return }
     api.toOverlay({ t: 'connect', url, room })
   }
-  const wModal = $('weapon-modal')
-  $('btn-weapon-info').onclick = () => wModal.classList.remove('hidden')
-  $('weapon-modal-close').onclick = () => wModal.classList.add('hidden')
-  wModal.addEventListener('click', (e) => { if (e.target === wModal) wModal.classList.add('hidden') })
-
   const aModal = $('achv-modal')
   $('btn-achv').onclick = () => aModal.classList.remove('hidden')
   $('achv-modal-close').onclick = () => aModal.classList.add('hidden')
   aModal.addEventListener('click', (e) => { if (e.target === aModal) aModal.classList.add('hidden') })
-  $('achv-add').onclick = () => api.toOverlay({ t: 'achv-add', n: 10 })
-  $('achv-reset').onclick = () => api.toOverlay({ t: 'achv-reset' })
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { wModal.classList.add('hidden'); aModal.classList.add('hidden') } })
+  $('platform-mode').onclick = () => api.toOverlay({ t: 'platform-mode' })
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') aModal.classList.add('hidden') })
 
   btnDisconnect.onclick = () => api.toOverlay({ t: 'disconnect' })
   $('btn-monitor').onclick = () => api.toOverlay({ t: 'next-monitor' })

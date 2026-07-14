@@ -66,18 +66,15 @@
   </section>
 
   <section>
-    <h2>무기 슬롯</h2>
-    <label>Ctrl+Alt+1
-      <select id="slot-0" class="slot"><option value="none">없음</option><option value="missile">🚀 미사일</option><option value="shield">🛡 쉴드</option><option value="ant">🐜 개미</option><option value="blackhole">🕳 블랙홀</option><option value="gatling">🔫 게틀링건</option><option value="human">🕺 인간</option></select>
-    </label>
-    <label>Ctrl+Alt+2
-      <select id="slot-1" class="slot"><option value="none">없음</option><option value="missile">🚀 미사일</option><option value="shield">🛡 쉴드</option><option value="ant">🐜 개미</option><option value="blackhole">🕳 블랙홀</option><option value="gatling">🔫 게틀링건</option><option value="human">🕺 인간</option></select>
-    </label>
-    <label>Ctrl+Alt+3
-      <select id="slot-2" class="slot"><option value="none">없음</option><option value="missile">🚀 미사일</option><option value="shield">🛡 쉴드</option><option value="ant">🐜 개미</option><option value="blackhole">🕳 블랙홀</option><option value="gatling">🔫 게틀링건</option><option value="human">🕺 인간</option></select>
-    </label>
-    <button id="btn-weapon-info" class="wide secondary" type="button">ⓘ 무기 설명 보기</button>
+    <h2>무기</h2>
+    <p class="hint">무기 구매·설명·슬롯 설정은 캐릭터 옆 <b>🛒 상점</b> 버튼에서 관리합니다.</p>
     <button id="btn-achv" class="wide secondary" type="button">🏆 업적</button>
+  </section>
+
+  <section id="host-tools" class="hidden">
+    <h2>🖌️ 호스트 도구</h2>
+    <button id="platform-mode" class="wide secondary" type="button">플랫폼 그리기 모드</button>
+    <p class="hint">켠 뒤 화면에 <b>왼쪽 클릭 드래그</b>로 바닥(플랫폼)을 그립니다. 각 획은 체력 10이며 미사일·총알에 맞으면 부서집니다. (호스트에게만 보임)</p>
   </section>
 
   <section>
@@ -87,34 +84,15 @@
     </div>
   </section>
 
-  <div id="weapon-modal" class="modal hidden">
-    <div class="modal-card">
-      <div class="modal-head"><span>무기 설명</span><button id="weapon-modal-close" class="modal-x" type="button" aria-label="닫기">✕</button></div>
-      <div class="modal-body">
-        <div class="wpn"><b>🚀 미사일</b><p>커서를 따라가 명중 시 폭발(폭발 범위 안 대상에 피해). 여러 발이 겹치면 합쳐져 커지고 황금색이 됩니다. <b>왼쪽 클릭</b> 시 마지막 방향으로 <b>3배 속도</b> 부스터.</p></div>
-        <div class="wpn"><b>🛡 쉴드</b><p>커서 방향에 떠 있는 방패를 <b>10초</b>간 소환해 미사일을 막습니다. 체력 10 — 맞을수록 금이 가다 깨지고, 이후 <b>3초 쿨타임</b>.</p></div>
-        <div class="wpn"><b>🐜 개미</b><p>커서 위치에 소환(<b>최대 5마리</b>). 작업 표시줄 위를 기어다니고, 상대 개미가 있으면 서로 싸웁니다. 체력 3(3번 맞으면 사망), 미사일로도 처치 가능.</p></div>
-        <div class="wpn"><b>🕳 블랙홀</b><p>커서 위치에 <b>10초</b>간 소환(쿨타임 60초). 범위 안의 미사일·개미를 중심으로 빨아들이며(중심에 가까울수록 강함), 중심에 닿으면 입자화돼 사라집니다. <b>업적 “개미 학살자” 달성 시 해금</b>.</p></div>
-        <div class="wpn"><b>🔫 게틀링건</b><p>커서 위치에 터렛 <b>거치(고정)</b> → <b>왼쪽 클릭 누르는 동안</b> 커서 방향으로 연사. <b>약 5초</b> 연속 사격 시 과열(3초 발사 불가). 체력 10 — 상대 미사일·총알·개미에 맞으면 <b>파괴</b>(이후 60초 쿨타임). 총알은 상대 총알·미사일·개미·작업 표시줄과 충돌.</p></div>
-        <div class="wpn"><b>🕺 인간</b><p>커서 위치에 조종 가능한 인간을 소환 → <b>W/A/S/D</b>로 이동(A·D 좌우, W 점프, S 빠른 낙하). 작업 표시줄을 바닥 삼아 걸어다니며, 파인 지형을 따라갑니다. 슬롯 키를 다시 누르면 사라집니다. <b>지금은 본인에게만 보이고 멀티 상대에게는 공유되지 않습니다.</b></p></div>
-        <p class="modal-note">단축키: Ctrl+Alt+1 / 2 / 3 으로 각 슬롯 무기를 사용</p>
-      </div>
-    </div>
-  </div>
-
   <div id="achv-modal" class="modal hidden">
     <div class="modal-card">
       <div class="modal-head"><span>🏆 업적</span><button id="achv-modal-close" class="modal-x" type="button" aria-label="닫기">✕</button></div>
       <div class="modal-body">
-        <div class="achv" id="achv-antslayer">
-          <b>🐜 개미 학살자</b>
-          <p>개미 100마리 처치 · 보상: 🕳 블랙홀 해금</p>
-          <div class="achv-bar"><div class="achv-fill" id="achv-antslayer-fill"></div></div>
-          <div class="achv-status" id="achv-antslayer-status">0 / 100</div>
-        </div>
-        <div id="achv-debug" class="hidden">
-          <p class="modal-note">호스트 디버그(테스트용)</p>
-          <div class="row"><button id="achv-add" class="secondary" type="button">＋10 처치</button><button id="achv-reset" class="danger" type="button">업적 초기화</button></div>
+        <div class="achv" id="achv-cathit">
+          <b>🎯 저격수</b>
+          <p>상대 고양이 미사일로 500회 타격 · 보상: 🪙 10,000</p>
+          <div class="achv-bar"><div class="achv-fill" id="achv-cathit-fill"></div></div>
+          <div class="achv-status" id="achv-cathit-status">0 / 500</div>
         </div>
       </div>
     </div>

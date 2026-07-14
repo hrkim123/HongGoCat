@@ -89,6 +89,57 @@ html, body {
 }
 #update-toast.hidden { display: none; }
 
+/* shop button — sits at the top-right of the character cell */
+#btn-shop {
+  position: absolute; left: 0; top: 0;   /* left/top set from JS */
+  width: 30px; height: 30px;
+  border: none; border-radius: 8px;
+  background: rgba(238, 240, 245, 0.97); color: #2a2a34;
+  font-size: 16px; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.28);
+}
+#btn-shop:hover { background: #fff; transform: scale(1.06); }
+#btn-shop.hidden { display: none; }
+
+/* shop popup */
+#shop {
+  position: absolute; left: 0; top: 0;   /* left/top set from JS */
+  width: 300px; max-height: 70vh; overflow-y: auto;
+  background: rgba(24, 26, 34, 0.98); color: #eee;
+  border: 1px solid #3a3d4a; border-radius: 14px;
+  padding: 12px; box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+}
+#shop.hidden { display: none; }
+#shop-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.shop-title { font-size: 15px; font-weight: 800; }
+#shop-coin { margin-left: auto; font-weight: 800; color: #ffe08a; font-variant-numeric: tabular-nums; }
+#shop-coin::before { content: "🪙 "; }
+#shop-close { width: 24px; height: 24px; border: none; border-radius: 6px; background: #3a3d4a; color: #eee; cursor: pointer; font-size: 12px; }
+#shop-close:hover { background: #4a4e5e; }
+#shop-list { display: flex; flex-direction: column; gap: 7px; }
+.shop-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 9px; background: #2c2f3a; }
+.shop-row.owned { opacity: 0.85; }
+.shop-row .nm { font-weight: 700; font-size: 13px; }
+.shop-row .pr { margin-left: auto; font-size: 12px; color: #ffd98a; font-variant-numeric: tabular-nums; }
+.shop-row .use { font-size: 10px; color: #9ad0ff; background: #223047; padding: 2px 6px; border-radius: 5px; }
+.shop-row.owned .use { margin-left: auto; }
+.shop-buy { border: none; border-radius: 7px; padding: 6px 12px; font-weight: 700; font-size: 12px; cursor: pointer; background: #6c8cff; color: #fff; }
+.shop-buy:hover { background: #809cff; }
+.shop-buy:disabled { background: #44485a; color: #8a8f9c; cursor: default; }
+.shop-owned { margin-left: auto; font-size: 12px; font-weight: 700; color: #7ecb7e; }
+#shop-info { margin-top: 10px; border-top: 1px solid #333644; padding-top: 8px; }
+#shop-info summary { cursor: pointer; font-size: 12px; font-weight: 700; color: #cdd3e0; padding: 2px 0; }
+#shop-info .wpn { margin: 7px 0; font-size: 11px; }
+#shop-info .wpn b { color: #ffe08a; }
+#shop-info .wpn p { color: #b9bfca; margin-top: 2px; line-height: 1.45; }
+#shop-info .modal-note { margin-top: 6px; font-size: 10px; color: #8a90a0; }
+#shop-slots { margin-top: 10px; border-top: 1px solid #333644; padding-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.shop-sub { font-size: 12px; font-weight: 800; color: #cdd3e0; margin-bottom: 2px; }
+#shop-slots label { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: #b9bfca; }
+.shop-slot { flex: 1; max-width: 180px; padding: 5px 8px; border-radius: 7px; border: 1px solid #3a3d4a; background: #2c2f3a; color: #eee; font-size: 12px; }
+#shop-note { margin-top: 10px; font-size: 11px; color: #9aa0ad; text-align: center; }
+
 /* draggable feature handles (edit mode) */
 .handle {
   position: absolute;

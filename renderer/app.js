@@ -31,14 +31,15 @@
   const GAT_SCALE = 3.8, GAT_HIT_R = 46              // turret ~4x bigger; incoming-hit radius
   const gbullets = []                 // my bullets { id, x, y, vx, vy, born }
   let gbulletId = 1
+  const gatSmoke = []                 // overheat smoke puffs { x, y, vx, vy, r, born, life }
   const remoteGatlings = new Map()    // peerId -> { nx, ny, hp, ang }
   const remoteGBullets = new Map()    // peerId -> { items: Map, ts }
   let lmbDown = false                 // left mouse held (from main's global hook)
   // 🕳 Black hole: cast at the cursor, fixed for 10s, 60s cooldown. Pulls missiles/ants within
   // its radius toward the center (stronger nearer); reaching the core dust-particles them away.
   const BH_DUR = 10000, BH_CD = 60000
-  const BH_R = 0.12     // radius as a fraction of screen width (~one preset cell)
-  const BH_CORE = 0.02  // core radius (fraction) — objects here get consumed
+  const BH_R = 0.096    // radius as a fraction of screen width (80% of the old 0.12)
+  const BH_CORE = 0.016 // core radius (fraction) — objects here get consumed
   const remoteBlackholes = new Map()  // peerId -> { nx, ny, until }
   const bhDust = []                   // consumption particles (spiral into center + fade)
   // achievement: kill 100 ants to unlock the black hole. antKills persists in localStorage.
@@ -46,8 +47,33 @@
   let antKills = parseInt(localStorage.getItem('antKills') || '0', 10) || 0
   let isHost = localStorage.getItem('host') === '1'   // set true by the SERVER (loopback client)
   let bhNotified = localStorage.getItem('bhNotified') === '1'
+  // achievement: hit ENEMY cats with missiles 500 times → reward 10,000 counts (once)
+  const CAT_HIT_GOAL = 500, CAT_HIT_REWARD = 10000
+  let catHits = parseInt(localStorage.getItem('catHits') || '0', 10) || 0
+  let catHitRewarded = localStorage.getItem('catHitRewarded') === '1'
   // black hole usable if you're the host OR you've earned the achievement
-  function bhAvailable() { return isHost || antKills >= ANT_KILL_GOAL }
+  // ---------- shop / ownership ----------
+  // Every weapon except the basic missile must be PURCHASED in the shop, spending the counter
+  // (taps) as currency. One-time purchase → permanently owned (localStorage). Host owns all.
+  const PRICES = { shield: 5000, gatling: 30000, blackhole: 100000, ant: 50000, human: 50000 }
+  // per-summon cost: even after unlocking, these charge the counter EACH time you summon them
+  const USE_COST = { gatling: 500, human: 500, blackhole: 1000 }
+  const SHOP_ITEMS = ['shield', 'gatling', 'ant', 'human', 'blackhole']
+  const SLOT_CHOICES = ['none', 'missile', 'shield', 'gatling', 'ant', 'human', 'blackhole']
+  let owned = new Set()
+  try { const a = JSON.parse(localStorage.getItem('owned') || '[]'); if (Array.isArray(a)) owned = new Set(a) } catch {}
+  function isOwned(id) { return isHost || owned.has(id) }
+  // hats are all LOCKED for now (to be sold in the shop / given as achievement rewards later).
+  // ownedHats starts empty → only 'none' is available.
+  let ownedHats = new Set()
+  try { const a = JSON.parse(localStorage.getItem('ownedHats') || '[]'); if (Array.isArray(a)) ownedHats = new Set(a) } catch {}
+  function isHatOwned(hat) { return hat === 'none' || ownedHats.has(hat) }
+  function bhAvailable() { return isOwned('blackhole') }   // black hole is shop-only now (no achievement)
+  // can this weapon actually be used right now? (missile is free; everything else must be owned)
+  function weaponUsable(id) {
+    if (id === 'none' || id === 'missile') return true
+    return isOwned(id)
+  }
   const SHIELD_DUR = 10000, SHIELD_CD = 3000      // 10s active, then 3s cooldown
   // A real "shield plate" that floats OUT in front of the cat (not a sector from the center)
   // and orbits toward the cursor. SHIELD_DIST = how far out it hovers; SHIELD_SPAN = its
@@ -75,6 +101,7 @@
     ...newAnimState()
   }
   me.tint = me.skin
+  if (!isHatOwned(me.hat)) { me.hat = 'none'; localStorage.setItem('hat', 'none') }   // hats locked for now
   while (me.slots.length < 3) me.slots.push('none')
   const peers = new Map()
 
@@ -117,6 +144,137 @@
   setInterval(() => { if (counterDirty) { localStorage.setItem('taps', String(tapCount)); counterDirty = false } }, 1000)
   setInterval(() => { if (carveDirty) { try { localStorage.setItem('bardig', JSON.stringify((carve || []).map((v) => Math.round(v)))); localStorage.setItem('bardmg', String(barDamage)) } catch {} carveDirty = false } }, 1500)
   window.addEventListener('beforeunload', () => localStorage.setItem('taps', String(tapCount)))
+
+  // ---------- shop popup (buy weapons with the counter as currency) ----------
+  const shopEl = document.getElementById('shop')
+  const shopBtn = document.getElementById('btn-shop')
+  const shopListEl = document.getElementById('shop-list')
+  const shopCoinEl = document.getElementById('shop-coin')
+  let shopOpenFlag = false
+  function renderShop() {
+    if (shopCoinEl) shopCoinEl.textContent = tapCount.toLocaleString()
+    if (!shopListEl) return
+    shopListEl.innerHTML = ''
+    for (const id of SHOP_ITEMS) {
+      const own = (id === 'blackhole') ? bhAvailable() : isOwned(id)
+      const row = document.createElement('div'); row.className = 'shop-row' + (own ? ' owned' : '')
+      const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = WEAPONS[id] || id
+      row.appendChild(nm)
+      if (USE_COST[id]) { const u = document.createElement('span'); u.className = 'use'; u.textContent = `소환 🪙${USE_COST[id]}`; row.appendChild(u) }
+      if (own) {
+        const s = document.createElement('span'); s.className = 'shop-owned'; s.textContent = '보유중'; row.appendChild(s)
+      } else {
+        const price = PRICES[id] || 0
+        const pr = document.createElement('span'); pr.className = 'pr'; pr.textContent = '🪙 ' + price.toLocaleString(); row.appendChild(pr)
+        const b = document.createElement('button'); b.className = 'shop-buy'; b.textContent = '구매'
+        b.disabled = tapCount < price; b.onclick = () => buyWeapon(id)
+        row.appendChild(b)
+      }
+      shopListEl.appendChild(row)
+    }
+    renderSlots()
+  }
+  // weapon-slot selectors live at the bottom of the shop; unowned weapons show 🔒 and are blocked
+  function renderSlots() {
+    for (let i = 0; i < 3; i++) {
+      const sel = document.getElementById('shop-slot-' + i); if (!sel) continue
+      const cur = me.slots[i] || 'none'
+      sel.innerHTML = ''
+      for (const id of SLOT_CHOICES) {
+        const opt = document.createElement('option'); opt.value = id
+        opt.textContent = (weaponUsable(id) ? '' : '🔒 ') + (WEAPONS[id] || id)
+        sel.appendChild(opt)
+      }
+      sel.value = cur
+      sel.onchange = () => {
+        const v = sel.value
+        if (!weaponUsable(v)) { showToast(`🔒 ${WEAPONS[v] || '이 무기'}은(는) 상점에서 구매해야 슬롯에 넣을 수 있어요`); sel.value = me.slots[i] || 'none'; return }
+        me.slots[i] = v; localStorage.setItem('slots', JSON.stringify(me.slots)); pushState()
+      }
+    }
+  }
+  function buyWeapon(id) {
+    if (isOwned(id) || (id === 'blackhole' && bhAvailable())) { renderShop(); return }
+    const price = PRICES[id] || 0
+    if (tapCount < price) { showToast(`🪙 재화가 부족해요 — ${price.toLocaleString()} 필요`); return }
+    tapCount -= price; counterDirty = true; renderCounter()
+    owned.add(id); try { localStorage.setItem('owned', JSON.stringify([...owned])) } catch {}
+    showToast(`✅ ${WEAPONS[id]} 구매 완료!`); renderShop()
+  }
+  // spend counter as currency for a per-summon cost; returns false (and does nothing) if too poor
+  function spendCoins(n) {
+    if (!n) return true
+    if (tapCount < n) return false
+    tapCount -= n; counterDirty = true; renderCounter()
+    return true
+  }
+  function positionShop() {
+    if (wx == null || !shopBtn) return
+    shopBtn.classList.remove('hidden')
+    shopBtn.style.left = (wx + cellPxW - 30) + 'px'
+    shopBtn.style.top = (wy + 2) + 'px'
+    if (!shopOpenFlag) return
+    const W = canvas.clientWidth, H = canvas.clientHeight, pw = 300, ph = Math.min(H * 0.7, 400)
+    const px = Math.max(6, Math.min(wx + cellPxW / 2 - pw / 2, W - pw - 6))
+    let py = wy - ph - 6; if (py < 6) py = Math.max(6, Math.min(wy + 40, H - ph - 6))
+    shopEl.style.left = px + 'px'; shopEl.style.top = py + 'px'
+  }
+  function openShop() { shopOpenFlag = true; renderShop(); shopEl.classList.remove('hidden'); positionShop(); sendHotzone() }
+  function closeShop() { shopOpenFlag = false; shopEl.classList.add('hidden'); sendHotzone() }
+  function toggleShop() { if (shopOpenFlag) closeShop(); else openShop() }
+  if (shopBtn) shopBtn.onclick = toggleShop
+  const shopCloseBtn = document.getElementById('shop-close'); if (shopCloseBtn) shopCloseBtn.onclick = closeShop
+
+  // ---------- 🖌️ HOST platform tool: brush strokes that become floor (HP 10) ----------
+  const PLAT_HP = 10
+  const platforms = []                 // { pts:[{x,y}], hp }
+  let platformMode = false, curStroke = null
+  function distToSeg(px, py, a, b) {
+    const dx = b.x - a.x, dy = b.y - a.y, len2 = dx * dx + dy * dy || 1
+    let t = ((px - a.x) * dx + (py - a.y) * dy) / len2; t = Math.max(0, Math.min(1, t))
+    return Math.hypot(px - (a.x + t * dx), py - (a.y + t * dy))
+  }
+  function hitPlatform(x, y) {
+    const th = 6 * view.scale
+    for (const pl of platforms) { const p = pl.pts; for (let i = 1; i < p.length; i++) if (distToSeg(x, y, p[i - 1], p[i]) < th) return pl }
+    return null
+  }
+  function damagePlatform(pl, dmg) { pl.hp -= dmg; if (pl.hp <= 0) { const i = platforms.indexOf(pl); if (i >= 0) platforms.splice(i, 1) } }
+  // y of a platform surface directly under x that an entity descending (prevY→feetY) lands on
+  function platformFloorAt(x, feetY, prevY) {
+    for (const pl of platforms) {
+      const p = pl.pts
+      for (let i = 1; i < p.length; i++) {
+        const a = p[i - 1], b = p[i]
+        if (x < Math.min(a.x, b.x) || x > Math.max(a.x, b.x)) continue
+        const tt = (b.x - a.x) ? (x - a.x) / (b.x - a.x) : 0
+        const segY = a.y + (b.y - a.y) * tt
+        if (prevY <= segY + 2 && feetY >= segY) return segY
+      }
+    }
+    return null
+  }
+  function drawPlatforms() {
+    const strokes = curStroke ? platforms.concat([curStroke]) : platforms
+    for (const pl of strokes) {
+      const p = pl.pts; if (!p.length) continue
+      const hp01 = Math.max(0, pl.hp) / PLAT_HP
+      ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round'
+      ctx.strokeStyle = hp01 > 0.5 ? '#8ad6ff' : (hp01 > 0.2 ? '#ffd36b' : '#ff6b6b')
+      ctx.lineWidth = 6 * view.scale
+      ctx.beginPath(); ctx.moveTo(p[0].x, p[0].y)
+      for (let i = 1; i < p.length; i++) ctx.lineTo(p[i].x, p[i].y)
+      ctx.stroke()
+      ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 1.5 * view.scale; ctx.stroke()
+      ctx.restore()
+    }
+  }
+  function togglePlatformMode() {
+    if (!isHost) { showToast('🖌️ 플랫폼 그리기는 호스트만 사용할 수 있어요'); return }
+    platformMode = !platformMode; curStroke = null
+    showToast(platformMode ? '🖌️ 플랫폼 그리기 ON — 왼쪽 클릭 드래그로 그리기' : '플랫폼 그리기 OFF')
+    sendHotzone()
+  }
 
   let net = null, sendBudget = 0, budgetRefill = performance.now()
   inputSource.onInput((kind) => {
@@ -188,6 +346,7 @@
         else remoteBlackholes.delete(msg.id)
       }
       else if (msg.t === 'dig') { carveTaskbar((msg.nx || 0) * canvas.clientWidth, msg.power || 1, false) }  // shared taskbar damage
+      else if (msg.t === 'digreset') { resetTaskbarDig(false) }   // someone restored → everyone restores
       else if (msg.t === 'gatling') {
         if (msg.active) remoteGatlings.set(msg.id, { nx: msg.nx, ny: msg.ny, hp: msg.hp, ang: msg.ang })
         else remoteGatlings.delete(msg.id)
@@ -246,7 +405,9 @@
       room: localStorage.getItem('room') || '',
       connected: connected(), status, editing,
       count: connected() ? roomCount : 0, max: roomMax,
-      antKills, antGoal: ANT_KILL_GOAL, isHost, bhAvailable: bhAvailable()
+      antKills, antGoal: ANT_KILL_GOAL, isHost, bhAvailable: bhAvailable(),
+      catHits, catHitGoal: CAT_HIT_GOAL, catHitReward: CAT_HIT_REWARD, catHitRewarded,
+      ownedHats: [...ownedHats]
     })
   }
 
@@ -257,15 +418,22 @@
       if (typeof msg.name === 'string') { me.name = msg.name.trim() || '나'; localStorage.setItem('name', me.name) }
       if (msg.skin) { me.skin = msg.skin; me.tint = msg.skin; localStorage.setItem('skin', me.skin) }
       if (msg.pattern) { me.pattern = msg.pattern; localStorage.setItem('pattern', me.pattern) }
-      if (msg.hat) { me.hat = msg.hat; localStorage.setItem('hat', me.hat) }
+      if (msg.hat) { me.hat = isHatOwned(msg.hat) ? msg.hat : 'none'; localStorage.setItem('hat', me.hat) }   // reject locked hats
       sendUpdate(); pushState()
     }
     else if (msg.t === 'connect') { connect(msg.url, msg.room) }
     else if (msg.t === 'disconnect') { disconnect(); setStatus('오프라인 — 혼자 연주 중') }
     else if (msg.t === 'edit') { setEditing(!!msg.on) }
     else if (msg.t === 'chat') { openChat() }
-    else if (msg.t === 'boost') { boostMissiles() }
-    else if (msg.t === 'lmb') { lmbDown = !!msg.down }
+    else if (msg.t === 'boost') { if (platformMode) { /* drawing */ } else if (me.humanActive) humanPunch(); else boostMissiles() }
+    else if (msg.t === 'lmb') {
+      const was = lmbDown; lmbDown = !!msg.down
+      if (platformMode) {   // drawing a platform stroke while the button is held
+        if (lmbDown && !was) curStroke = { pts: [{ x: cursor.x, y: cursor.y }], hp: PLAT_HP }
+        else if (!lmbDown && was && curStroke) { if (curStroke.pts.length >= 2) platforms.push(curStroke); curStroke = null }
+      }
+    }
+    else if (msg.t === 'platform-mode') { togglePlatformMode() }
     else if (msg.t === 'human-key') { if (msg.down) humanKeys.add(msg.key); else humanKeys.delete(msg.key) }
     else if (msg.t === 'fire-missile') { fireWeapon('missile') }
     else if (msg.t === 'fire-slot') { fireWeapon(me.slots[(msg.slot || 1) - 1] || 'none') }
@@ -416,6 +584,7 @@
 
   // fire the weapon assigned to a slot (extensible)
   function fireWeapon(id) {
+    if (!weaponUsable(id)) { showToast(`🛒 ${WEAPONS[id] || '이 무기'}은(는) 상점에서 먼저 구매하세요`); return }
     if (id === 'missile') fireHoming()
     else if (id === 'shield') activateShield()
     else if (id === 'ant') summonAnt()
@@ -426,13 +595,17 @@
   }
 
   // ---------- 🕺 controllable human (WASD) — LOCAL ONLY, never broadcast (others can't see it) ----------
-  const HUMAN_SPEED = 3.4, HUMAN_JUMP = 12, HUMAN_GRAV = 0.62
+  // WASD move + W jump, E = raise a shield (blocks front hits), left-click = punch (dmg 1).
+  const HUMAN_SPEED = 3.4, HUMAN_JUMP = 12, HUMAN_GRAV = 0.62, HUMAN_HP = 5, HUMAN_SCALE = 3
   const humanKeys = new Set()
   function deployHuman() {
-    if (me.humanActive) { removeHuman(); return }   // fire again → dismiss
+    if (me.humanActive) { removeHuman(); return }   // fire again → dismiss (no charge)
+    if (!spendCoins(USE_COST.human)) { showToast(`🪙 인간 소환 비용 ${USE_COST.human} 부족`); return }
+    if (me.gatActive) me.gatActive = false          // gatling + human are mutually exclusive
     me.humanActive = true
     me.humanX = cursor.x; me.humanY = antGroundY(cursor.x) - 1
     me.humanVX = 0; me.humanVY = 0; me.humanFace = 1; me.humanGround = true
+    me.humanHp = HUMAN_HP; me.humanHitCd = 0
     humanKeys.clear()
     if (inputSource.humanControl) inputSource.humanControl(true)   // ask main to forward WASD
   }
@@ -440,40 +613,114 @@
     me.humanActive = false; humanKeys.clear()
     if (inputSource.humanControl) inputSource.humanControl(false)
   }
+  function humanTakeDmg(dmg, now) {
+    if (!me.humanActive) return
+    const hs = view.scale * HUMAN_SCALE
+    me.humanHp = (me.humanHp || 0) - dmg; me.humanHitCd = now + 250
+    spawnBlood(me.humanX, me.humanY - 15 * hs, 4)
+    if (me.humanHp <= 0) { addEffect(me.humanX, me.humanY - 12 * hs, 1); spawnBlood(me.humanX, me.humanY - 15 * hs, 12); removeHuman() }
+  }
+  // left-click punch: short melee in the facing direction; kills ants (dmg 1)
+  function humanPunch() {
+    if (!me.humanActive) return
+    const now = performance.now()
+    if (now < (me.humanPunchCd || 0)) return
+    me.humanPunchCd = now + 320; me.humanPunchUntil = now + 150
+    const hs = view.scale * HUMAN_SCALE
+    const px = me.humanX + me.humanFace * 18 * hs, py = me.humanY - 18 * hs, r = 16 * hs
+    for (const a of ants) if (!a.dead && Math.hypot(px - a.x, py - a.y) < r) { antTakeDmg(a, 1); if (a.dead) addAntKill() }
+    for (const [pid, rec] of remoteAnts) for (const a of rec.items.values()) { if (a.dead) continue; const sp = remoteAntScreenPos(pid, a); if (sp && Math.hypot(px - sp.x, py - sp.y) < r && connected()) net.send(JSON.stringify({ t: 'ant-hit', target: pid, ant: a.id, dmg: 1 })) }
+    spawnSpark(px, py)
+  }
   function stepHuman(now) {
     if (!me.humanActive) return
-    const s = view.scale, W = canvas.clientWidth
+    const s = view.scale, hs = view.scale * HUMAN_SCALE, W = canvas.clientWidth
+    // a black hole drags the human in (it's a weapon, not a character); core = consumed
+    for (const b of activeBlackholes(now)) {
+      const dx = b.x - me.humanX, dy = b.y - me.humanY, d = Math.hypot(dx, dy) || 0.001
+      if (d > b.r) continue
+      if (d < BH_CORE * W + 6 * s) { spawnDustToHole(me.humanX, me.humanY, b); removeHuman(); return }
+      const t = 1 - d / b.r, step = (0.6 + t * t * 4.5) * s
+      me.humanX += (dx / d) * step; me.humanY += (dy / d) * step; me.humanGround = false
+      drawHuman(now, false); return
+    }
     let moving = false
-    if (humanKeys.has('a')) { me.humanX -= HUMAN_SPEED * s; me.humanFace = -1; moving = true }
-    if (humanKeys.has('d')) { me.humanX += HUMAN_SPEED * s; me.humanFace = 1; moving = true }
-    me.humanX = Math.max(12 * s, Math.min(W - 12 * s, me.humanX))
+    if (humanKeys.has('a')) { me.humanX -= HUMAN_SPEED * hs; me.humanFace = -1; moving = true }
+    if (humanKeys.has('d')) { me.humanX += HUMAN_SPEED * hs; me.humanFace = 1; moving = true }
+    me.humanX = Math.max(12 * hs, Math.min(W - 12 * hs, me.humanX))
     const floor = antGroundY(me.humanX) - 1
-    if (humanKeys.has('w') && me.humanGround) { me.humanVY = -HUMAN_JUMP * s; me.humanGround = false }
-    me.humanVY += HUMAN_GRAV * s; me.humanY += me.humanVY
-    if (humanKeys.has('s') && !me.humanGround) me.humanY += 5 * s        // fast-fall
+    if (humanKeys.has('w') && me.humanGround) { me.humanVY = -HUMAN_JUMP * hs; me.humanGround = false }
+    const prevY = me.humanY
+    me.humanGround = false
+    me.humanVY += HUMAN_GRAV * hs; me.humanY += me.humanVY
+    if (humanKeys.has('s')) me.humanY += 5 * hs                           // fast-fall
+    // land on a drawn platform if descending onto it
+    if (me.humanVY >= 0) {
+      const segY = platformFloorAt(me.humanX, me.humanY, prevY)
+      if (segY != null) { me.humanY = segY; me.humanVY = 0; me.humanGround = true }
+    }
     if (me.humanY >= floor) { me.humanY = floor; me.humanVY = 0; me.humanGround = true }
+    // collide with ENEMY weapons (human is local, so only remote threats reach it). 250ms i-frames.
+    if (now >= (me.humanHitCd || 0)) {
+      const cx = me.humanX, cy = me.humanY - 15 * hs, r = 20 * hs
+      let threatX = null
+      const rm = hitRemoteMissile(cx, cy, 1); if (rm) threatX = rm.x
+      if (threatX == null) {   // remote gatling bullets (scan for position so the shield can face them)
+        for (const [, rec] of remoteGBullets) {
+          if (now - rec.ts > 400) continue
+          for (const it of rec.items.values()) { const bx = it.sx * W, by = it.sy * canvas.clientHeight; if (Math.hypot(cx - bx, cy - by) < 12 * hs) { threatX = bx; break } }
+          if (threatX != null) break
+        }
+      }
+      if (threatX == null) {   // remote ants
+        for (const [pid, rec] of remoteAnts) {
+          for (const a of rec.items.values()) { if (a.dead) continue; const sp = remoteAntScreenPos(pid, a); if (sp && Math.hypot(cx - sp.x, cy - sp.y) < r) { threatX = sp.x; break } }
+          if (threatX != null) break
+        }
+      }
+      if (threatX != null) {
+        const blocked = humanKeys.has('e') && Math.sign(threatX - me.humanX) === me.humanFace   // shield faces forward
+        if (blocked) { spawnSpark(me.humanX + me.humanFace * 16 * hs, me.humanY - 20 * hs); me.humanHitCd = now + 150 }
+        else { humanTakeDmg(1, now); if (!me.humanActive) return }
+      }
+    }
     drawHuman(now, moving && me.humanGround)
   }
   function drawHuman(now, walking) {
-    const s = view.scale, x = me.humanX, y = me.humanY, f = me.humanFace || 1
+    const s = view.scale * HUMAN_SCALE, x = me.humanX, y = me.humanY, f = me.humanFace || 1
     const H = 34 * s, headR = 5 * s
     const hipY = -H * 0.42, shoulderY = -H * 0.78, headCY = -H + headR
     const t = walking ? Math.sin(now / 90) : 0
+    const guarding = humanKeys.has('e'), punching = now < (me.humanPunchUntil || 0)
     ctx.save(); ctx.translate(x, y); ctx.lineCap = 'round'; ctx.lineJoin = 'round'
-    // soft shadow on the ground
-    ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(0, 1, 9 * s, 2.6 * s, 0, 0, Math.PI * 2); ctx.fill()
-    const col = '#4a6cf0'
-    ctx.strokeStyle = col; ctx.lineWidth = 3 * s
-    ctx.beginPath()                                     // legs
+    ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(0, 1, 9 * s, 2.6 * s, 0, 0, Math.PI * 2); ctx.fill()   // shadow
+    ctx.strokeStyle = '#4a6cf0'; ctx.lineWidth = 3 * s
+    ctx.beginPath()                                     // legs + torso
     ctx.moveTo(0, hipY); ctx.lineTo(t * 6 * s, 0)
     ctx.moveTo(0, hipY); ctx.lineTo(-t * 6 * s, 0)
-    ctx.moveTo(0, hipY); ctx.lineTo(0, shoulderY)       // torso
-    ctx.moveTo(0, shoulderY); ctx.lineTo(-t * 5 * s, shoulderY + 9 * s)   // arms
-    ctx.moveTo(0, shoulderY); ctx.lineTo(t * 5 * s, shoulderY + 9 * s)
+    ctx.moveTo(0, hipY); ctx.lineTo(0, shoulderY)
+    ctx.moveTo(0, shoulderY); ctx.lineTo(-f * 5 * s, shoulderY + 9 * s)    // back arm
     ctx.stroke()
+    // front arm: punch (extended) / guard (raised to shield) / normal swing
+    let handX, handY
+    if (punching) { handX = f * 15 * s; handY = shoulderY + 2 * s }
+    else if (guarding) { handX = f * 8 * s; handY = shoulderY + 6 * s }
+    else { handX = f * t * 5 * s; handY = shoulderY + 9 * s }
+    ctx.beginPath(); ctx.moveTo(0, shoulderY); ctx.lineTo(handX, handY); ctx.stroke()
+    ctx.fillStyle = '#ffd9b3'; ctx.beginPath(); ctx.arc(handX, handY, 2 * s, 0, Math.PI * 2); ctx.fill()   // fist
+    if (guarding) {   // shield plate in the front hand
+      ctx.save(); ctx.translate(f * 12 * s, shoulderY + 4 * s)
+      ctx.fillStyle = '#c9cdd8'; ctx.strokeStyle = '#6b7180'; ctx.lineWidth = 1.5 * s
+      ctx.beginPath(); ctx.ellipse(0, 0, 3.5 * s, 9 * s, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
+      ctx.fillStyle = '#8a90a0'; ctx.beginPath(); ctx.arc(0, 0, 1.6 * s, 0, Math.PI * 2); ctx.fill()
+      ctx.restore()
+    }
     ctx.fillStyle = '#ffd9b3'; ctx.beginPath(); ctx.arc(0, headCY, headR, 0, Math.PI * 2); ctx.fill()   // head
     ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 1 * s; ctx.stroke()
     ctx.fillStyle = '#333'; ctx.beginPath(); ctx.arc(f * headR * 0.45, headCY - headR * 0.1, 1.1 * s, 0, Math.PI * 2); ctx.fill()   // facing eye
+    const hpw = 22 * s, hp01 = Math.max(0, (me.humanHp || 0) / HUMAN_HP), by = headCY - headR - 6 * s   // HP bar
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(-hpw / 2, by, hpw, 3 * s)
+    ctx.fillStyle = hp01 > 0.3 ? '#7ecb7e' : '#d05555'; ctx.fillRect(-hpw / 2, by, hpw * hp01, 3 * s)
     ctx.restore()
   }
 
@@ -482,6 +729,7 @@
     if (!bhAvailable()) return
     const now = performance.now()
     if (now < (me.bhCdUntil || 0)) return   // active or on cooldown
+    if (!spendCoins(USE_COST.blackhole)) { showToast(`🪙 블랙홀 소환 비용 ${USE_COST.blackhole} 부족`); return }
     me.bhX = cursor.x; me.bhY = cursor.y
     me.bhUntil = now + BH_DUR
     me.bhCdUntil = now + BH_DUR + BH_CD
@@ -559,12 +807,19 @@
     }
   }
   // register an ant kill toward the achievement; unlock + notify at the goal
-  function addAntKill() {
+  function addAntKill() {   // black hole no longer tied to this; just track the count
     antKills++
     localStorage.setItem('antKills', String(antKills))
-    if (!isHost && !bhNotified && antKills >= ANT_KILL_GOAL) {
-      bhNotified = true; localStorage.setItem('bhNotified', '1')
-      showToast('🎉 업적 달성! 개미 학살자 — 🕳 블랙홀 해금!')
+    pushState()
+  }
+  // achievement: my missile hit an ENEMY cat → count toward the 500-hit reward
+  function addCatHit() {
+    catHits++
+    localStorage.setItem('catHits', String(catHits))
+    if (!catHitRewarded && catHits >= CAT_HIT_GOAL) {
+      catHitRewarded = true; localStorage.setItem('catHitRewarded', '1')
+      tapCount += CAT_HIT_REWARD; counterDirty = true; renderCounter()
+      showToast(`🏆 업적 달성! 상대 고양이 ${CAT_HIT_GOAL}회 타격 — 🪙${CAT_HIT_REWARD.toLocaleString()} 지급!`)
     }
     pushState()
   }
@@ -573,6 +828,8 @@
   function deployGatling() {
     const now = performance.now()
     if (me.gatActive || now < (me.gatCdUntil || 0)) return   // one at a time; respect destroy cooldown
+    if (!spendCoins(USE_COST.gatling)) { showToast(`🪙 게틀링건 소환 비용 ${USE_COST.gatling} 부족`); return }
+    if (me.humanActive) removeHuman()                        // gatling + human are mutually exclusive
     me.gatActive = true; me.gatX = cursor.x; me.gatY = cursor.y
     me.gatHp = GAT_HP; me.gatHeat = 0; me.gatOverUntil = 0; me.gatLastShot = 0
     me.gatAng = 0
@@ -635,9 +892,15 @@
       const overheated = now < (me.gatOverUntil || 0)
       if (overheated) {
         me.gatHeat = GAT_HEAT_MAX                                   // stay maxed (red) during the lock
+        if (now - (me.gatSmokeT || 0) > 70) {                      // puff smoke from the barrels
+          me.gatSmokeT = now
+          const s = view.scale, bx = me.gatX + Math.cos(me.gatAng) * 22 * s * GAT_SCALE, by = me.gatY + Math.sin(me.gatAng) * 22 * s * GAT_SCALE - 10 * s
+          gatSmoke.push({ x: bx + (Math.random() - 0.5) * 10 * s, y: by, vx: (Math.random() - 0.5) * 0.5, vy: -0.8 - Math.random() * 0.7, r: 4 * s, born: now, life: 700 + Math.random() * 500 })
+          if (gatSmoke.length > 120) gatSmoke.shift()
+        }
       } else {
         if (me.gatOverUntil && me.gatHeat >= GAT_HEAT_MAX) { me.gatHeat = 0; me.gatOverUntil = 0 }  // just recovered → reset
-        if (lmbDown) {
+        if (lmbDown && !platformMode) {
           me.gatHeat = Math.min(GAT_HEAT_MAX, me.gatHeat + GAT_HEAT_RATE * dt)   // builds by TIME held, not per shot
           if (me.gatHeat >= GAT_HEAT_MAX) me.gatOverUntil = now + GAT_OVERHEAT
           if (now - me.gatLastShot >= GAT_FIRE_MS) {
@@ -659,7 +922,9 @@
       p.x += p.vx; p.y += p.vy
       // NO time limit: a bullet lives until it leaves the overlay or hits something
       if (p.x < -20 || p.x > W + 20 || p.y < -20 || p.y > H + 20) { gbullets.splice(i, 1); continue }
-      if (inTaskbar(p.x, p.y)) { carveTaskbar(p.x, 1); spawnSpark(p.x, p.y); gbullets.splice(i, 1); continue }
+      if (inTaskbar(p.x, p.y)) { carveTaskbar(p.x, 0.12); spawnSpark(p.x, p.y); gbullets.splice(i, 1); continue }   // bullets barely dent
+      const plB = hitPlatform(p.x, p.y)
+      if (plB) { damagePlatform(plB, GAT_DMG); spawnSpark(p.x, p.y); gbullets.splice(i, 1); continue }
       // local ants
       let hitLocalAnt = false
       for (const an of ants) if (!an.dead && Math.hypot(p.x - an.x, p.y - an.y) < 14 * s) { antTakeDmg(an, GAT_DMG); if (an.dead) addAntKill(); hitLocalAnt = true; break }
@@ -678,13 +943,16 @@
         else if (connected()) net.send(JSON.stringify({ t: 'shield-hit', target: sblk.id, power: GAT_DMG }))
         spawnSpark(p.x, p.y); gbullets.splice(i, 1); continue
       }
-      // enemy CHARACTER body → hit reaction (skip my own cat; respect their shield)
+      // CHARACTER body → hit reaction (own cat included; respect the cat's shield)
       let hitCat = false
       for (let ci = 0; ci < catPos.length; ci++) {
-        const cat = allRef[ci]; if (!cat || cat.id === 'me') continue
+        const cat = allRef[ci]; if (!cat) continue
         const c = catPos[ci]
         if (Math.hypot(p.x - c.x, p.y - c.y) < 56 * view.scale) {
-          if (!catShieldCovers(cat, c, p.x, p.y, now)) { cat.hitUntil = now + 800; if (connected()) net.send(JSON.stringify({ t: 'hit', target: cat.id, power: GAT_DMG })) }
+          if (!catShieldCovers(cat, c, p.x, p.y, now)) {
+            cat.hitUntil = now + 800
+            if (cat.id !== 'me' && connected()) net.send(JSON.stringify({ t: 'hit', target: cat.id, power: GAT_DMG }))
+          }
           hitCat = true; break
         }
       }
@@ -722,6 +990,16 @@
     ctx.restore()
   }
   function drawGatlings() { for (const g of activeGatlings()) drawGatling(g) }
+  function drawGatSmoke(now) {
+    for (let i = gatSmoke.length - 1; i >= 0; i--) {
+      const p = gatSmoke[i], t = (now - p.born) / p.life
+      if (t >= 1) { gatSmoke.splice(i, 1); continue }
+      p.x += p.vx; p.y += p.vy; p.vy *= 0.99; p.r += 0.35 * view.scale
+      ctx.save(); ctx.globalAlpha = (1 - t) * 0.38
+      ctx.fillStyle = '#9aa0ad'; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill()
+      ctx.restore()
+    }
+  }
   function drawRemoteGBullets(now) {
     const W = canvas.clientWidth, H = canvas.clientHeight
     for (const [pid, rec] of [...remoteGBullets]) {
@@ -890,7 +1168,6 @@
   try { const a = JSON.parse(localStorage.getItem('bardig') || 'null'); if (Array.isArray(a)) carve = a } catch {}
   // total accumulated damage → global stages: 0 pits, 1 cracks spread over whole bar, 2 shattered
   let barDamage = parseInt(localStorage.getItem('bardmg') || '0', 10) || 0
-  const BAR_CRACK_START = 12, BAR_COLLAPSE = 130   // cracks begin, then whole bar caves in
   function taskbarRect() {
     if (!primaryRect) return null
     const H = canvas.clientHeight
@@ -931,26 +1208,31 @@
   function carveTaskbar(x, power, local) {
     const tb = taskbarRect(); if (!tb) return
     ensureCarve()
-    const ci = Math.round(x / CARVE_SEG), rad = 5 + Math.min(power, 6) * 2, maxD = tb.h * 0.72
+    // crater size scales with `power`: a missile (power≥1) gouges wide+deep, a gatling bullet
+    // (power≈0.12) barely dents. `power` is what gets broadcast, so peers carve the same size.
+    const ci = Math.round(x / CARVE_SEG), rad = Math.min(42, Math.max(1, Math.round(power * 8))), maxD = tb.h * 0.72
     for (let s = ci - rad; s <= ci + rad; s++) {
       if (s < 0 || s >= carve.length) continue
       const f = 1 - Math.abs(s - ci) / (rad + 1)
-      carve[s] = Math.min(maxD, carve[s] + (7 + power * 4) * f * f)
+      carve[s] = Math.min(maxD, carve[s] + (2 + power * 12) * f * f)
     }
     barDamage += power
     carveDirty = true
-    spawnDebris(x, tb.top + 3, 8, '#3a3a42')
+    spawnDebris(x, tb.top + 3, Math.max(2, Math.round(power * 8)), '#3a3a42')
     if (local !== false && connected() && net) net.send(JSON.stringify({ t: 'dig', nx: +(x / canvas.clientWidth).toFixed(4), power }))
   }
-  function resetTaskbarDig() { carve = null; ensureCarve(); barDamage = 0; localStorage.removeItem('bardig'); localStorage.removeItem('bardmg'); carveDirty = false }
+  function resetTaskbarDig(local) {
+    carve = null; ensureCarve(); barDamage = 0; localStorage.removeItem('bardig'); localStorage.removeItem('bardmg'); carveDirty = false
+    if (local !== false && connected() && net) net.send(JSON.stringify({ t: 'digreset' }))   // everyone restores together
+  }
   // draw the accumulated pits: dark excavated region between the surface (tb.top) and the
   // carved profile (tb.top + carve[s]), with a rough chipped rim
   function drawTaskbarDig() {
     const tb = taskbarRect(); if (!tb || !carve) return
     const W = canvas.clientWidth
     let any = false; for (let s = 0; s < carve.length; s++) if (carve[s] > 0.5) { any = true; break }
-    if (!any && barDamage < BAR_CRACK_START) return
-    // ---- local pits (excavation between surface and carved profile) ----
+    if (!any) return
+    // ---- local pits only (no crack / no whole-bar collapse effect) ----
     if (any) {
       const prof = (s) => tb.top + carve[s] + (carve[s] > 0.5 ? (frnd(s) - 0.5) * 3 : 0)
       ctx.save()
@@ -967,36 +1249,6 @@
         else down = false
       }
       ctx.strokeStyle = 'rgba(200,205,220,0.4)'; ctx.lineWidth = 1.4; ctx.lineCap = 'round'; ctx.stroke()
-      ctx.restore()
-    }
-    // ---- crack network across the WHOLE bar, intensifying continuously with damage ----
-    const crackI = Math.max(0, Math.min(1, (barDamage - BAR_CRACK_START) / (BAR_COLLAPSE - BAR_CRACK_START)))
-    if (crackI > 0) {
-      const MAXC = 48, n = Math.ceil(crackI * MAXC), alpha = 0.2 + crackI * 0.55
-      ctx.save(); ctx.lineCap = 'round'
-      for (let k = 0; k < n; k++) {
-        const bx = ((k + 0.3 + 0.4 * frnd(k * 3.1)) / MAXC) * W    // evenly spread across the width
-        const depth = tb.h * (0.4 + frnd(k * 1.7) * 0.55), segs = 3 + Math.floor(frnd(k * 2.3) * 3)
-        let x = bx, y = tb.top + 1
-        ctx.beginPath(); ctx.moveTo(x, y)
-        for (let gg = 1; gg <= segs; gg++) { x += (frnd(k + gg * 5) - 0.5) * 26; y += depth / segs; ctx.lineTo(x, Math.min(tb.top + tb.h, y)) }
-        const my = tb.top + depth * 0.4                            // one branch off the middle
-        ctx.moveTo(bx, my); ctx.lineTo(bx + (frnd(k) - 0.5) * 34, Math.min(tb.top + tb.h, my + depth * 0.3))
-        ctx.strokeStyle = `rgba(12,10,16,${alpha})`; ctx.lineWidth = 1.4; ctx.stroke()
-        ctx.strokeStyle = `rgba(210,215,230,${alpha * 0.3})`; ctx.lineWidth = 0.6; ctx.stroke()
-      }
-      ctx.restore()
-    }
-    // ---- collapse: at full damage the whole bar caves in ----
-    if (barDamage >= BAR_COLLAPSE) {
-      ctx.save()
-      ctx.beginPath(); ctx.moveTo(0, tb.top + tb.h); ctx.lineTo(0, tb.top + 4)
-      for (let x = 0; x <= W; x += 18) ctx.lineTo(x, tb.top + 2 + frnd(x * 0.7) * 16)
-      ctx.lineTo(W, tb.top + tb.h); ctx.closePath()
-      const g2 = ctx.createLinearGradient(0, tb.top, 0, tb.top + tb.h)
-      g2.addColorStop(0, 'rgba(4,3,7,0.94)'); g2.addColorStop(1, 'rgba(12,10,18,0.9)')
-      ctx.fillStyle = g2; ctx.fill()
-      ctx.strokeStyle = 'rgba(170,175,190,0.35)'; ctx.lineWidth = 1.2; ctx.stroke()
       ctx.restore()
     }
   }
@@ -1017,7 +1269,7 @@
   const ants = []              // MY ants (I simulate them authoritatively)
   const remoteAnts = new Map() // peerId -> { list:[{id,x,y,hp,dead}], ts }  (x,y relative to peer cat)
   const MAX_ANTS = 5
-  const ANT_HP = 3
+  const ANT_HP = 1
   const ANT_DRAW = 2   // ant visual size multiplier (on top of view.scale)
   // per-player ant color — tied to the owner's fur skin so each player's ants are distinct
   const ANT_COLORS = { default: '#5b5b66', cream: '#caa96a', gray: '#7b8290', brown: '#7a4a2a', black: '#26262e', orange: '#e0862a', pink: '#e06a95', mint: '#2fa98c', lavender: '#8f6ad6' }
@@ -1290,7 +1542,7 @@
   function addEffect(x, y, power) {
     effects.push({ x, y, born: performance.now(), dur: 520, power: power || 1 })
     if (effects.length > MAX_EFFECTS) effects.splice(0, effects.length - MAX_EFFECTS)
-    if (inTaskbar(x, y)) carveTaskbar(x, power || 1)   // blasting the taskbar gouges it (accumulates)
+    if (inTaskbar(x, y)) carveTaskbar(x, (power || 1) * 0.192)   // small craters (30% of the previous 0.64); still scales with merge level
   }
 
   // The blast's damage radius matches the explosion's visual size (grows with power).
@@ -1327,7 +1579,7 @@
       if (Math.hypot(x - c.x, y - c.y) > R + view.scale * 30) continue   // blast overlaps the cat body
       if (catShieldCovers(cat, c, x, y, now)) continue
       cat.hitUntil = now + 1000 + Math.min(power - 1, 5) * 200
-      if (cat.id !== 'me' && connected()) net.send(JSON.stringify({ t: 'hit', target: cat.id, power }))
+      if (cat.id !== 'me') { if (connected()) net.send(JSON.stringify({ t: 'hit', target: cat.id, power })); addCatHit() }   // achievement: enemy-cat hit
     }
   }
 
@@ -1380,6 +1632,9 @@
         // missile hits an enemy gatling turret → damage it, then blast
         const rgm = hitRemoteGatling(p.x, p.y)
         if (rgm) { if (connected()) net.send(JSON.stringify({ t: 'gat-hit', target: rgm.pid, dmg: p.power })); explode(p.x, p.y, p.power); projectiles.splice(i, 1); continue }
+        // a drawn platform is solid: detonate on it and chip its HP
+        const pl = hitPlatform(p.x, p.y)
+        if (pl) { damagePlatform(pl, p.power); explode(p.x, p.y, p.power); projectiles.splice(i, 1); continue }
         // detonate on contact with an ant, cat, peer missile, peer gatling bullet, OR taskbar
         if (missileHitsAnt(p.x, p.y) || hitTestCats(p.x, p.y) || hitRemoteMissile(p.x, p.y, p.power) || hitRemoteGBullet(p.x, p.y) || inTaskbar(p.x, p.y)) {
           explode(p.x, p.y, p.power)
@@ -1531,6 +1786,7 @@
     hudBar.style.left = (wx + SIDE) + 'px'
     hudBar.style.top = (wy + cellPxH + 2) + 'px'
     hudBar.style.width = (cellPxW - SIDE * 2) + 'px'
+    positionShop()
   }
   function positionChat() {
     chatbar.style.left = (wx + cellPxW / 2) + 'px'
@@ -1560,13 +1816,17 @@
   let chatOpenFlag = false, dragging = null
   function sendHotzone() {
     if (wx == null) return
-    inputSource.setHotzone({ rect: { x: wx, y: wy, w: cellPxW, h: cellPxH + BAR_SPACE }, force: chatOpenFlag || editing })
+    inputSource.setHotzone({ rect: { x: wx, y: wy, w: cellPxW, h: cellPxH + BAR_SPACE }, force: chatOpenFlag || editing || shopOpenFlag || platformMode })
   }
 
   // cursor for missile homing + dragging comes from main's poll (window-relative)
   if (inputSource.onCursor) inputSource.onCursor((p) => {
     cursor.x = p.x; cursor.y = p.y
     if (dragging) { wx = p.x - dragging.dx; wy = p.y - dragging.dy; clampWidget(); positionHud(); sendHotzone() }
+    if (platformMode && lmbDown && curStroke) {   // sample brush points (distance-throttled)
+      const last = curStroke.pts[curStroke.pts.length - 1]
+      if (Math.hypot(p.x - last.x, p.y - last.y) > 6) curStroke.pts.push({ x: p.x, y: p.y })
+    }
   })
 
   // drag the cat (canvas) to move the whole widget — but not while editing
@@ -1665,6 +1925,7 @@
     ctx = fxctx
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, cW, cH)
     drawTaskbarDig()        // taskbar surface/cracks/collapse — FURTHEST BACK so missiles/ants pass in FRONT of it
+    drawPlatforms()         // host-drawn floor platforms
     drawBlackholes(now)
     drawShields(now)
     stepProjectiles(now)
@@ -1675,6 +1936,7 @@
     drawRemoteAnts(now)
     drawGatlings()
     stepGatling(now)
+    drawGatSmoke(now)
     drawRemoteGBullets(now)
     stepHuman(now)
     drawBhDust(now)
