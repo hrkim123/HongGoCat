@@ -22,10 +22,20 @@ function initAutoUpdate() {
     console.error('[bongo] electron-updater not installed — auto-update disabled:', e.message); return
   }
   autoUpdater.autoDownload = true
-  autoUpdater.autoInstallOnAppQuit = true   // apply silently when the user next closes the app
+  autoUpdater.autoInstallOnAppQuit = true   // fallback: apply on quit if not applied earlier
+  const startedAt = Date.now()
   autoUpdater.on('error', (e) => console.error('[bongo] update error:', e && e.message))
-  // download in the background; DON'T force-quit mid-session — it installs on the next quit
-  autoUpdater.on('update-downloaded', () => console.log('[bongo] update downloaded — installs on quit'))
+  autoUpdater.on('update-downloaded', () => {
+    // If the update finished downloading soon after launch, apply it NOW (silent install +
+    // relaunch) so you effectively "update on start". If the app has been running a while,
+    // don't yank the user mid-session — let it install on the next quit instead.
+    if (Date.now() - startedAt < 3 * 60 * 1000) {
+      console.log('[bongo] update downloaded — installing on start')
+      setImmediate(() => autoUpdater.quitAndInstall(true, true)) // isSilent, isForceRunAfter
+    } else {
+      console.log('[bongo] update downloaded — installs on quit')
+    }
+  })
   try { autoUpdater.checkForUpdatesAndNotify() } catch (e) { console.error('[bongo] update check failed:', e.message) }
 }
 
@@ -173,10 +183,14 @@ function openSettings() {
     }
   })
   settingsWin.setMenuBarVisibility(false)
-  // floating (normal top) — NOT the overlay's screen-saver level, so closing it doesn't
-  // shuffle z-order with the overlay (which was making Windows repaint the overlay border).
+  // Put the settings window in the SAME top band as the overlay (screen-saver) so it sits
+  // ABOVE the transparent overlay and can't drop behind it (which read as "disappearing"
+  // when you clicked away and back). Safe now that disableHardwareAcceleration fixed the
+  // border/white-bar repaint. Re-assert top on focus so clicking it always keeps it up.
+  settingsWin.setAlwaysOnTop(true, 'screen-saver')
   settingsWin.loadFile(path.join(__dirname, 'renderer', 'settings.html'))
   settingsWin.once('ready-to-show', () => { settingsWin.show(); settingsWin.moveTop(); settingsWin.focus() })
+  settingsWin.on('focus', () => { if (settingsWin && !settingsWin.isDestroyed()) settingsWin.moveTop() })
   settingsWin.on('closed', () => { settingsWin = null; reassertOverlay() })
 }
 

@@ -1,7 +1,10 @@
 // Overlay: render loop, global input, multiplayer client, edit mode.
 (function () {
   const canvas = document.getElementById('stage')
-  const ctx = canvas.getContext('2d')
+  const fxCanvas = document.getElementById('fx')   // weapons layer — sits ABOVE the DOM HUD bar
+  const stagectx = canvas.getContext('2d')
+  const fxctx = fxCanvas.getContext('2d')
+  let ctx = stagectx   // current draw target; swapped between the two layers each frame
   const { CELL_W, CELL_H, DEFAULT_FEAT } = window.AnimalArt
 
   function newAnimState() {
@@ -561,6 +564,7 @@
   const remoteAnts = new Map() // peerId -> { list:[{id,x,y,hp,dead}], ts }  (x,y relative to peer cat)
   const MAX_ANTS = 5
   const ANT_HP = 3
+  const ANT_DRAW = 2   // ant visual size multiplier (on top of view.scale)
   let nextAntId = 1
   // Ants stand ON the taskbar's top boundary line (feet on the line, body above it) — not
   // sunk inside the bar. Falls back to the screen bottom if there's no detectable taskbar.
@@ -655,7 +659,7 @@
     }
   }
   function drawAnt(a, now, fighting, enemy) {
-    const s = view.scale, dir = a.dir || 1
+    const s = view.scale * ANT_DRAW, dir = a.dir || 1
     const body = enemy ? '#3d1618' : '#1b1b22', leg = enemy ? '#2a0f10' : '#15151a'
     ctx.save(); ctx.translate(a.x, a.y); ctx.scale(s * dir, s)
     ctx.strokeStyle = leg; ctx.lineWidth = 1.1; ctx.lineCap = 'round'
@@ -684,7 +688,7 @@
     }
   }
   function drawAntCorpse(a, now) {
-    const s = view.scale, t = (now - a.deadAt) / 420
+    const s = view.scale * ANT_DRAW, t = (now - a.deadAt) / 420
     ctx.save(); ctx.translate(a.x, a.y); ctx.scale(s, s)
     ctx.globalAlpha = (1 - t) * 0.55; ctx.fillStyle = '#96101a'
     ctx.beginPath(); ctx.ellipse(0, 2, 8, 3, 0, 0, Math.PI * 2); ctx.fill()   // blood pool
@@ -966,8 +970,8 @@
   // blocks your normal desktop use. Interactive only while the cursor is over the widget.
   const SCALE = 0.8    // widget (cat + desk + bar) drawn 20% smaller (counter text stays CSS-sized)
   const BAR_SPACE = 34 // room below the cell for the DOM #hud-bar
-  const GRID_COLS = 4, GRID_ROWS = 4   // drag-snap preset anchors
-  const SIDE = 6
+  const GRID_COLS = 6, GRID_ROWS = 4   // drag-snap preset anchors
+  const SIDE = 0   // HUD bar inset; 0 → bar width == desk width (both = cellPxW), always aligned
   const hudBar = document.getElementById('hud-bar')
   const cellPxW = CELL_W * SCALE
   const cellPxH = CELL_H * SCALE
@@ -1095,8 +1099,8 @@
   // ---------- render loop ----------
   function resize() {
     const dpr = window.devicePixelRatio || 1
-    canvas.width = Math.round(canvas.clientWidth * dpr)
-    canvas.height = Math.round(canvas.clientHeight * dpr)
+    canvas.width = fxCanvas.width = Math.round(canvas.clientWidth * dpr)
+    canvas.height = fxCanvas.height = Math.round(canvas.clientHeight * dpr)
     if (wx != null) clampWidget()
   }
   window.addEventListener('resize', resize)
@@ -1109,11 +1113,13 @@
   function frame() {
     const now = performance.now()
     const dpr = window.devicePixelRatio || 1
-    // keep the backing store in sync with the CSS box (robust against resize timing)
+    // keep both backing stores in sync with the CSS box (robust against resize timing)
     const cw = Math.round(canvas.clientWidth * dpr), ch = Math.round(canvas.clientHeight * dpr)
-    if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch }
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight)
+    if (canvas.width !== cw || canvas.height !== ch) { canvas.width = fxCanvas.width = cw; canvas.height = fxCanvas.height = ch }
+    const cW = canvas.clientWidth, cH = canvas.clientHeight
+    // ---- STAGE layer (below the DOM HUD bar): cats + preset dots + peer counters ----
+    ctx = stagectx
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, cW, cH)
 
     if (wx == null) initWidget()
 
@@ -1156,6 +1162,10 @@
       if (p.id !== 'me' && p.taps != null) drawPeerCount(origins[i], p.taps) // peer's counter
     })
 
+    // ---- FX layer (ABOVE the HUD bar): weapons draw on top of the character UI so ants /
+    // missiles are never hidden behind the counter bar ----
+    ctx = fxctx
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, cW, cH)
     drawShields(now)
     stepProjectiles(now)
     drawShieldShards(now)
@@ -1163,6 +1173,8 @@
     drawTaskbarFX(now)
     stepAnts(now)
     drawRemoteAnts(now)
+    ctx = stagectx
+
     positionHandles(now)
     positionHud()
     requestAnimationFrame(frame)
