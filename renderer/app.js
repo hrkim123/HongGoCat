@@ -1168,6 +1168,10 @@
       if (hitLocalAnt) { spawnSpark(p.x, p.y); gbullets.splice(i, 1); continue }
       // remote ants
       if (missileHitsAnt(p.x, p.y)) { const ah = missileHitsAnt(p.x, p.y); if (ah && !ah.local && connected()) net.send(JSON.stringify({ t: 'ant-hit', target: ah.pid, ant: ah.id, dmg: GAT_DMG })); spawnSpark(p.x, p.y); gbullets.splice(i, 1); continue }
+      // MY OWN missiles too → the bullet detonates them (self collision)
+      let hitOwnMissile = false
+      for (let mi = projectiles.length - 1; mi >= 0; mi--) { const m = projectiles[mi]; if (!m.homing) continue; if (Math.hypot(p.x - m.x, p.y - m.y) < 14 * view.scale + (m.power || 1) * 2) { explode(m.x, m.y, m.power); projectiles.splice(mi, 1); hitOwnMissile = true; break } }
+      if (hitOwnMissile) { spawnSpark(p.x, p.y); gbullets.splice(i, 1); continue }
       // enemy bullets / missiles → mutual destruction (each side destroys its own on overlap)
       if (hitRemoteGBullet(p.x, p.y) || hitRemoteMissile(p.x, p.y, GAT_DMG)) { spawnSpark(p.x, p.y); gbullets.splice(i, 1); continue }
       // enemy gatling turret → damage it
