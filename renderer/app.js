@@ -46,6 +46,8 @@
   const ANT_KILL_GOAL = 100
   let antKills = parseInt(localStorage.getItem('antKills') || '0', 10) || 0
   let isHost = localStorage.getItem('host') === '1'   // set true by the SERVER (loopback client)
+  const isDev = !!(window.bongo && window.bongo.isDev)   // developer PC only (env HONGGOCAT_DEV=1) → everything unlocked
+  if (isDev) setTimeout(() => { try { showToast('🛠️ 개발자 모드 — 전체 해금') } catch {} }, 900)
   let bhNotified = localStorage.getItem('bhNotified') === '1'
   // achievement: hit ENEMY cats with missiles 500 times → reward 10,000 counts (once)
   const CAT_HIT_GOAL = 500, CAT_HIT_REWARD = 10000
@@ -62,12 +64,12 @@
   const SLOT_CHOICES = ['none', 'missile', 'shield', 'gatling', 'ant', 'human', 'blackhole']
   let owned = new Set()
   try { const a = JSON.parse(localStorage.getItem('owned') || '[]'); if (Array.isArray(a)) owned = new Set(a) } catch {}
-  function isOwned(id) { return isHost || owned.has(id) }
+  function isOwned(id) { return isHost || isDev || owned.has(id) }
   // hats are all LOCKED for now (to be sold in the shop / given as achievement rewards later).
   // ownedHats starts empty → only 'none' is available.
   let ownedHats = new Set()
   try { const a = JSON.parse(localStorage.getItem('ownedHats') || '[]'); if (Array.isArray(a)) ownedHats = new Set(a) } catch {}
-  function isHatOwned(hat) { return hat === 'none' || ownedHats.has(hat) }
+  function isHatOwned(hat) { return hat === 'none' || isDev || ownedHats.has(hat) }
   function bhAvailable() { return isOwned('blackhole') }   // black hole is shop-only now (no achievement)
   // can this weapon actually be used right now? (missile is free; everything else must be owned)
   function weaponUsable(id) {
@@ -172,6 +174,20 @@
       }
       shopListEl.appendChild(row)
     }
+    const hl = document.getElementById('shop-human-list')   // 🕺 human weapons (buy → drop on the ground)
+    if (hl) {
+      hl.innerHTML = ''
+      for (const id of HUMAN_WEAPON_ITEMS) {
+        const w = HUMAN_WEAPONS[id]
+        const row = document.createElement('div'); row.className = 'shop-row'
+        const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = w.name; row.appendChild(nm)
+        const pr = document.createElement('span'); pr.className = 'pr'; pr.textContent = '🪙 ' + w.price.toLocaleString(); row.appendChild(pr)
+        const b = document.createElement('button'); b.className = 'shop-buy'; b.textContent = '소환'
+        b.disabled = tapCount < w.price; b.onclick = () => summonHumanWeapon(id)
+        row.appendChild(b)
+        hl.appendChild(row)
+      }
+    }
     renderSlots()
   }
   // weapon-slot selectors live at the bottom of the shop; unowned weapons show 🔒 and are blocked
@@ -203,20 +219,23 @@
   }
   // spend counter as currency for a per-summon cost; returns false (and does nothing) if too poor
   function spendCoins(n) {
-    if (!n) return true
+    if (!n || isDev) return true   // dev PC: summons are free
     if (tapCount < n) return false
     tapCount -= n; counterDirty = true; renderCounter()
     return true
   }
+  let shopPos = null   // manual position from dragging the shop header (null = auto-anchor to widget)
   function positionShop() {
     if (wx == null || !shopBtn) return
     shopBtn.classList.remove('hidden')
     shopBtn.style.left = (wx + cellPxW - 30) + 'px'
     shopBtn.style.top = (wy + 2) + 'px'
     if (!shopOpenFlag) return
-    const W = canvas.clientWidth, H = canvas.clientHeight, pw = 300, ph = Math.min(H * 0.7, 400)
-    const px = Math.max(6, Math.min(wx + cellPxW / 2 - pw / 2, W - pw - 6))
-    let py = wy - ph - 6; if (py < 6) py = Math.max(6, Math.min(wy + 40, H - ph - 6))
+    const W = canvas.clientWidth, H = canvas.clientHeight, pw = 340, ph = Math.min(shopEl.offsetHeight || 400, H - 12)
+    let px, py
+    if (shopPos) { px = shopPos.x; py = shopPos.y }   // user-dragged
+    else { px = wx + cellPxW / 2 - pw / 2; py = wy - ph - 6; if (py < 6) py = wy + 40 }
+    px = Math.max(6, Math.min(px, W - pw - 6)); py = Math.max(6, Math.min(py, H - ph - 6))
     shopEl.style.left = px + 'px'; shopEl.style.top = py + 'px'
   }
   function openShop() { shopOpenFlag = true; renderShop(); shopEl.classList.remove('hidden'); positionShop(); sendHotzone() }
@@ -224,6 +243,15 @@
   function toggleShop() { if (shopOpenFlag) closeShop(); else openShop() }
   if (shopBtn) shopBtn.onclick = toggleShop
   const shopCloseBtn = document.getElementById('shop-close'); if (shopCloseBtn) shopCloseBtn.onclick = closeShop
+  // drag the shop by its header (overlay is interactive while the shop is open)
+  const shopHead = document.getElementById('shop-head')
+  let shopDrag = null
+  if (shopHead) shopHead.addEventListener('mousedown', (e) => {
+    if (e.target.id === 'shop-close') return
+    const r = shopEl.getBoundingClientRect(); shopDrag = { dx: e.clientX - r.left, dy: e.clientY - r.top }; e.preventDefault()
+  })
+  window.addEventListener('mousemove', (e) => { if (shopDrag) { shopPos = { x: e.clientX - shopDrag.dx, y: e.clientY - shopDrag.dy }; positionShop() } })
+  window.addEventListener('mouseup', () => { shopDrag = null })
 
   // ---------- 🖌️ HOST platform tool: brush strokes that become floor (HP 10) ----------
   const PLAT_HP = 10
@@ -269,8 +297,9 @@
       ctx.restore()
     }
   }
+  function platformAllowed() { return !connected() || isHost }   // offline: anyone · online: host only
   function togglePlatformMode() {
-    if (!isHost) { showToast('🖌️ 플랫폼 그리기는 호스트만 사용할 수 있어요'); return }
+    if (!platformAllowed()) { showToast('🖌️ 접속 중엔 서버 호스트만 그릴 수 있어요'); return }
     platformMode = !platformMode; curStroke = null
     showToast(platformMode ? '🖌️ 플랫폼 그리기 ON — 왼쪽 클릭 드래그로 그리기' : '플랫폼 그리기 OFF')
     sendHotzone()
@@ -425,7 +454,7 @@
     else if (msg.t === 'disconnect') { disconnect(); setStatus('오프라인 — 혼자 연주 중') }
     else if (msg.t === 'edit') { setEditing(!!msg.on) }
     else if (msg.t === 'chat') { openChat() }
-    else if (msg.t === 'boost') { if (platformMode) { /* drawing */ } else if (me.humanActive) humanPunch(); else boostMissiles() }
+    else if (msg.t === 'boost') { if (platformMode) { /* drawing */ } else if (me.humanActive) humanAttack(); else boostMissiles() }
     else if (msg.t === 'lmb') {
       const was = lmbDown; lmbDown = !!msg.down
       if (platformMode) {   // drawing a platform stroke while the button is held
@@ -596,7 +625,7 @@
 
   // ---------- 🕺 controllable human (WASD) — LOCAL ONLY, never broadcast (others can't see it) ----------
   // WASD move + W jump, E = raise a shield (blocks front hits), left-click = punch (dmg 1).
-  const HUMAN_SPEED = 3.4, HUMAN_JUMP = 12, HUMAN_GRAV = 0.62, HUMAN_HP = 5, HUMAN_SCALE = 3
+  const HUMAN_SPEED = 3.4, HUMAN_JUMP = 12, HUMAN_GRAV = 0.62, HUMAN_HP = 5, HUMAN_SCALE = 1.8
   const humanKeys = new Set()
   function deployHuman() {
     if (me.humanActive) { removeHuman(); return }   // fire again → dismiss (no charge)
@@ -605,7 +634,7 @@
     me.humanActive = true
     me.humanX = cursor.x; me.humanY = antGroundY(cursor.x) - 1
     me.humanVX = 0; me.humanVY = 0; me.humanFace = 1; me.humanGround = true
-    me.humanHp = HUMAN_HP; me.humanHitCd = 0
+    me.humanHp = HUMAN_HP; me.humanHitCd = 0; me.humanWeapon = null; me.humanAtkCd = 0
     humanKeys.clear()
     if (inputSource.humanControl) inputSource.humanControl(true)   // ask main to forward WASD
   }
@@ -631,6 +660,108 @@
     for (const a of ants) if (!a.dead && Math.hypot(px - a.x, py - a.y) < r) { antTakeDmg(a, 1); if (a.dead) addAntKill() }
     for (const [pid, rec] of remoteAnts) for (const a of rec.items.values()) { if (a.dead) continue; const sp = remoteAntScreenPos(pid, a); if (sp && Math.hypot(px - sp.x, py - sp.y) < r && connected()) net.send(JSON.stringify({ t: 'ant-hit', target: pid, ant: a.id, dmg: 1 })) }
     spawnSpark(px, py)
+  }
+
+  // ---------- 🕺 human weapons (pick up from the ground; sword/pistol/rifle/bazooka) ----------
+  const HUMAN_WEAPONS = {
+    sword:   { name: '🗡️ 칼', price: 5000, emoji: '🗡️', melee: true, range: 24, dmg: 2, cd: 320 },
+    pistol:  { name: '🔫 권총', price: 10000, emoji: '🔫', speed: 13, dmg: 1, cd: 340, life: 900 },
+    rifle:   { name: '🎯 라이플', price: 30000, emoji: '🎯', speed: 19, dmg: 2, cd: 150, life: 1100 },
+    bazooka: { name: '🚀 바주카', price: 50000, emoji: '🚀', power: 3, cd: 800 }
+  }
+  const HUMAN_WEAPON_ITEMS = ['sword', 'pistol', 'rifle', 'bazooka']
+  const GW_LIFE = 30000, GW_BLINK = 3000, GW_MAX = 3
+  const groundWeapons = []            // { kind, x, y, vy, onGround, born }
+  const hbullets = []                 // pistol/rifle bullets { x,y,vx,vy,born,life,dmg,big }
+  let gwSpawnAt = 0
+  function spawnGroundWeapon(kind, atCursor) {
+    const W = canvas.clientWidth
+    groundWeapons.push({ kind, x: atCursor ? cursor.x : 40 + Math.random() * (W - 80), y: atCursor ? cursor.y : -20, vy: 0, onGround: false, born: performance.now() })
+  }
+  function summonHumanWeapon(id) {   // shop: spend, then drop it at the cursor to be picked up
+    const w = HUMAN_WEAPONS[id]; if (!w) return
+    if (!spendCoins(w.price)) { showToast(`🪙 재화 부족 — ${w.price.toLocaleString()} 필요`); return }
+    spawnGroundWeapon(id, true); showToast(`${w.name} 소환! 🕺 인간으로 주우세요`); renderShop()
+  }
+  function humanTryPickup() {
+    if (!me.humanActive) return false
+    const r = 44 * view.scale
+    for (let i = 0; i < groundWeapons.length; i++) {
+      const g = groundWeapons[i]
+      if (Math.hypot(me.humanX - g.x, me.humanY - g.y) < r) { me.humanWeapon = g.kind; groundWeapons.splice(i, 1); showToast(`${HUMAN_WEAPONS[g.kind].name} 획득!`); return true }
+    }
+    return false
+  }
+  function stepGroundWeapons(now) {
+    if (now > gwSpawnAt && groundWeapons.length < GW_MAX) {   // occasional random spawn on the taskbar
+      gwSpawnAt = now + 15000 + Math.random() * 20000
+      spawnGroundWeapon(HUMAN_WEAPON_ITEMS[Math.floor(Math.random() * HUMAN_WEAPON_ITEMS.length)], false)
+    }
+    const s = view.scale
+    for (let i = groundWeapons.length - 1; i >= 0; i--) {
+      const g = groundWeapons[i], age = now - g.born
+      if (age >= GW_LIFE) { groundWeapons.splice(i, 1); continue }
+      if (!g.onGround) { g.vy += 0.5; g.y += g.vy; const gy = antGroundY(g.x); if (g.y >= gy) { g.y = gy; g.vy = 0; g.onGround = true } }
+      if ((GW_LIFE - age) < GW_BLINK && Math.floor(now / 140) % 2 === 0) continue   // blink out near the end
+      ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.globalAlpha = 1
+      const iy = g.y - 20 * s
+      ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.beginPath(); ctx.ellipse(g.x, g.y + 2 * s, 18 * s, 5 * s, 0, 0, Math.PI * 2); ctx.fill()   // ground shadow
+      ctx.fillStyle = 'rgba(43,47,58,0.95)'; ctx.beginPath(); ctx.arc(g.x, iy, 22 * s, 0, Math.PI * 2); ctx.fill()   // solid disc so it reads clearly
+      ctx.strokeStyle = '#ffd451'; ctx.lineWidth = 2.5 * s; ctx.stroke()
+      ctx.font = `${34 * s}px sans-serif`; ctx.fillText(HUMAN_WEAPONS[g.kind].emoji, g.x, iy)
+      ctx.restore()
+    }
+  }
+  function humanAttack() {
+    if (!me.humanActive) return
+    if (humanTryPickup()) return                 // near a ground weapon → pick it up
+    const now = performance.now(), wk = me.humanWeapon
+    if (!wk) { humanPunch(); return }             // bare fists
+    if (now < (me.humanAtkCd || 0)) return
+    const w = HUMAN_WEAPONS[wk]
+    me.humanAtkCd = now + w.cd; me.humanPunchUntil = now + 150
+    if (w.melee) humanMelee(w, now)
+    else if (wk === 'bazooka') fireBazooka(w, now)
+    else fireHumanBullet(w, now)
+  }
+  function humanMelee(w, now) {                   // sword: wider/stronger than a punch
+    const hs = view.scale * HUMAN_SCALE
+    const px = me.humanX + me.humanFace * w.range * hs, py = me.humanY - 18 * hs, r = w.range * 0.8 * hs
+    for (const a of ants) if (!a.dead && Math.hypot(px - a.x, py - a.y) < r) { antTakeDmg(a, w.dmg); if (a.dead) addAntKill() }
+    for (const [pid, rec] of remoteAnts) for (const a of rec.items.values()) { if (a.dead) continue; const sp = remoteAntScreenPos(pid, a); if (sp && Math.hypot(px - sp.x, py - sp.y) < r && connected()) net.send(JSON.stringify({ t: 'ant-hit', target: pid, ant: a.id, dmg: w.dmg })) }
+    for (let ci = 0; ci < catPos.length; ci++) { const cat = allRef[ci]; if (!cat || cat.id === 'me') continue; const c = catPos[ci]; if (Math.hypot(px - c.x, py - c.y) < 56 * view.scale) { cat.hitUntil = now + 700; if (connected()) net.send(JSON.stringify({ t: 'hit', target: cat.id, power: w.dmg })) } }
+    spawnSpark(px, py)
+  }
+  function fireHumanBullet(w, now) {              // pistol / rifle → straight bullet toward the cursor
+    const hs = view.scale * HUMAN_SCALE, oy = me.humanY - 18 * hs
+    const ang = Math.atan2(cursor.y - oy, cursor.x - me.humanX); me.humanFace = Math.cos(ang) >= 0 ? 1 : -1
+    hbullets.push({ x: me.humanX + Math.cos(ang) * 16 * hs, y: oy + Math.sin(ang) * 16 * hs, vx: Math.cos(ang) * w.speed, vy: Math.sin(ang) * w.speed, born: now, life: w.life, dmg: w.dmg, big: w.dmg >= 2 })
+  }
+  function fireBazooka(w, now) {                  // bazooka → non-homing missile at boost speed (reuses missile system)
+    const hs = view.scale * HUMAN_SCALE, oy = me.humanY - 18 * hs
+    const ang = Math.atan2(cursor.y - oy, cursor.x - me.humanX); me.humanFace = Math.cos(ang) >= 0 ? 1 : -1
+    const spd = MISSILE_SPEED * BOOST_MULT
+    projectiles.push({ homing: true, boost: true, power: w.power, mid: nextMid++, x: me.humanX + Math.cos(ang) * 18 * hs, y: oy + Math.sin(ang) * 18 * hs, vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd, born: now, life: MISSILE_LIFE })
+  }
+  function stepHbullets(now) {
+    const W = canvas.clientWidth, H = canvas.clientHeight, s = view.scale
+    for (let i = hbullets.length - 1; i >= 0; i--) {
+      const p = hbullets[i]
+      if (now - p.born > p.life) { hbullets.splice(i, 1); continue }
+      const bh = blackholePull(p, now); if (bh) { spawnDustToHole(p.x, p.y, bh); hbullets.splice(i, 1); continue }
+      p.x += p.vx; p.y += p.vy
+      if (p.x < -20 || p.x > W + 20 || p.y < -20 || p.y > H + 20) { hbullets.splice(i, 1); continue }
+      if (inTaskbar(p.x, p.y)) { carveTaskbar(p.x, 0.1); spawnSpark(p.x, p.y); hbullets.splice(i, 1); continue }
+      const pl = hitPlatform(p.x, p.y); if (pl) { damagePlatform(pl, p.dmg); spawnSpark(p.x, p.y); hbullets.splice(i, 1); continue }
+      let hit = false
+      for (const a of ants) if (!a.dead && Math.hypot(p.x - a.x, p.y - a.y) < 12 * s) { antTakeDmg(a, p.dmg); if (a.dead) addAntKill(); hit = true; break }
+      if (!hit) { const ah = missileHitsAnt(p.x, p.y); if (ah && !ah.local) { if (connected()) net.send(JSON.stringify({ t: 'ant-hit', target: ah.pid, ant: ah.id, dmg: p.dmg })); hit = true } }
+      if (!hit) for (let ci = 0; ci < catPos.length; ci++) { const cat = allRef[ci]; if (!cat || cat.id === 'me') continue; const c = catPos[ci]; if (Math.hypot(p.x - c.x, p.y - c.y) < 56 * s) { if (!catShieldCovers(cat, c, p.x, p.y, now)) { cat.hitUntil = now + 700; if (connected()) net.send(JSON.stringify({ t: 'hit', target: cat.id, power: p.dmg })) } hit = true; break } }
+      if (hit) { spawnSpark(p.x, p.y); hbullets.splice(i, 1); continue }
+      ctx.save(); ctx.lineCap = 'round'; ctx.strokeStyle = 'rgba(255,210,90,0.9)'; ctx.lineWidth = (p.big ? 3.5 : 2.5) * s
+      ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - p.vx * 1.1, p.y - p.vy * 1.1); ctx.stroke()
+      ctx.fillStyle = '#fff1b0'; ctx.beginPath(); ctx.arc(p.x, p.y, (p.big ? 3 : 2.2) * s, 0, Math.PI * 2); ctx.fill(); ctx.restore()
+    }
   }
   function stepHuman(now) {
     if (!me.humanActive) return
@@ -660,27 +791,31 @@
       if (segY != null) { me.humanY = segY; me.humanVY = 0; me.humanGround = true }
     }
     if (me.humanY >= floor) { me.humanY = floor; me.humanVY = 0; me.humanGround = true }
+    if (humanKeys.has('e')) me.humanFace = cursor.x >= me.humanX ? 1 : -1   // face the cursor while guarding
     // collide with ENEMY weapons (human is local, so only remote threats reach it). 250ms i-frames.
     if (now >= (me.humanHitCd || 0)) {
       const cx = me.humanX, cy = me.humanY - 15 * hs, r = 20 * hs
-      let threatX = null
-      const rm = hitRemoteMissile(cx, cy, 1); if (rm) threatX = rm.x
-      if (threatX == null) {   // remote gatling bullets (scan for position so the shield can face them)
+      let tx = null, ty = null
+      const rm = hitRemoteMissile(cx, cy, 1); if (rm) { tx = rm.x; ty = rm.y }
+      if (tx == null) {   // remote gatling bullets (position so the barrier can face them)
         for (const [, rec] of remoteGBullets) {
           if (now - rec.ts > 400) continue
-          for (const it of rec.items.values()) { const bx = it.sx * W, by = it.sy * canvas.clientHeight; if (Math.hypot(cx - bx, cy - by) < 12 * hs) { threatX = bx; break } }
-          if (threatX != null) break
+          for (const it of rec.items.values()) { const bx = it.sx * W, by = it.sy * canvas.clientHeight; if (Math.hypot(cx - bx, cy - by) < 12 * hs) { tx = bx; ty = by; break } }
+          if (tx != null) break
         }
       }
-      if (threatX == null) {   // remote ants
+      if (tx == null) {   // remote ants
         for (const [pid, rec] of remoteAnts) {
-          for (const a of rec.items.values()) { if (a.dead) continue; const sp = remoteAntScreenPos(pid, a); if (sp && Math.hypot(cx - sp.x, cy - sp.y) < r) { threatX = sp.x; break } }
-          if (threatX != null) break
+          for (const a of rec.items.values()) { if (a.dead) continue; const sp = remoteAntScreenPos(pid, a); if (sp && Math.hypot(cx - sp.x, cy - sp.y) < r) { tx = sp.x; ty = sp.y; break } }
+          if (tx != null) break
         }
       }
-      if (threatX != null) {
-        const blocked = humanKeys.has('e') && Math.sign(threatX - me.humanX) === me.humanFace   // shield faces forward
-        if (blocked) { spawnSpark(me.humanX + me.humanFace * 16 * hs, me.humanY - 20 * hs); me.humanHitCd = now + 150 }
+      if (tx != null) {
+        // barrier (cursor-facing, above the human) blocks threats coming from within its arc
+        const scx = me.humanX, scy = me.humanY - 34 * hs * 0.7
+        const shieldAng = Math.atan2(cursor.y - scy, cursor.x - scx)
+        const blocked = humanKeys.has('e') && angDiff(Math.atan2(ty - scy, tx - scx), shieldAng) <= SHIELD_SPAN / 2
+        if (blocked) { spawnSpark(scx + Math.cos(shieldAng) * 30 * hs, scy + Math.sin(shieldAng) * 30 * hs); me.humanHitCd = now + 150 }
         else { humanTakeDmg(1, now); if (!me.humanActive) return }
       }
     }
@@ -708,11 +843,10 @@
     else { handX = f * t * 5 * s; handY = shoulderY + 9 * s }
     ctx.beginPath(); ctx.moveTo(0, shoulderY); ctx.lineTo(handX, handY); ctx.stroke()
     ctx.fillStyle = '#ffd9b3'; ctx.beginPath(); ctx.arc(handX, handY, 2 * s, 0, Math.PI * 2); ctx.fill()   // fist
-    if (guarding) {   // shield plate in the front hand
-      ctx.save(); ctx.translate(f * 12 * s, shoulderY + 4 * s)
-      ctx.fillStyle = '#c9cdd8'; ctx.strokeStyle = '#6b7180'; ctx.lineWidth = 1.5 * s
-      ctx.beginPath(); ctx.ellipse(0, 0, 3.5 * s, 9 * s, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
-      ctx.fillStyle = '#8a90a0'; ctx.beginPath(); ctx.arc(0, 0, 1.6 * s, 0, Math.PI * 2); ctx.fill()
+    if (me.humanWeapon) {   // held weapon icon in the front hand (2x bigger)
+      ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `${26 * s}px sans-serif`
+      if (f < 0) { ctx.translate(handX, handY); ctx.scale(-1, 1); ctx.fillText(HUMAN_WEAPONS[me.humanWeapon].emoji, 0, 0) }
+      else ctx.fillText(HUMAN_WEAPONS[me.humanWeapon].emoji, handX + f * 4 * s, handY)
       ctx.restore()
     }
     ctx.fillStyle = '#ffd9b3'; ctx.beginPath(); ctx.arc(0, headCY, headR, 0, Math.PI * 2); ctx.fill()   // head
@@ -722,6 +856,11 @@
     ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(-hpw / 2, by, hpw, 3 * s)
     ctx.fillStyle = hp01 > 0.3 ? '#7ecb7e' : '#d05555'; ctx.fillRect(-hpw / 2, by, hpw * hp01, 3 * s)
     ctx.restore()
+    // 🛡 separate barrier (cat-shield style) floating a bit ABOVE the human, orbiting toward the cursor
+    if (guarding) {
+      const scx = x, scy = y - H * 0.7, ang = Math.atan2(cursor.y - scy, cursor.x - scx)
+      drawShield(scx, scy, ang, 0.95, view.scale * HUMAN_SCALE * 0.24, 1)
+    }
   }
 
   // Black hole — cast at the cursor, fixed there for 10s, 60s cooldown. Gated by achievement.
@@ -1926,6 +2065,7 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, cW, cH)
     drawTaskbarDig()        // taskbar surface/cracks/collapse — FURTHEST BACK so missiles/ants pass in FRONT of it
     drawPlatforms()         // host-drawn floor platforms
+    stepGroundWeapons(now)  // pick-up-able weapons resting on the taskbar
     drawBlackholes(now)
     drawShields(now)
     stepProjectiles(now)
@@ -1938,6 +2078,7 @@
     stepGatling(now)
     drawGatSmoke(now)
     drawRemoteGBullets(now)
+    stepHbullets(now)
     stepHuman(now)
     drawBhDust(now)
     ctx = stagectx

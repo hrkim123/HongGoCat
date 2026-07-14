@@ -30,8 +30,10 @@ wss.on('connection', (ws, req) => {
   let joinedRoom = null
   // The client running on the SAME machine as the server (loopback) is the HOST — they get all
   // weapons unlocked. Remote friends connect from other IPs, so they can't fake it.
-  const addr = (req && req.socket && req.socket.remoteAddress) || ''
-  const isHost = addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1'
+  const raw = (req && req.socket && req.socket.remoteAddress) || ''
+  const addr = raw.replace(/^::ffff:/, '')   // normalize IPv4-mapped IPv6 (::ffff:127.0.0.1 → 127.0.0.1)
+  const isHost = addr === '::1' || addr === '127.0.0.1' || addr.startsWith('127.')
+  console.log(`[conn ${id}] from ${raw || '(unknown)'} -> host=${isHost}`)
 
   ws.on('message', (raw) => {
     let msg

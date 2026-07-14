@@ -4,7 +4,8 @@ body {
   background: #1a1a24; color: #e8e8ee;
   padding: 14px 16px; user-select: none;
 }
-h1 { font-size: 16px; margin-bottom: 12px; }
+h1 { font-size: 16px; margin-bottom: 12px; -webkit-app-region: drag; cursor: move; }
+input, select, button, summary, label { -webkit-app-region: no-drag; }
 section {
   background: #23232f; border-radius: 10px;
   padding: 12px; margin-bottom: 12px;
@@ -55,3 +56,22 @@ button.wide { width: 100%; }
 .achv.done .achv-fill { background: #7ecb7e; }
 .achv-status { font-size: 11px; color: #8a8aa0; margin-top: 4px; }
 .achv.done .achv-status { color: #8fd18f; }
+
+/* collapsible categories (default collapsed) */
+details.cat { background: #23232f; border-radius: 10px; margin-bottom: 10px; overflow: hidden; }
+details.cat > summary { list-style: none; cursor: pointer; padding: 11px 12px; font-size: 12px; color: #b6b6c8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; display: flex; align-items: center; }
+details.cat > summary::-webkit-details-marker { display: none; }
+details.cat > summary::after { content: "▸"; margin-left: auto; color: #7a7a90; transition: transform 0.15s; }
+details.cat[open] > summary::after { transform: rotate(90deg); }
+details.cat > summary:hover { color: #e8e8ee; }
+.cat-body { padding: 0 12px 12px; }
+details.cat:not([open]) > .cat-body { display: none; }   /* explicit collapse (robust across engines) */
+.cat-body > label:last-child, .cat-body > *:last-child { margin-bottom: 0; }
+section.footer { background: none; padding: 6px 0 0; margin-bottom: 0; }
+
+/* achievement reward badge — visually distinct gold pill */
+.achv-top { display: flex; align-items: center; gap: 8px; }
+.achv-name { font-size: 14px; font-weight: 700; }
+.achv-reward { margin-left: auto; font-size: 11px; font-weight: 800; color: #3a2e00; background: linear-gradient(180deg, #ffdf6b, #f4b942); border-radius: 999px; padding: 3px 9px; box-shadow: 0 1px 4px rgba(244,185,66,0.4); white-space: nowrap; }
+.achv.done .achv-reward { background: linear-gradient(180deg, #9be59b, #63c063); color: #123312; }
+.achv.done .achv-reward::after { content: " ✓ 획득"; }

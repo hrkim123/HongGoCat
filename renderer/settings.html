@@ -8,95 +8,98 @@
 <body>
   <h1>🐱 HongGoCat 설정</h1>
 
-  <section>
-    <h2>캐릭터</h2>
-    <label>이름<input id="in-name" maxlength="20" placeholder="내 이름"></label>
-    <label>털색
-      <select id="in-skin">
-        <option value="default">흰색 (기본)</option>
-        <option value="cream">크림</option>
-        <option value="gray">회색</option>
-        <option value="brown">갈색</option>
-        <option value="black">검정</option>
-        <option value="orange">치즈</option>
-        <option value="pink">분홍</option>
-        <option value="mint">민트</option>
-        <option value="lavender">라벤더</option>
-      </select>
-    </label>
-    <label>무늬
-      <select id="in-pattern">
-        <option value="solid">단색</option>
-        <option value="tabby">태비 (줄무늬)</option>
-        <option value="tuxedo">턱시도</option>
-        <option value="spotted">점박이</option>
-        <option value="point">포인트</option>
-      </select>
-    </label>
-    <label>모자
-      <select id="in-hat">
-        <option value="none">없음</option>
-        <option value="beanie">비니</option>
-        <option value="party">파티모자</option>
-        <option value="crown">왕관</option>
-        <option value="tophat">중산모</option>
-        <option value="cap">야구모자</option>
-      </select>
-    </label>
-    <label class="check"><input type="checkbox" id="in-edit"> 디자인 편집 모드 (귀·눈·꼬리 위치 조정)</label>
-  </section>
-
-  <section>
-    <h2>멀티플레이</h2>
-    <label>서버 주소<input id="in-server" placeholder="ws://localhost:8787"></label>
-    <label>방 코드<input id="in-room" maxlength="16" placeholder="예: BONGO123"></label>
-    <div class="row">
-      <button id="btn-connect">접속</button>
-      <button id="btn-disconnect" class="secondary" disabled>나가기</button>
+  <details class="cat">
+    <summary>캐릭터</summary>
+    <div class="cat-body">
+      <label>이름<input id="in-name" maxlength="20" placeholder="내 이름"></label>
+      <label>털색
+        <select id="in-skin">
+          <option value="default">흰색 (기본)</option>
+          <option value="cream">크림</option>
+          <option value="gray">회색</option>
+          <option value="brown">갈색</option>
+          <option value="black">검정</option>
+          <option value="orange">치즈</option>
+          <option value="pink">분홍</option>
+          <option value="mint">민트</option>
+          <option value="lavender">라벤더</option>
+        </select>
+      </label>
+      <label>무늬
+        <select id="in-pattern">
+          <option value="solid">단색</option>
+          <option value="tabby">태비 (줄무늬)</option>
+          <option value="tuxedo">턱시도</option>
+          <option value="spotted">점박이</option>
+          <option value="point">포인트</option>
+        </select>
+      </label>
+      <label>모자
+        <select id="in-hat">
+          <option value="none">없음</option>
+          <option value="beanie">비니</option>
+          <option value="party">파티모자</option>
+          <option value="crown">왕관</option>
+          <option value="tophat">중산모</option>
+          <option value="cap">야구모자</option>
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" id="in-edit"> 디자인 편집 모드 (귀·눈·꼬리 위치 조정)</label>
     </div>
-    <div id="status">오프라인 — 혼자 연주 중</div>
-    <div id="capacity" class="capacity">접속 인원: — / 12명</div>
-  </section>
+  </details>
 
-  <section>
-    <h2>화면</h2>
-    <button id="btn-monitor" class="wide secondary">🖥 다음 모니터로 이동</button>
-    <button id="btn-restore-bar" class="wide secondary">🧱 작업 표시줄 복구</button>
-    <p class="hint">여러 모니터가 있으면 이 버튼으로 오버레이를 옮깁니다. 캐릭터는 드래그로 그 화면 안 어디든 옮길 수 있어요. 미사일로 파인 작업 표시줄은 “복구”로 원래대로.</p>
-  </section>
+  <details class="cat">
+    <summary>멀티플레이</summary>
+    <div class="cat-body">
+      <label>서버 주소<input id="in-server" placeholder="ws://localhost:8787"></label>
+      <label>방 코드<input id="in-room" maxlength="16" placeholder="예: BONGO123"></label>
+      <div class="row">
+        <button id="btn-connect">접속</button>
+        <button id="btn-disconnect" class="secondary" disabled>나가기</button>
+      </div>
+      <div id="status">오프라인 — 혼자 연주 중</div>
+      <div id="capacity" class="capacity">접속 인원: — / 12명</div>
+    </div>
+  </details>
 
-  <section>
-    <h2>무기</h2>
-    <p class="hint">무기 구매·설명·슬롯 설정은 캐릭터 옆 <b>🛒 상점</b> 버튼에서 관리합니다.</p>
-    <button id="btn-achv" class="wide secondary" type="button">🏆 업적</button>
-  </section>
+  <details class="cat">
+    <summary>화면</summary>
+    <div class="cat-body">
+      <button id="btn-monitor" class="wide secondary">🖥 다음 모니터로 이동</button>
+      <button id="btn-restore-bar" class="wide secondary">🧱 작업 표시줄 복구</button>
+      <p class="hint">여러 모니터가 있으면 이 버튼으로 오버레이를 옮깁니다. 캐릭터는 드래그로 그 화면 안 어디든 옮길 수 있어요.</p>
+    </div>
+  </details>
 
-  <section id="host-tools" class="hidden">
-    <h2>🖌️ 호스트 도구</h2>
-    <button id="platform-mode" class="wide secondary" type="button">플랫폼 그리기 모드</button>
-    <p class="hint">켠 뒤 화면에 <b>왼쪽 클릭 드래그</b>로 바닥(플랫폼)을 그립니다. 각 획은 체력 10이며 미사일·총알에 맞으면 부서집니다. (호스트에게만 보임)</p>
-  </section>
+  <details class="cat">
+    <summary>🏆 업적</summary>
+    <div class="cat-body">
+      <div class="achv" id="achv-cathit">
+        <div class="achv-top">
+          <b class="achv-name">🎯 저격수</b>
+          <span class="achv-reward" id="achv-cathit-reward">🎁 🪙 10,000</span>
+        </div>
+        <p class="achv-desc">상대 고양이를 미사일로 500회 타격</p>
+        <div class="achv-bar"><div class="achv-fill" id="achv-cathit-fill"></div></div>
+        <div class="achv-status" id="achv-cathit-status">0 / 500</div>
+      </div>
+    </div>
+  </details>
 
-  <section>
+  <details class="cat hidden" id="host-tools">
+    <summary>🖌️ 플랫폼 그리기</summary>
+    <div class="cat-body">
+      <button id="platform-mode" class="wide secondary" type="button">플랫폼 그리기 모드</button>
+      <p class="hint">켠 뒤 화면에 <b>왼쪽 클릭 드래그</b>로 바닥(플랫폼)을 그립니다. 각 획은 체력 10이며 미사일·총알에 맞으면 부서집니다. <b>오프라인은 누구나, 접속 중엔 서버 호스트만</b> 사용할 수 있어요.</p>
+    </div>
+  </details>
+
+  <section class="footer">
     <div class="row">
       <button id="btn-chat" class="secondary">💬 채팅 열기</button>
       <button id="btn-quit" class="danger">홍고캣 종료</button>
     </div>
   </section>
-
-  <div id="achv-modal" class="modal hidden">
-    <div class="modal-card">
-      <div class="modal-head"><span>🏆 업적</span><button id="achv-modal-close" class="modal-x" type="button" aria-label="닫기">✕</button></div>
-      <div class="modal-body">
-        <div class="achv" id="achv-cathit">
-          <b>🎯 저격수</b>
-          <p>상대 고양이 미사일로 500회 타격 · 보상: 🪙 10,000</p>
-          <div class="achv-bar"><div class="achv-fill" id="achv-cathit-fill"></div></div>
-          <div class="achv-status" id="achv-cathit-status">0 / 500</div>
-        </div>
-      </div>
-    </div>
-  </div>
 
   <script src="settings.js"></script>
 </body>

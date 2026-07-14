@@ -36,7 +36,8 @@
     capacityEl.textContent = s.connected
       ? `접속 인원: ${s.count || 0} / ${max}명`
       : `접속 인원: — / ${max}명 (오프라인)`
-    const ht = $('host-tools'); if (ht) ht.classList.toggle('hidden', !s.isHost)   // host-only tools section
+    // platform tool: offline → anyone; online → host only. Hide only when connected & not host.
+    const ht = $('host-tools'); if (ht) ht.classList.toggle('hidden', !!s.connected && !s.isHost)
     // achievement: 🎯 저격수 (enemy-cat missile hits)
     const ch = s.catHits || 0, chGoal = s.catHitGoal || 500, chDone = !!s.catHitRewarded
     const chFill = $('achv-cathit-fill'), chSt = $('achv-cathit-status'), chCard = $('achv-cathit')
@@ -61,12 +62,7 @@
     if (!url || !room) { statusEl.textContent = '서버 주소와 방 코드를 입력하세요'; statusEl.style.color = '#c9a2b0'; return }
     api.toOverlay({ t: 'connect', url, room })
   }
-  const aModal = $('achv-modal')
-  $('btn-achv').onclick = () => aModal.classList.remove('hidden')
-  $('achv-modal-close').onclick = () => aModal.classList.add('hidden')
-  aModal.addEventListener('click', (e) => { if (e.target === aModal) aModal.classList.add('hidden') })
   $('platform-mode').onclick = () => api.toOverlay({ t: 'platform-mode' })
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') aModal.classList.add('hidden') })
 
   btnDisconnect.onclick = () => api.toOverlay({ t: 'disconnect' })
   $('btn-monitor').onclick = () => api.toOverlay({ t: 'next-monitor' })
