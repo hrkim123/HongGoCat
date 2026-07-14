@@ -25,9 +25,13 @@ function broadcast(code, msg, exceptId = null) {
   }
 }
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
   const id = nextId++
   let joinedRoom = null
+  // The client running on the SAME machine as the server (loopback) is the HOST — they get all
+  // weapons unlocked. Remote friends connect from other IPs, so they can't fake it.
+  const addr = (req && req.socket && req.socket.remoteAddress) || ''
+  const isHost = addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1'
 
   ws.on('message', (raw) => {
     let msg
@@ -51,7 +55,7 @@ wss.on('connection', (ws) => {
         hat: String(msg.hat || 'none').slice(0, 12)
       })
       joinedRoom = code
-      ws.send(JSON.stringify({ t: 'joined', id, room: code, max: MAX_ROOM_SIZE }))
+      ws.send(JSON.stringify({ t: 'joined', id, room: code, max: MAX_ROOM_SIZE, host: isHost }))
       broadcast(code, { t: 'roster', peers: roster(code) })
       console.log(`[room ${code}] +${id} (${room.size} in room)`)
       return
@@ -84,6 +88,8 @@ wss.on('connection', (ws) => {
       broadcast(joinedRoom, { t: 'ants', id, list: msg.list.slice(0, 5) }, id)
     } else if (msg.t === 'ant-hit') {
       broadcast(joinedRoom, { t: 'ant-hit', id, target: msg.target, ant: msg.ant, dmg: msg.dmg }, id)
+    } else if (msg.t === 'blackhole') {
+      broadcast(joinedRoom, { t: 'blackhole', id, nx: msg.nx, ny: msg.ny, ttl: msg.ttl }, id)
     } else if (msg.t === 'chat' && typeof msg.text === 'string') {
       const now = Date.now()
       if (now - (me.lastChat || 0) < 400) return // spam guard

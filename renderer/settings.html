@@ -61,21 +61,23 @@
   <section>
     <h2>화면</h2>
     <button id="btn-monitor" class="wide secondary">🖥 다음 모니터로 이동</button>
-    <p class="hint">여러 모니터가 있으면 이 버튼으로 오버레이를 옮깁니다. 캐릭터는 드래그로 그 화면 안 어디든 옮길 수 있어요.</p>
+    <button id="btn-restore-bar" class="wide secondary">🧱 작업 표시줄 복구</button>
+    <p class="hint">여러 모니터가 있으면 이 버튼으로 오버레이를 옮깁니다. 캐릭터는 드래그로 그 화면 안 어디든 옮길 수 있어요. 미사일로 파인 작업 표시줄은 “복구”로 원래대로.</p>
   </section>
 
   <section>
     <h2>무기 슬롯</h2>
     <label>Ctrl+Alt+1
-      <select id="slot-0" class="slot"><option value="none">없음</option><option value="missile">🚀 미사일</option><option value="shield">🛡 쉴드</option><option value="ant">🐜 개미</option></select>
+      <select id="slot-0" class="slot"><option value="none">없음</option><option value="missile">🚀 미사일</option><option value="shield">🛡 쉴드</option><option value="ant">🐜 개미</option><option value="blackhole">🕳 블랙홀</option></select>
     </label>
     <label>Ctrl+Alt+2
-      <select id="slot-1" class="slot"><option value="none">없음</option><option value="missile">🚀 미사일</option><option value="shield">🛡 쉴드</option><option value="ant">🐜 개미</option></select>
+      <select id="slot-1" class="slot"><option value="none">없음</option><option value="missile">🚀 미사일</option><option value="shield">🛡 쉴드</option><option value="ant">🐜 개미</option><option value="blackhole">🕳 블랙홀</option></select>
     </label>
     <label>Ctrl+Alt+3
-      <select id="slot-2" class="slot"><option value="none">없음</option><option value="missile">🚀 미사일</option><option value="shield">🛡 쉴드</option><option value="ant">🐜 개미</option></select>
+      <select id="slot-2" class="slot"><option value="none">없음</option><option value="missile">🚀 미사일</option><option value="shield">🛡 쉴드</option><option value="ant">🐜 개미</option><option value="blackhole">🕳 블랙홀</option></select>
     </label>
     <button id="btn-weapon-info" class="wide secondary" type="button">ⓘ 무기 설명 보기</button>
+    <button id="btn-achv" class="wide secondary" type="button">🏆 업적</button>
   </section>
 
   <section>
@@ -92,7 +94,26 @@
         <div class="wpn"><b>🚀 미사일</b><p>커서를 따라가 명중 시 폭발(폭발 범위 안 대상에 피해). 여러 발이 겹치면 합쳐져 커지고 황금색이 됩니다. <b>왼쪽 클릭</b> 시 마지막 방향으로 <b>3배 속도</b> 부스터.</p></div>
         <div class="wpn"><b>🛡 쉴드</b><p>커서 방향에 떠 있는 방패를 <b>10초</b>간 소환해 미사일을 막습니다. 체력 10 — 맞을수록 금이 가다 깨지고, 이후 <b>3초 쿨타임</b>.</p></div>
         <div class="wpn"><b>🐜 개미</b><p>커서 위치에 소환(<b>최대 5마리</b>). 작업 표시줄 위를 기어다니고, 상대 개미가 있으면 서로 싸웁니다. 체력 3(3번 맞으면 사망), 미사일로도 처치 가능.</p></div>
+        <div class="wpn"><b>🕳 블랙홀</b><p>커서 위치에 <b>10초</b>간 소환(쿨타임 60초). 범위 안의 미사일·개미를 중심으로 빨아들이며(중심에 가까울수록 강함), 중심에 닿으면 입자화돼 사라집니다. <b>업적 “개미 학살자” 달성 시 해금</b>.</p></div>
         <p class="modal-note">단축키: Ctrl+Alt+1 / 2 / 3 으로 각 슬롯 무기를 사용</p>
+      </div>
+    </div>
+  </div>
+
+  <div id="achv-modal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head"><span>🏆 업적</span><button id="achv-modal-close" class="modal-x" type="button" aria-label="닫기">✕</button></div>
+      <div class="modal-body">
+        <div class="achv" id="achv-antslayer">
+          <b>🐜 개미 학살자</b>
+          <p>개미 100마리 처치 · 보상: 🕳 블랙홀 해금</p>
+          <div class="achv-bar"><div class="achv-fill" id="achv-antslayer-fill"></div></div>
+          <div class="achv-status" id="achv-antslayer-status">0 / 100</div>
+        </div>
+        <div id="achv-debug" class="hidden">
+          <p class="modal-note">호스트 디버그(테스트용)</p>
+          <div class="row"><button id="achv-add" class="secondary" type="button">＋10 처치</button><button id="achv-reset" class="danger" type="button">업적 초기화</button></div>
+        </div>
       </div>
     </div>
   </div>

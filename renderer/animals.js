@@ -196,17 +196,18 @@
   function drawBubble(ctx, text, cx, headTopY, now, until) {
     const alpha = Math.max(0, Math.min(1, (until - now) / 400))
     ctx.save(); ctx.globalAlpha = alpha
-    ctx.font = '13px "Segoe UI", "Malgun Gothic", sans-serif'
-    const lines = wrapText(ctx, text, 180, 2); const lineH = 17
-    const w = Math.max(...lines.map(l => ctx.measureText(l).width)) + 22
-    const h = lines.length * lineH + 12
-    const x = Math.max(4, Math.min(cx - w / 2, 236 - w)); const y = BUBBLE_H - h + 2
+    ctx.font = '600 16px "Segoe UI", "Malgun Gothic", sans-serif'
+    const lines = wrapText(ctx, text, 190, 2); const lineH = 20
+    const w = Math.max(...lines.map(l => ctx.measureText(l).width)) + 26
+    const h = lines.length * lineH + 14
+    const x = Math.max(4, Math.min(cx - w / 2, 236 - w)); const y = headTopY - h - 14  // sit just above the head
     ctx.fillStyle = '#fff'; ctx.strokeStyle = 'rgba(60,55,70,0.25)'; ctx.lineWidth = 1.5
-    rr(ctx, x, y, w, h, 10); ctx.fill(); ctx.stroke()
+    rr(ctx, x, y, w, h, 12); ctx.fill(); ctx.stroke()
     const tailTip = Math.min(headTopY - 2, y + h + 10)
-    ctx.beginPath(); ctx.moveTo(cx - 7, y + h - 1); ctx.lineTo(cx, tailTip); ctx.lineTo(cx + 7, y + h - 1); ctx.closePath(); ctx.fill()
+    ctx.beginPath(); ctx.moveTo(cx - 8, y + h - 1); ctx.lineTo(cx, tailTip); ctx.lineTo(cx + 8, y + h - 1); ctx.closePath(); ctx.fill()
     ctx.fillStyle = '#33313a'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-    lines.forEach((l, i) => ctx.fillText(l, x + w / 2, y + 9 + i * lineH))
+    const cyB = y + h / 2  // vertically center the text block inside the bubble
+    lines.forEach((l, i) => ctx.fillText(l, x + w / 2, cyB + (i - (lines.length - 1) / 2) * lineH))
     ctx.restore()
   }
 
@@ -355,7 +356,7 @@
     ctx.fillStyle = 'rgba(0,0,0,0.10)'; ctx.fillRect(0, deskY + 3, CELL_W, 2)
 
     // keyboard (slightly larger)
-    const kbX = cx - 52, kbW = 104, kbY = deskY + 6, kbH = 24
+    const kbX = cx - 52, kbW = 104, kbY = deskY + 4, kbH = 20
     rr(ctx, kbX, kbY, kbW, kbH, 5); ink(ctx, '#4a4e5a', 2)
     ctx.fillStyle = '#6b7080'
     const cols = 8, rows = 3, pad = 5, gap = 2.2
@@ -388,14 +389,13 @@
 
     // nameplate — a small dark plate on the front strip of the desk (readable, off the keyboard)
     if (state.name) {
-      ctx.font = '700 12px "Segoe UI", "Malgun Gothic", sans-serif'
+      ctx.font = '700 17px "Segoe UI", "Malgun Gothic", sans-serif'
       const tw = ctx.measureText(state.name).width
-      const ph = 16, pw = Math.min(150, Math.max(34, tw + 20))
-      const nx = cx - pw / 2, ny = deskY + BAR_VIS - ph - 3
-      rr(ctx, nx, ny, pw, ph, 8)
+      const ph = 22, pw = Math.min(168, Math.max(44, tw + 22))
+      const nx = cx - pw / 2, ny = deskY + BAR_VIS - ph - 1
+      rr(ctx, nx, ny, pw, ph, 9)
       ctx.fillStyle = 'rgba(38,30,26,0.92)'; ctx.fill()
       ctx.strokeStyle = 'rgba(255,255,255,0.22)'; ctx.lineWidth = 1; ctx.stroke()
-      ctx.font = '600 12px "Segoe UI", "Malgun Gothic", sans-serif'
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
       ctx.fillStyle = '#ffe9c7'; ctx.fillText(state.name, cx, ny + ph / 2 + 0.5)
       ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'

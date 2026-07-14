@@ -31,8 +31,28 @@
     capacityEl.textContent = s.connected
       ? `접속 인원: ${s.count || 0} / ${max}명`
       : `접속 인원: — / ${max}명 (오프라인)`
+    updateAchievements(s)
     ready = true
   })
+
+  // ----- achievements + weapon gating -----
+  function updateAchievements(s) {
+    const kills = s.antKills || 0, goal = s.antGoal || 100, bhOk = !!s.bhAvailable
+    // gate the black-hole option in each slot dropdown (locked until unlocked/host)
+    slotSel.forEach((sel) => {
+      const opt = sel && sel.querySelector('option[value="blackhole"]')
+      if (!opt) return
+      opt.disabled = !bhOk
+      opt.textContent = bhOk ? '🕳 블랙홀' : `🕳 블랙홀 🔒 (개미 ${kills}/${goal})`
+    })
+    // achievement modal progress
+    const fill = $('achv-antslayer-fill'), st = $('achv-antslayer-status'), card = $('achv-antslayer')
+    if (fill) fill.style.width = Math.min(100, (kills / goal) * 100) + '%'
+    const done = kills >= goal || s.isHost
+    if (st) st.textContent = s.isHost ? '호스트 — 해금됨' : (done ? `달성! ${kills} / ${goal} ✓` : `${kills} / ${goal}`)
+    if (card) card.classList.toggle('done', done)
+    const dbg = $('achv-debug'); if (dbg) dbg.classList.toggle('hidden', !s.isHost)
+  }
 
   function sendProfile() {
     api.toOverlay({ t: 'profile', name: inName.value, skin: inSkin.value, pattern: inPattern.value, hat: inHat.value })
@@ -55,10 +75,18 @@
   $('btn-weapon-info').onclick = () => wModal.classList.remove('hidden')
   $('weapon-modal-close').onclick = () => wModal.classList.add('hidden')
   wModal.addEventListener('click', (e) => { if (e.target === wModal) wModal.classList.add('hidden') })
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') wModal.classList.add('hidden') })
+
+  const aModal = $('achv-modal')
+  $('btn-achv').onclick = () => aModal.classList.remove('hidden')
+  $('achv-modal-close').onclick = () => aModal.classList.add('hidden')
+  aModal.addEventListener('click', (e) => { if (e.target === aModal) aModal.classList.add('hidden') })
+  $('achv-add').onclick = () => api.toOverlay({ t: 'achv-add', n: 10 })
+  $('achv-reset').onclick = () => api.toOverlay({ t: 'achv-reset' })
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { wModal.classList.add('hidden'); aModal.classList.add('hidden') } })
 
   btnDisconnect.onclick = () => api.toOverlay({ t: 'disconnect' })
   $('btn-monitor').onclick = () => api.toOverlay({ t: 'next-monitor' })
+  $('btn-restore-bar').onclick = () => api.toOverlay({ t: 'reset-taskbar' })
   $('btn-chat').onclick = () => api.toOverlay({ t: 'chat' })
   $('btn-quit').onclick = () => api.toOverlay({ t: 'quit' })
 

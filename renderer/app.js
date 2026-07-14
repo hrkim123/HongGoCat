@@ -19,7 +19,21 @@
   try { savedFeat = JSON.parse(localStorage.getItem('feat') || '{}') } catch {}
 
   // Weapons registry (extensible — add new weapons here + a case in fireWeapon()).
-  const WEAPONS = { none: '없음', missile: '🚀 미사일', shield: '🛡 쉴드', ant: '🐜 개미' }
+  const WEAPONS = { none: '없음', missile: '🚀 미사일', shield: '🛡 쉴드', ant: '🐜 개미', blackhole: '🕳 블랙홀' }
+  // 🕳 Black hole: cast at the cursor, fixed for 10s, 60s cooldown. Pulls missiles/ants within
+  // its radius toward the center (stronger nearer); reaching the core dust-particles them away.
+  const BH_DUR = 10000, BH_CD = 60000
+  const BH_R = 0.12     // radius as a fraction of screen width (~one preset cell)
+  const BH_CORE = 0.02  // core radius (fraction) — objects here get consumed
+  const remoteBlackholes = new Map()  // peerId -> { nx, ny, until }
+  const bhDust = []                   // consumption particles (spiral into center + fade)
+  // achievement: kill 100 ants to unlock the black hole. antKills persists in localStorage.
+  const ANT_KILL_GOAL = 100
+  let antKills = parseInt(localStorage.getItem('antKills') || '0', 10) || 0
+  let isHost = localStorage.getItem('host') === '1'   // set true by the SERVER (loopback client)
+  let bhNotified = localStorage.getItem('bhNotified') === '1'
+  // black hole usable if you're the host OR you've earned the achievement
+  function bhAvailable() { return isHost || antKills >= ANT_KILL_GOAL }
   const SHIELD_DUR = 10000, SHIELD_CD = 3000      // 10s active, then 3s cooldown
   // A real "shield plate" that floats OUT in front of the cat (not a sector from the center)
   // and orbits toward the cursor. SHIELD_DIST = how far out it hovers; SHIELD_SPAN = its
@@ -87,6 +101,7 @@
   }
   renderCounter()
   setInterval(() => { if (counterDirty) { localStorage.setItem('taps', String(tapCount)); counterDirty = false } }, 1000)
+  setInterval(() => { if (carveDirty) { try { localStorage.setItem('bardig', JSON.stringify((carve || []).map((v) => Math.round(v)))) } catch {} carveDirty = false } }, 1500)
   window.addEventListener('beforeunload', () => localStorage.setItem('taps', String(tapCount)))
 
   let net = null, sendBudget = 0, budgetRefill = performance.now()
@@ -120,7 +135,11 @@
     ws.onopen = () => ws.send(JSON.stringify(Object.assign({ t: 'join', room }, profileMsg())))
     ws.onmessage = (ev) => {
       let msg; try { msg = JSON.parse(ev.data) } catch { return }
-      if (msg.t === 'joined') { me.netId = msg.id; roomMax = msg.max || 12; setStatus(`방 ${msg.room} 접속됨`) }
+      if (msg.t === 'joined') {
+        me.netId = msg.id; roomMax = msg.max || 12; setStatus(`방 ${msg.room} 접속됨`)
+        // the SERVER decides host (loopback client) — persist it so all weapons stay unlocked
+        if (msg.host && !isHost) { isHost = true; localStorage.setItem('host', '1'); pushState() }
+      }
       else if (msg.t === 'roster') {
         roomCount = msg.peers.length   // includes me
         const seen = new Set()
@@ -147,14 +166,18 @@
       else if (msg.t === 'shield-hit') { if (msg.target === me.netId) hitMyShield(msg.power || 1) }
       else if (msg.t === 'ants') { mergeRemote(remoteAnts, msg.id, msg.list, 'nx', 'nx') }
       else if (msg.t === 'ant-hit') { if (msg.target === me.netId) { const a = ants.find((x) => x.id === msg.ant); if (a) antTakeDmg(a, msg.dmg || 1) } }
+      else if (msg.t === 'blackhole') {
+        if (msg.ttl > 0) remoteBlackholes.set(msg.id, { nx: msg.nx, ny: msg.ny, until: performance.now() + msg.ttl })
+        else remoteBlackholes.delete(msg.id)
+      }
       else if (msg.t === 'error' && msg.reason === 'room_full') { setStatus('방이 가득 찼어요'); ws.close() }
     }
-    ws.onclose = () => { if (net === ws) { net = null; peers.clear(); remoteAnts.clear(); me.netId = undefined; roomCount = 0; setStatus('오프라인 — 혼자 연주 중') } }
+    ws.onclose = () => { if (net === ws) { net = null; peers.clear(); remoteAnts.clear(); remoteBlackholes.clear(); me.netId = undefined; roomCount = 0; setStatus('오프라인 — 혼자 연주 중') } }
     ws.onerror = () => setStatus('접속 실패')
   }
   function disconnect() {
     if (net) { const ws = net; net = null; ws.close() }
-    peers.clear(); remoteMissiles.clear(); remoteShields.clear(); remoteAnts.clear(); me.netId = undefined; roomCount = 0
+    peers.clear(); remoteMissiles.clear(); remoteShields.clear(); remoteAnts.clear(); remoteBlackholes.clear(); me.netId = undefined; roomCount = 0
   }
   function sendUpdate() {
     if (connected()) net.send(JSON.stringify(Object.assign({ t: 'update' }, profileMsg())))
@@ -198,7 +221,8 @@
       server: localStorage.getItem('server') || 'ws://localhost:8787',
       room: localStorage.getItem('room') || '',
       connected: connected(), status, editing,
-      count: connected() ? roomCount : 0, max: roomMax
+      count: connected() ? roomCount : 0, max: roomMax,
+      antKills, antGoal: ANT_KILL_GOAL, isHost, bhAvailable: bhAvailable()
     })
   }
 
@@ -223,18 +247,24 @@
       if (Array.isArray(msg.slots)) { me.slots = msg.slots.slice(0, 3); while (me.slots.length < 3) me.slots.push('none'); localStorage.setItem('slots', JSON.stringify(me.slots)); pushState() }
     }
     else if (msg.t === 'update-ready') { showUpdateToast(msg.version) }
+    else if (msg.t === 'achv-add') { for (let k = 0; k < (msg.n || 10); k++) addAntKill() }
+    else if (msg.t === 'achv-reset') { antKills = 0; bhNotified = false; localStorage.setItem('antKills', '0'); localStorage.removeItem('bhNotified'); pushState() }
+    else if (msg.t === 'reset-taskbar') { resetTaskbarDig() }
     else if (msg.t === 'quit') { inputSource.quit() }
   })
 
   // "new version ready" toast (shown when an update downloads while the app is running)
   const updateToast = document.getElementById('update-toast')
   let updateToastTimer = null
-  function showUpdateToast(version) {
+  function showToast(text, ms) {
     if (!updateToast) return
-    updateToast.textContent = `🎉 새 버전${version ? ' v' + version : ''} 준비됨 · 앱 재시작 시 적용`
+    updateToast.textContent = text
     updateToast.classList.remove('hidden')
     clearTimeout(updateToastTimer)
-    updateToastTimer = setTimeout(() => updateToast.classList.add('hidden'), 30000)
+    updateToastTimer = setTimeout(() => updateToast.classList.add('hidden'), ms || 30000)
+  }
+  function showUpdateToast(version) {
+    showToast(`🎉 새 버전${version ? ' v' + version : ''} 준비됨 · 앱 재시작 시 적용`)
   }
 
   // ---------- edit mode (drag feature positions) ----------
@@ -299,7 +329,7 @@
   const cursor = { x: 0, y: 0 } // full-screen cursor (for homing missiles + hover)
   let nextMid = 1
   const remoteMissiles = new Map() // peerId -> { items: Map(id->{...,sx,sy,ang}), ts }
-  const SMOOTH = 0.3               // per-frame lerp toward the latest received position
+  const SMOOTH = 0.4               // per-frame lerp toward the latest received position
 
   // Merge an incoming list of {id,...} into a persistent per-peer Map, seeding smoothed
   // display coords (sx,sy). Remote entities arrive every ~90ms; we glide toward them each
@@ -363,7 +393,99 @@
     if (id === 'missile') fireHoming()
     else if (id === 'shield') activateShield()
     else if (id === 'ant') summonAnt()
+    else if (id === 'blackhole') activateBlackhole()
     // future: else if (id === 'rock') fireRock() ...
+  }
+
+  // Black hole — cast at the cursor, fixed there for 10s, 60s cooldown. Gated by achievement.
+  function activateBlackhole() {
+    if (!bhAvailable()) return
+    const now = performance.now()
+    if (now < (me.bhCdUntil || 0)) return   // active or on cooldown
+    me.bhX = cursor.x; me.bhY = cursor.y
+    me.bhUntil = now + BH_DUR
+    me.bhCdUntil = now + BH_DUR + BH_CD
+  }
+  // all active black holes (mine + peers') as {x,y,r,mine} in screen coords
+  function activeBlackholes(now) {
+    const W = canvas.clientWidth, H = canvas.clientHeight, r = BH_R * W, list = []
+    if (me.bhUntil && now < me.bhUntil) list.push({ x: me.bhX, y: me.bhY, r, mine: true })
+    for (const [, b] of remoteBlackholes) if (now < b.until) list.push({ x: b.nx * W, y: b.ny * H, r, mine: false })
+    return list
+  }
+  // Bopl-battle-style vortex: dark core + rotating accretion disk + spiral arms + glow.
+  function drawBlackholes(now) {
+    for (const b of activeBlackholes(now)) {
+      const R = b.r, sp = now / 260
+      ctx.save(); ctx.translate(b.x, b.y)
+      // pull glow
+      const g = ctx.createRadialGradient(0, 0, R * 0.12, 0, 0, R)
+      g.addColorStop(0, 'rgba(120,70,200,0.45)'); g.addColorStop(0.6, 'rgba(80,40,150,0.18)'); g.addColorStop(1, 'rgba(60,30,120,0)')
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, R, 0, Math.PI * 2); ctx.fill()
+      // spiral arms
+      ctx.strokeStyle = 'rgba(190,150,255,0.55)'; ctx.lineWidth = 2 * view.scale; ctx.lineCap = 'round'
+      for (let s = 0; s < 3; s++) {
+        ctx.beginPath()
+        for (let k = 0; k <= 24; k++) {
+          const f = k / 24, rr = R * 0.9 * f, ang = sp + s * (Math.PI * 2 / 3) + f * 6
+          const px = Math.cos(ang) * rr, py = Math.sin(ang) * rr
+          if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py)
+        }
+        ctx.globalAlpha = 0.7; ctx.stroke(); ctx.globalAlpha = 1
+      }
+      // accretion ring
+      ctx.strokeStyle = 'rgba(210,180,255,0.85)'; ctx.lineWidth = 3 * view.scale
+      ctx.beginPath(); ctx.ellipse(0, 0, R * 0.42, R * 0.30, sp * 0.5, 0, Math.PI * 2); ctx.stroke()
+      // dark core
+      const cg = ctx.createRadialGradient(0, 0, 0, 0, 0, R * 0.28)
+      cg.addColorStop(0, '#000'); cg.addColorStop(0.7, '#05010f'); cg.addColorStop(1, 'rgba(20,8,40,0.2)')
+      ctx.fillStyle = cg; ctx.beginPath(); ctx.arc(0, 0, R * 0.28, 0, Math.PI * 2); ctx.fill()
+      ctx.restore()
+    }
+  }
+  // Pull a moving object {x,y,vx,vy} toward any black hole it's within; returns the hole that
+  // consumed it (reached the core) or null. Force grows sharply toward the center.
+  function blackholePull(o, now) {
+    const W = canvas.clientWidth, core = BH_CORE * W
+    for (const b of activeBlackholes(now)) {
+      const dx = b.x - o.x, dy = b.y - o.y, d = Math.hypot(dx, dy) || 0.001
+      if (d > b.r) continue
+      if (d < core) return b                       // consumed
+      const t = 1 - d / b.r                         // 0 at rim → 1 near center
+      const accel = 0.4 + t * t * 3.2               // stronger near the center
+      o.vx += (dx / d) * accel; o.vy += (dy / d) * accel
+    }
+    return null
+  }
+  // dust burst: an object turns to particles that spiral into the hole center and fade
+  function spawnDustToHole(x, y, hole) {
+    for (let k = 0; k < 10; k++) {
+      const a = Math.random() * Math.PI * 2, sp = 0.5 + Math.random() * 1.5
+      bhDust.push({ x: x + Math.cos(a) * 6, y: y + Math.sin(a) * 6, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+        hx: hole.x, hy: hole.y, born: performance.now(), life: 500 + Math.random() * 250 })
+    }
+  }
+  function drawBhDust(now) {
+    for (let i = bhDust.length - 1; i >= 0; i--) {
+      const p = bhDust[i], t = (now - p.born) / p.life
+      if (t >= 1) { bhDust.splice(i, 1); continue }
+      const dx = p.hx - p.x, dy = p.hy - p.y, d = Math.hypot(dx, dy) || 1   // accelerate inward + swirl
+      p.vx += (dx / d) * 0.9 - dy / d * 0.5; p.vy += (dy / d) * 0.9 + dx / d * 0.5
+      p.vx *= 0.9; p.vy *= 0.9; p.x += p.vx; p.y += p.vy
+      ctx.save(); ctx.globalAlpha = (1 - t) * 0.9
+      ctx.fillStyle = '#c9a9ff'; ctx.beginPath(); ctx.arc(p.x, p.y, 2 * view.scale, 0, Math.PI * 2); ctx.fill()
+      ctx.restore()
+    }
+  }
+  // register an ant kill toward the achievement; unlock + notify at the goal
+  function addAntKill() {
+    antKills++
+    localStorage.setItem('antKills', String(antKills))
+    if (!isHost && !bhNotified && antKills >= ANT_KILL_GOAL) {
+      bhNotified = true; localStorage.setItem('bhNotified', '1')
+      showToast('🎉 업적 달성! 개미 학살자 — 🕳 블랙홀 해금!')
+    }
+    pushState()
   }
 
   // Shield: a compact 118° FILLED sector in front of the cat, facing the cursor. Blocks
@@ -510,9 +632,12 @@
   // The overlay covers the whole monitor (incl. the taskbar) and sits above it, so we can
   // paint cracks/debris over the taskbar strip when a missile explodes there. We can't
   // touch the real taskbar — this is purely cosmetic overlay art.
-  const cracks = []          // { x, y, born, seed, r }
   const debris = []          // { x, y, vx, vy, born, life, sz, color }
-  const CRACK_LIFE = 7000
+  // taskbar "dig" heightmap — persistent carved depth per CARVE_SEG-wide column (like shooting
+  // a game's ground). Accumulates + deepens with hits; restored via the settings button.
+  const CARVE_SEG = 6
+  let carve = null, carveDirty = false
+  try { const a = JSON.parse(localStorage.getItem('bardig') || 'null'); if (Array.isArray(a)) carve = a } catch {}
   function taskbarRect() {
     if (!primaryRect) return null
     const H = canvas.clientHeight
@@ -531,32 +656,52 @@
       debris.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 2, born: performance.now(), life: 650 + Math.random() * 300, sz: 1.5 + Math.random() * 2.5, color: color || '#2a2a30' })
     }
   }
-  function spawnCrack(x) {
-    const tb = taskbarRect(); const cy = tb ? tb.top + 3 : canvas.clientHeight - 20
-    cracks.push({ x, y: cy, born: performance.now(), seed: Math.random() * 1000, r: 20 + Math.random() * 18 })
-    if (cracks.length > 26) cracks.shift()
-    spawnDebris(x, cy, 7, '#3a3a42')
-  }
-  function drawCracks(now) {
-    for (let i = cracks.length - 1; i >= 0; i--) {
-      const ck = cracks[i], t = (now - ck.born) / CRACK_LIFE
-      if (t >= 1) { cracks.splice(i, 1); continue }
-      ctx.save(); ctx.translate(ck.x, ck.y); ctx.globalAlpha = (1 - t) * 0.9
-      ctx.fillStyle = 'rgba(10,10,14,0.7)'; ctx.beginPath(); ctx.arc(0, 0, 4, 0, Math.PI * 2); ctx.fill()
-      const spokes = 7
-      for (let s = 0; s < spokes; s++) {
-        const ang = Math.PI + (s / (spokes - 1)) * Math.PI + (frnd(ck.seed + s) - 0.5) * 0.5  // fan upward over the bar
-        const segs = 3 + Math.floor(frnd(ck.seed + s * 2) * 3)
-        ctx.beginPath(); ctx.moveTo(0, 0)
-        for (let g = 1; g <= segs; g++) {
-          const rr = (ck.r * g) / segs, j = (frnd(ck.seed + s + g * 7) - 0.5) * 8
-          ctx.lineTo(Math.cos(ang) * rr - Math.sin(ang) * j, Math.sin(ang) * rr + Math.cos(ang) * j)
-        }
-        ctx.strokeStyle = 'rgba(18,18,24,0.85)'; ctx.lineWidth = 1.6; ctx.stroke()
-        ctx.strokeStyle = 'rgba(230,235,245,0.35)'; ctx.lineWidth = 0.7; ctx.stroke()
-      }
-      ctx.restore()
+  function ensureCarve() {
+    const segs = Math.max(1, Math.ceil(canvas.clientWidth / CARVE_SEG))
+    if (!carve || carve.length !== segs) {
+      const old = carve; carve = new Array(segs).fill(0)
+      if (old) for (let i = 0; i < Math.min(old.length, segs); i++) carve[i] = old[i]
     }
+    return carve
+  }
+  // gouge the taskbar at x — deepens (accumulates) a crater; capped at ~taskbar height
+  function carveTaskbar(x, power) {
+    const tb = taskbarRect(); if (!tb) return
+    ensureCarve()
+    const ci = Math.round(x / CARVE_SEG), rad = 5 + Math.min(power, 6) * 2, maxD = tb.h * 0.72
+    for (let s = ci - rad; s <= ci + rad; s++) {
+      if (s < 0 || s >= carve.length) continue
+      const f = 1 - Math.abs(s - ci) / (rad + 1)
+      carve[s] = Math.min(maxD, carve[s] + (7 + power * 4) * f * f)
+    }
+    carveDirty = true
+    spawnDebris(x, tb.top + 3, 8, '#3a3a42')
+  }
+  function resetTaskbarDig() { carve = null; ensureCarve(); localStorage.removeItem('bardig'); carveDirty = false }
+  // draw the accumulated pits: dark excavated region between the surface (tb.top) and the
+  // carved profile (tb.top + carve[s]), with a rough chipped rim
+  function drawTaskbarDig() {
+    const tb = taskbarRect(); if (!tb || !carve) return
+    const W = canvas.clientWidth
+    let any = false; for (let s = 0; s < carve.length; s++) if (carve[s] > 0.5) { any = true; break }
+    if (!any) return
+    const prof = (s) => tb.top + carve[s] + (carve[s] > 0.5 ? (frnd(s) - 0.5) * 3 : 0)
+    ctx.save()
+    ctx.beginPath(); ctx.moveTo(0, tb.top)
+    for (let s = 0; s < carve.length; s++) ctx.lineTo(s * CARVE_SEG, prof(s))
+    ctx.lineTo(W, tb.top); ctx.closePath()
+    const g = ctx.createLinearGradient(0, tb.top, 0, tb.top + tb.h)
+    g.addColorStop(0, 'rgba(6,5,9,0.95)'); g.addColorStop(1, 'rgba(14,12,20,0.85)')
+    ctx.fillStyle = g; ctx.fill()
+    // chipped rim highlight along the dug edge
+    ctx.beginPath(); let down = false
+    for (let s = 0; s < carve.length; s++) {
+      const x = s * CARVE_SEG
+      if (carve[s] > 0.5) { if (!down) { ctx.moveTo(x, prof(s)); down = true } else ctx.lineTo(x, prof(s)) }
+      else down = false
+    }
+    ctx.strokeStyle = 'rgba(200,205,220,0.4)'; ctx.lineWidth = 1.4; ctx.lineCap = 'round'; ctx.stroke()
+    ctx.restore()
   }
   function drawDebris(now) {
     const tb = taskbarRect(); const floor = tb ? tb.top + tb.h - 2 : canvas.clientHeight - 2
@@ -569,7 +714,7 @@
       ctx.fillRect(d.x - d.sz / 2, d.y - d.sz / 2, d.sz, d.sz); ctx.restore()
     }
   }
-  function drawTaskbarFX(now) { drawCracks(now); drawDebris(now) }
+  function drawTaskbarFX(now) { drawTaskbarDig(); drawDebris(now) }
 
   // ---------- ants (🐜) — crawl on the taskbar, fight enemy ants, die in 3 hits ----------
   const ants = []              // MY ants (I simulate them authoritatively)
@@ -577,6 +722,9 @@
   const MAX_ANTS = 5
   const ANT_HP = 3
   const ANT_DRAW = 2   // ant visual size multiplier (on top of view.scale)
+  // per-player ant color — tied to the owner's fur skin so each player's ants are distinct
+  const ANT_COLORS = { default: '#5b5b66', cream: '#caa96a', gray: '#7b8290', brown: '#7a4a2a', black: '#26262e', orange: '#e0862a', pink: '#e06a95', mint: '#2fa98c', lavender: '#8f6ad6' }
+  function antColor(skin) { return ANT_COLORS[skin] || ANT_COLORS.default }
   let nextAntId = 1
   // Ants stand ON the taskbar's top boundary line (feet on the line, body above it) — not
   // sunk inside the bar. Falls back to the screen bottom if there's no detectable taskbar.
@@ -628,7 +776,7 @@
     return null
   }
   function stepAnts(now) {
-    const gy = antGroundY(), W = canvas.clientWidth
+    const gy = antGroundY(), W = canvas.clientWidth, myCol = antColor(me.skin)
     for (let i = ants.length - 1; i >= 0; i--) {
       const a = ants[i]
       if (a.dead) {
@@ -636,16 +784,27 @@
         else drawAntCorpse(a, now)
         continue
       }
+      // black hole pull overrides falling + AI; reaching the core dust-consumes the ant
+      let hole = null, hbest = Infinity
+      for (const b of activeBlackholes(now)) { const dd = Math.hypot(b.x - a.x, b.y - a.y); if (dd <= b.r && dd < hbest) { hbest = dd; hole = b } }
+      if (hole) {
+        const dx = hole.x - a.x, dy = hole.y - a.y, d = hbest || 1
+        if (d < BH_CORE * W) { spawnDustToHole(a.x, a.y, hole); if (hole.mine) addAntKill(); ants.splice(i, 1); continue }
+        const sp = 1.2 + (1 - d / hole.r) * 5
+        a.x += (dx / d) * sp; a.y += (dy / d) * sp; a.onGround = false
+        a.dir = dx >= 0 ? 1 : -1; a.step += 0.4
+        drawAnt(a, now, false, myCol); continue
+      }
       if (!a.onGround) {                        // fall from the cursor onto the bar
         a.vy += 0.5; a.y += a.vy
         if (a.y >= gy) { a.y = gy; a.vy = 0; a.onGround = true }
-        drawAnt(a, now, false, false); continue
+        drawAnt(a, now, false, myCol); continue
       }
       const enemy = nearestEnemyAnt(a.x)
       let moving = true
-      if (enemy && Math.abs(enemy.s.x - a.x) < 400) {
+      if (enemy) {                              // always march toward the nearest enemy ant
         a.dir = enemy.s.x >= a.x ? 1 : -1
-        if (Math.abs(enemy.s.x - a.x) <= 16) {  // melee
+        if (Math.abs(enemy.s.x - a.x) <= 22) {  // melee range (ants are ~2x now)
           moving = false
           if (now >= a.atkCd) { a.atkCd = now + 600; if (connected()) net.send(JSON.stringify({ t: 'ant-hit', target: enemy.pid, ant: enemy.s.id, dmg: 1 })) }
         }
@@ -654,25 +813,26 @@
       }
       if (moving) { a.x += a.dir * 0.9; if (a.x < 8) { a.x = 8; a.dir = 1 } if (a.x > W - 8) { a.x = W - 8; a.dir = -1 } a.step += 0.35 }
       a.y = gy
-      drawAnt(a, now, !moving, false)
+      drawAnt(a, now, !moving, myCol)
     }
   }
   function drawRemoteAnts(now) {
     const W = canvas.clientWidth, gy = antGroundY()
     for (const [pid, rec] of [...remoteAnts]) {
       if (now - rec.ts > 1000) { remoteAnts.delete(pid); continue }
+      const col = antColor((peers.get(pid) || {}).tint)   // color by that peer's fur skin
       for (const a of rec.items.values()) {
         if (a.dead) continue
         const px = a.sx
         a.sx += (a.nx - a.sx) * SMOOTH   // glide toward latest (normalized X)
         if (a.sx - px > 0.001) a.dir = 1; else if (a.sx - px < -0.001) a.dir = -1
-        drawAnt({ x: a.sx * W, y: gy, dir: a.dir, step: now / 90, hp: a.hp }, now, false, true)
+        drawAnt({ x: a.sx * W, y: gy, dir: a.dir, step: now / 90, hp: a.hp }, now, false, col)
       }
     }
   }
-  function drawAnt(a, now, fighting, enemy) {
+  function drawAnt(a, now, fighting, color) {
     const s = view.scale * ANT_DRAW, dir = a.dir || 1
-    const body = enemy ? '#3d1618' : '#1b1b22', leg = enemy ? '#2a0f10' : '#15151a'
+    const body = color || '#5b5b66', leg = 'rgba(18,16,24,0.9)'   // body = owner color, dark legs
     ctx.save(); ctx.translate(a.x, a.y); ctx.scale(s * dir, s)
     ctx.strokeStyle = leg; ctx.lineWidth = 1.1; ctx.lineCap = 'round'
     for (let L = -1; L <= 1; L++) {
@@ -826,7 +986,7 @@
   function addEffect(x, y, power) {
     effects.push({ x, y, born: performance.now(), dur: 520, power: power || 1 })
     if (effects.length > MAX_EFFECTS) effects.splice(0, effects.length - MAX_EFFECTS)
-    if (inTaskbar(x, y)) spawnCrack(x)   // blasting the taskbar leaves a crack + debris
+    if (inTaskbar(x, y)) carveTaskbar(x, power || 1)   // blasting the taskbar gouges it (accumulates)
   }
 
   // The blast's damage radius matches the explosion's visual size (grows with power).
@@ -849,7 +1009,7 @@
   function explode(x, y, power) {
     addEffect(x, y, power)
     const R = blastRadius(power), now = performance.now()
-    for (const a of ants) if (!a.dead && Math.hypot(x - a.x, y - a.y) <= R) antTakeDmg(a, power)
+    for (const a of ants) if (!a.dead && Math.hypot(x - a.x, y - a.y) <= R) { antTakeDmg(a, power); if (a.dead) addAntKill() }
     for (const [pid, rec] of remoteAnts) {
       if (now - rec.ts > 800) continue
       for (const a of rec.items.values()) {
@@ -895,6 +1055,9 @@
           p.vx += (dx / d * MISSILE_SPEED - p.vx) * 0.11
           p.vy += (dy / d * MISSILE_SPEED - p.vy) * 0.11
         }
+        // a black hole (mine or a peer's) pulls the missile in; reaching the core consumes it
+        const bh = blackholePull(p, now)
+        if (bh) { spawnDustToHole(p.x, p.y, bh); projectiles.splice(i, 1); continue }
         p.x += p.vx; p.y += p.vy
         // left the overlay (e.g. a boosted missile flying off-screen) → drop it now so it
         // stops counting toward the active-missile limit and you can fire again immediately
@@ -941,7 +1104,7 @@
   }
 
   // stream my missiles (relative to my cat) + shield state so peers can see/collide/block
-  let sentMissiles = false, sentShield = false, sentAnts = false
+  let sentMissiles = false, sentShield = false, sentAnts = false, sentBh = false
   setInterval(() => {
     if (!connected()) return
     const now = performance.now()
@@ -968,13 +1131,18 @@
       net.send(JSON.stringify({ t: 'ants', list: ants.map((a) => ({ id: a.id, nx: +(a.x / NW).toFixed(4), hp: a.hp, dead: a.dead })) }))
     } else if (sentAnts) { net.send(JSON.stringify({ t: 'ants', list: [] })); sentAnts = false }
 
+    if (me.bhUntil && now < me.bhUntil) {
+      sentBh = true
+      net.send(JSON.stringify({ t: 'blackhole', nx: +(me.bhX / NW).toFixed(4), ny: +(me.bhY / NH).toFixed(4), ttl: Math.round(me.bhUntil - now) }))
+    } else if (sentBh) { net.send(JSON.stringify({ t: 'blackhole', ttl: 0 })); sentBh = false }
+
     // my widget position (normalized 0..1 to my screen) + interaction count, so peers place
     // my cat where I put it and can see my counter
     if (wx != null) {
       const W = canvas.clientWidth || 1, H = canvas.clientHeight || 1
       net.send(JSON.stringify({ t: 'pos', nx: +(wx / W).toFixed(4), ny: +(wy / H).toFixed(4), taps: tapCount }))
     }
-  }, 90)
+  }, 50)   // ~20 updates/s — higher rate so remote missiles/ants move smoother
 
   // ---------- widget placement + click-through management ----------
   // The window covers the whole screen. The cat "widget" (cat + desk + bottom bar)
@@ -1052,20 +1220,22 @@
     chatbar.style.left = (wx + cellPxW / 2) + 'px'
     chatbar.style.top = (wy - 34) + 'px'
   }
-  // a peer's interaction counter, drawn on-canvas below their cat (I show mine in the DOM HUD).
-  // Count text stays a FIXED size (like my HUD counter) — not scaled with the smaller widget.
+  // a peer's interaction counter — same bottom-bar design as MY HUD (#hud-bar + #counter),
+  // just WITHOUT the hamburger. Drawn on-canvas below their cat, full cell width, fixed text.
   function drawPeerCount(origin, taps) {
     const sc = view.scale
-    const cx = origin.x + CELL_W / 2 * sc
-    const y = origin.y + CELL_H * sc + 3
-    const label = (taps || 0).toLocaleString()
+    const barW = CELL_W * sc, x = origin.x, y = origin.y + CELL_H * sc + 2
+    const h = 32, pad = 4
     ctx.save()
-    ctx.font = '13px "Segoe UI", "Malgun Gothic", sans-serif'
-    const w = ctx.measureText(label).width + 18, h = 20
-    ctx.fillStyle = 'rgba(20,20,28,0.82)'
-    ctx.beginPath(); ctx.roundRect(cx - w / 2, y, w, h, 9); ctx.fill()
-    ctx.fillStyle = '#ffe08a'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-    ctx.fillText(label, cx, y + h / 2 + 0.5)
+    // light bar (matches #hud-bar)
+    ctx.beginPath(); ctx.roundRect(x, y, barW, h, 10)
+    ctx.fillStyle = 'rgba(238,240,245,0.97)'; ctx.fill()
+    // dark counter chip spanning the full inner width (no hamburger) — matches #counter
+    ctx.beginPath(); ctx.roundRect(x + pad, y + pad, barW - pad * 2, h - pad * 2, 6)
+    ctx.fillStyle = '#2a2a34'; ctx.fill()
+    ctx.fillStyle = '#fff'; ctx.font = '700 13px "Segoe UI", "Malgun Gothic", sans-serif'
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+    ctx.fillText((taps || 0).toLocaleString(), x + barW / 2, y + h / 2 + 0.5)
     ctx.restore()
   }
 
@@ -1178,6 +1348,7 @@
     // missiles are never hidden behind the counter bar ----
     ctx = fxctx
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, cW, cH)
+    drawBlackholes(now)
     drawShields(now)
     stepProjectiles(now)
     drawShieldShards(now)
@@ -1185,6 +1356,7 @@
     drawTaskbarFX(now)
     stepAnts(now)
     drawRemoteAnts(now)
+    drawBhDust(now)
     ctx = stagectx
 
     positionHandles(now)

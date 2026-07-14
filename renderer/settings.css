@@ -46,3 +46,11 @@ button.wide { width: 100%; }
 .wpn > b { display: block; font-size: 13px; margin-bottom: 3px; }
 .wpn p { font-size: 12px; color: #b8b8c8; line-height: 1.5; margin: 0; }
 .modal-note { font-size: 11px; color: #8a8aa0; margin: 8px 0 0; border-top: 1px solid #3a3a48; padding-top: 8px; }
+.achv { margin-bottom: 12px; }
+.achv > b { display: block; font-size: 14px; }
+.achv p { font-size: 12px; color: #b8b8c8; margin: 3px 0 6px; }
+.achv-bar { height: 8px; border-radius: 5px; background: #15151e; overflow: hidden; }
+.achv-fill { height: 100%; width: 0; background: #6c8cff; border-radius: 5px; transition: width 0.2s; }
+.achv.done .achv-fill { background: #7ecb7e; }
+.achv-status { font-size: 11px; color: #8a8aa0; margin-top: 4px; }
+.achv.done .achv-status { color: #8fd18f; }
