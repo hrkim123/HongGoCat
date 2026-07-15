@@ -44,6 +44,37 @@
           <option value="cap">야구모자</option>
         </select>
       </label>
+      <label>귀 모양
+        <select id="in-ear">
+          <option value="pointed">뾰족 (기본)</option>
+          <option value="round">둥근 귀</option>
+          <option value="folded">접힌 귀</option>
+        </select>
+      </label>
+      <label>눈 모양
+        <select id="in-eye">
+          <option value="oval">기본 눈</option>
+          <option value="round">동그란 눈</option>
+          <option value="happy">웃는 눈</option>
+          <option value="sparkle">반짝 눈</option>
+        </select>
+      </label>
+      <label>입 모양
+        <select id="in-mouth">
+          <option value="smile">방긋 (기본)</option>
+          <option value="cat">고양이 입</option>
+          <option value="oh">오~</option>
+          <option value="wide">활짝</option>
+        </select>
+      </label>
+      <label>꼬리 모양
+        <select id="in-tail">
+          <option value="curl">말린 꼬리 (기본)</option>
+          <option value="straight">곧은 꼬리</option>
+          <option value="fluffy">복슬 꼬리</option>
+          <option value="stub">짧은 꼬리</option>
+        </select>
+      </label>
       <label class="check"><input type="checkbox" id="in-edit"> 디자인 편집 모드 (귀·눈·꼬리 위치 조정)</label>
     </div>
   </details>
@@ -83,6 +114,15 @@
         <div class="achv-bar"><div class="achv-fill" id="achv-cathit-fill"></div></div>
         <div class="achv-status" id="achv-cathit-status">0 / 500</div>
       </div>
+      <div class="achv" id="achv-destroy">
+        <div class="achv-top">
+          <b class="achv-name">💥 완전 파괴</b>
+          <span class="achv-reward" id="achv-destroy-reward">🎁 🪙 20,000</span>
+        </div>
+        <p class="achv-desc">캐릭터 체력이 0이 되어 완전 파괴 5회</p>
+        <div class="achv-bar"><div class="achv-fill" id="achv-destroy-fill"></div></div>
+        <div class="achv-status" id="achv-destroy-status">0 / 5</div>
+      </div>
     </div>
   </details>
 
@@ -91,6 +131,14 @@
     <div class="cat-body">
       <button id="platform-mode" class="wide secondary" type="button">플랫폼 그리기 모드</button>
       <p class="hint">켠 뒤 화면에 <b>왼쪽 클릭 드래그</b>로 바닥(플랫폼)을 그립니다. 각 획은 체력 10이며 미사일·총알에 맞으면 부서집니다. <b>오프라인은 누구나, 접속 중엔 서버 호스트만</b> 사용할 수 있어요.</p>
+    </div>
+  </details>
+
+  <details class="cat">
+    <summary>ℹ️ 앱 정보</summary>
+    <div class="cat-body">
+      <button id="btn-check-update" class="wide secondary" type="button">⬇️ 업데이트 확인</button>
+      <p class="hint">최신 버전이면 알려주고, 새 버전이 있으면 받아서 재시작할지 물어봅니다. (설치된 앱에서만 동작)</p>
     </div>
   </details>
 

@@ -19,5 +19,6 @@ contextBridge.exposeInMainWorld('bongo', {
 
   // ----- settings window -----
   toOverlay(msg) { ipcRenderer.send('to-overlay', msg) },
+  checkUpdate() { ipcRenderer.send('check-update') },
   onState(cb) { ipcRenderer.on('state', (_e, s) => cb(s)) }
 })

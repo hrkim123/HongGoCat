@@ -31,8 +31,22 @@ function initAutoUpdate() {
   autoUpdater.autoInstallOnAppQuit = false
   let promptedVersion = null   // ask at most once per version per session
   let downloading = false
-  autoUpdater.on('error', (e) => { downloading = false; console.error('[bongo] update error:', e && e.message) })
-  autoUpdater.on('update-available', (info) => { promptUpdate(info && info.version) })
+  let manualCheck = false      // true while a user-initiated "업데이트 확인" is in flight
+  autoUpdater.on('error', (e) => {
+    downloading = false
+    console.error('[bongo] update error:', e && e.message)
+    if (manualCheck) {
+      manualCheck = false
+      dialog.showMessageBox({ type: 'error', buttons: ['확인'], noLink: true, title: 'HongGoCat 업데이트', message: '업데이트 확인에 실패했습니다.', detail: (e && e.message) || '네트워크 상태를 확인해 주세요.' }).catch(() => {})
+    }
+  })
+  autoUpdater.on('update-available', (info) => { manualCheck = false; promptUpdate(info && info.version) })
+  autoUpdater.on('update-not-available', () => {
+    if (manualCheck) {
+      manualCheck = false
+      dialog.showMessageBox({ type: 'info', buttons: ['확인'], noLink: true, title: 'HongGoCat 업데이트', message: '최신 버전입니다.', detail: `현재 v${app.getVersion()}을(를) 사용 중입니다.` }).catch(() => {})
+    }
+  })
   autoUpdater.on('update-downloaded', () => {
     // user already consented → apply now (silent install + relaunch)
     setImmediate(() => { try { autoUpdater.quitAndInstall(true, true) } catch (e) {} })
@@ -55,6 +69,16 @@ function initAutoUpdate() {
     }).catch(() => {})
   }
   updater.promptUpdate = promptUpdate
+  // Manual "업데이트 확인" from settings: check now; update-available → ask-first prompt,
+  // update-not-available → "최신 버전입니다" popup, error → failure popup.
+  updater.checkManual = function () {
+    if (downloading) return
+    manualCheck = true
+    try { autoUpdater.checkForUpdates() } catch (e) {
+      manualCheck = false
+      dialog.showMessageBox({ type: 'error', buttons: ['확인'], noLink: true, title: 'HongGoCat 업데이트', message: '업데이트 확인에 실패했습니다.', detail: e.message }).catch(() => {})
+    }
+  }
 
   try { autoUpdater.checkForUpdates() } catch (e) { console.error('[bongo] update check failed:', e.message) }
   // re-check while the app stays open (long sessions) — still ask-first, once per version
@@ -296,7 +320,7 @@ app.whenReady().then(() => {
     const SLOT_KEYS = { [UiohookKey['1']]: 1, [UiohookKey['2']]: 2, [UiohookKey['3']]: 3 }
     // WASD forwarded to the overlay ONLY while a controllable human is active (privacy: we don't
     // leak key identity otherwise). The renderer toggles this via the 'human-control' ipc below.
-    const MOVE_KEYS = { [UiohookKey.W]: 'w', [UiohookKey.A]: 'a', [UiohookKey.S]: 's', [UiohookKey.D]: 'd', [UiohookKey.E]: 'e' }
+    const MOVE_KEYS = { [UiohookKey.W]: 'w', [UiohookKey.A]: 'a', [UiohookKey.S]: 's', [UiohookKey.D]: 'd', [UiohookKey.E]: 'e', [UiohookKey.Q]: 'q' }
     uIOhook.on('keydown', (e) => {
       // ignore OS auto-repeat while a key is held — act only on the initial press
       if (keysDown.has(e.keycode)) return
@@ -337,6 +361,14 @@ app.whenReady().then(() => {
 ipcMain.on('human-control', (_e, active) => { humanActive = !!active })
 ipcMain.on('open-settings', toggleSettings)
 ipcMain.on('apply-update', () => { if (updater) { try { updater.quitAndInstall(true, true) } catch (e) {} } })
+ipcMain.on('check-update', () => {
+  if (updater && updater.checkManual) { updater.checkManual(); return }
+  dialog.showMessageBox({
+    type: 'info', buttons: ['확인'], noLink: true, title: 'HongGoCat 업데이트',
+    message: app.isPackaged ? '업데이트 기능을 사용할 수 없습니다.' : '개발 모드에서는 업데이트를 확인할 수 없습니다.',
+    detail: `현재 버전: v${app.getVersion()}`
+  }).catch(() => {})
+})
 // renderer reports the widget rect (window coords) + whether to force interactive (chat/edit)
 ipcMain.on('hotzone', (_e, z) => {
   hotzone = z && z.rect ? z.rect : null

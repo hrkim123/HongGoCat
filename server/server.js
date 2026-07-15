@@ -13,7 +13,7 @@ let nextId = 1
 function roster(code) {
   const room = rooms.get(code)
   if (!room) return []
-  return [...room.entries()].map(([id, p]) => ({ id, name: p.name, animal: p.animal, skin: p.skin, pattern: p.pattern, hat: p.hat }))
+  return [...room.entries()].map(([id, p]) => ({ id, name: p.name, animal: p.animal, skin: p.skin, pattern: p.pattern, hat: p.hat, shape: p.shape }))
 }
 
 function broadcast(code, msg, exceptId = null) {
@@ -54,7 +54,8 @@ wss.on('connection', (ws, req) => {
         animal: String(msg.animal || 'cat').slice(0, 12),
         skin: String(msg.skin || 'default').slice(0, 12),
         pattern: String(msg.pattern || 'solid').slice(0, 12),
-        hat: String(msg.hat || 'none').slice(0, 12)
+        hat: String(msg.hat || 'none').slice(0, 12),
+        shape: String(msg.shape || '').slice(0, 48)
       })
       joinedRoom = code
       ws.send(JSON.stringify({ t: 'joined', id, room: code, max: MAX_ROOM_SIZE, host: isHost }))
@@ -69,7 +70,7 @@ wss.on('connection', (ws, req) => {
     if (!me) return
 
     if (msg.t === 'pos') {
-      broadcast(joinedRoom, { t: 'pos', id, nx: msg.nx, ny: msg.ny, taps: msg.taps }, id)
+      broadcast(joinedRoom, { t: 'pos', id, nx: msg.nx, ny: msg.ny, taps: msg.taps, hp: msg.hp }, id)
     } else if (msg.t === 'pulse' && (msg.kind === 'key' || msg.kind === 'mouse')) {
       broadcast(joinedRoom, { t: 'pulse', id, kind: msg.kind }, id)
     } else if (msg.t === 'throw') {
@@ -102,6 +103,10 @@ wss.on('connection', (ws, req) => {
       broadcast(joinedRoom, { t: 'gbullets', id, list: msg.list.slice(0, 40) }, id)
     } else if (msg.t === 'gat-hit') {
       broadcast(joinedRoom, { t: 'gat-hit', id, target: msg.target, dmg: msg.dmg }, id)
+    } else if (msg.t === 'human') {
+      broadcast(joinedRoom, { t: 'human', id, active: msg.active, nx: msg.nx, ny: msg.ny, hp: msg.hp, weapon: msg.weapon, face: msg.face }, id)
+    } else if (msg.t === 'hbullets' && Array.isArray(msg.list)) {
+      broadcast(joinedRoom, { t: 'hbullets', id, list: msg.list.slice(0, 30) }, id)
     } else if (msg.t === 'chat' && typeof msg.text === 'string') {
       const now = Date.now()
       if (now - (me.lastChat || 0) < 400) return // spam guard
@@ -115,6 +120,7 @@ wss.on('connection', (ws, req) => {
       if (typeof msg.skin === 'string') me.skin = msg.skin.slice(0, 12)
       if (typeof msg.pattern === 'string') me.pattern = msg.pattern.slice(0, 12)
       if (typeof msg.hat === 'string') me.hat = msg.hat.slice(0, 12)
+      if (typeof msg.shape === 'string') me.shape = msg.shape.slice(0, 48)
       broadcast(joinedRoom, { t: 'roster', peers: roster(joinedRoom) })
     }
   })

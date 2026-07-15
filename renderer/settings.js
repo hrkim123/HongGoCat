@@ -3,6 +3,7 @@
   const api = window.bongo
   const $ = (id) => document.getElementById(id)
   const inName = $('in-name'), inSkin = $('in-skin'), inPattern = $('in-pattern'), inHat = $('in-hat')
+  const inEar = $('in-ear'), inEye = $('in-eye'), inMouth = $('in-mouth'), inTail = $('in-tail')
   const inEdit = $('in-edit'), inServer = $('in-server'), inRoom = $('in-room')
   const btnConnect = $('btn-connect'), btnDisconnect = $('btn-disconnect')
   const statusEl = $('status'), capacityEl = $('capacity')
@@ -25,6 +26,11 @@
       else if (owned && opt.textContent.startsWith('🔒 ')) opt.textContent = opt.textContent.slice(2)
     }
     inHat.value = (s.hat && (s.hat === 'none' || ownedHats.has(s.hat))) ? s.hat : 'none'
+    const sh = s.shape || {}
+    if (document.activeElement !== inEar) inEar.value = sh.ear || 'pointed'
+    if (document.activeElement !== inEye) inEye.value = sh.eye || 'oval'
+    if (document.activeElement !== inMouth) inMouth.value = sh.mouth || 'smile'
+    if (document.activeElement !== inTail) inTail.value = sh.tail || 'curl'
     inEdit.checked = !!s.editing
     if (document.activeElement !== inServer) inServer.value = s.server || 'ws://localhost:8787'
     if (document.activeElement !== inRoom) inRoom.value = s.room || ''
@@ -44,16 +50,29 @@
     if (chFill) chFill.style.width = Math.min(100, (ch / chGoal) * 100) + '%'
     if (chSt) chSt.textContent = chDone ? `달성! ${ch} / ${chGoal} ✓ (보상 지급됨)` : `${ch} / ${chGoal}`
     if (chCard) chCard.classList.toggle('done', chDone)
+    // achievement: 💥 완전 파괴
+    const dv = s.destroys || 0, dvGoal = s.destroyGoal || 5, dvDone = !!s.destroyRewarded
+    const dvFill = $('achv-destroy-fill'), dvSt = $('achv-destroy-status'), dvCard = $('achv-destroy')
+    if (dvFill) dvFill.style.width = Math.min(100, (dv / dvGoal) * 100) + '%'
+    if (dvSt) dvSt.textContent = dvDone ? `달성! ${dv} / ${dvGoal} ✓ (보상 지급됨)` : `${dv} / ${dvGoal}`
+    if (dvCard) dvCard.classList.toggle('done', dvDone)
     ready = true
   })
 
   function sendProfile() {
-    api.toOverlay({ t: 'profile', name: inName.value, skin: inSkin.value, pattern: inPattern.value, hat: inHat.value })
+    api.toOverlay({
+      t: 'profile', name: inName.value, skin: inSkin.value, pattern: inPattern.value, hat: inHat.value,
+      shape: { ear: inEar.value, eye: inEye.value, mouth: inMouth.value, tail: inTail.value }
+    })
   }
   inName.addEventListener('change', sendProfile)
   inSkin.addEventListener('change', sendProfile)
   inPattern.addEventListener('change', sendProfile)
   inHat.addEventListener('change', sendProfile)
+  inEar.addEventListener('change', sendProfile)
+  inEye.addEventListener('change', sendProfile)
+  inMouth.addEventListener('change', sendProfile)
+  inTail.addEventListener('change', sendProfile)
   inEdit.addEventListener('change', () => api.toOverlay({ t: 'edit', on: inEdit.checked }))
 
   btnConnect.onclick = () => {
@@ -68,6 +87,7 @@
   $('btn-monitor').onclick = () => api.toOverlay({ t: 'next-monitor' })
   $('btn-restore-bar').onclick = () => api.toOverlay({ t: 'reset-taskbar' })
   $('btn-chat').onclick = () => api.toOverlay({ t: 'chat' })
+  $('btn-check-update').onclick = () => { if (api.checkUpdate) api.checkUpdate() }
   $('btn-quit').onclick = () => api.toOverlay({ t: 'quit' })
 
   api.toOverlay({ t: 'request-state' })

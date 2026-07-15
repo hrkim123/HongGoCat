@@ -5,7 +5,18 @@
   const stagectx = canvas.getContext('2d')
   const fxctx = fxCanvas.getContext('2d')
   let ctx = stagectx   // current draw target; swapped between the two layers each frame
-  const { CELL_W, CELL_H, DEFAULT_FEAT } = window.AnimalArt
+  const { CELL_W, CELL_H, DEFAULT_FEAT, DEFAULT_SHAPE } = window.AnimalArt
+  const SHAPE_KEYS = ['ear', 'eye', 'mouth', 'tail']   // wire order for the packed shape string
+  function loadShape() {
+    let s = {}; try { s = JSON.parse(localStorage.getItem('catShape') || '{}') || {} } catch {}
+    return Object.assign({}, DEFAULT_SHAPE, s)
+  }
+  function shapeStr(sh) { return SHAPE_KEYS.map((k) => (sh || {})[k] || DEFAULT_SHAPE[k]).join('|') }
+  function parseShape(str) {
+    const parts = String(str || '').split('|'); const o = {}
+    SHAPE_KEYS.forEach((k, i) => { o[k] = parts[i] || DEFAULT_SHAPE[k] })
+    return o
+  }
 
   function newAnimState() {
     return {
@@ -34,6 +45,9 @@
   const gatSmoke = []                 // overheat smoke puffs { x, y, vx, vy, r, born, life }
   const remoteGatlings = new Map()    // peerId -> { nx, ny, hp, ang }
   const remoteGBullets = new Map()    // peerId -> { items: Map, ts }
+  const remoteHumans = new Map()      // peerId -> { nx, ny, hp, weapon, face }
+  const remoteHbullets = new Map()    // peerId -> { items: Map, ts }  (human bullets/검기/아도겐)
+  let hbId = 1
   let lmbDown = false                 // left mouse held (from main's global hook)
   // 🕳 Black hole: cast at the cursor, fixed for 10s, 60s cooldown. Pulls missiles/ants within
   // its radius toward the center (stronger nearer); reaching the core dust-particles them away.
@@ -53,6 +67,11 @@
   const CAT_HIT_GOAL = 500, CAT_HIT_REWARD = 10000
   let catHits = parseInt(localStorage.getItem('catHits') || '0', 10) || 0
   let catHitRewarded = localStorage.getItem('catHitRewarded') === '1'
+  // character HP: weapon damage chips it; desk/keyboard/mouse break in stages + face worsens as it drops.
+  // achievement: reach 0 HP (완전 파괴) 5 times → 20,000 counts. HP is reset in the shop (500).
+  const CAT_HP = 100, DESTROY_GOAL = 5, DESTROY_REWARD = 20000
+  let destroyCount = parseInt(localStorage.getItem('destroys') || '0', 10) || 0
+  let destroyRewarded = localStorage.getItem('destroyRewarded') === '1'
   // black hole usable if you're the host OR you've earned the achievement
   // ---------- shop / ownership ----------
   // Every weapon except the basic missile must be PURCHASED in the shop, spending the counter
@@ -103,6 +122,8 @@
     ...newAnimState()
   }
   me.tint = me.skin
+  me.shape = loadShape()
+  me.hp = parseInt(localStorage.getItem('catHp') || String(CAT_HP), 10); if (!(me.hp >= 0) || me.hp > CAT_HP) me.hp = CAT_HP
   if (!isHatOwned(me.hat)) { me.hat = 'none'; localStorage.setItem('hat', 'none') }   // hats locked for now
   while (me.slots.length < 3) me.slots.push('none')
   const peers = new Map()
@@ -189,7 +210,40 @@
       }
       hl.appendChild(row)
     }
+    renderUpgrades()
     renderSlots()
+  }
+  // 🚀 missile-count upgrade shown as a 5-segment gauge; +1 max missile per 3,000 (base 5 → 10)
+  function renderUpgrades() {
+    const el = document.getElementById('shop-upgrade-list'); if (!el) return
+    el.innerHTML = ''
+    const row = document.createElement('div'); row.className = 'shop-row'
+    const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = '🚀 미사일 최대'; row.appendChild(nm)
+    const gauge = document.createElement('div'); gauge.className = 'upg-gauge'
+    for (let k = 0; k < 5; k++) { const seg = document.createElement('span'); seg.className = 'upg-seg' + (k < missileUp ? ' on' : ''); gauge.appendChild(seg) }
+    row.appendChild(gauge)
+    const lvl = document.createElement('span'); lvl.className = 'use'; lvl.textContent = `${5 + missileUp}개`; row.appendChild(lvl)
+    if (missileUp >= 5) { const s = document.createElement('span'); s.className = 'shop-owned'; s.textContent = 'MAX'; row.appendChild(s) }
+    else { const b = document.createElement('button'); b.className = 'shop-buy'; b.textContent = '+1 🪙3,000'; b.disabled = tapCount < 3000; b.onclick = () => buyMissileUpgrade(); row.appendChild(b) }
+    el.appendChild(row)
+    // 🩹 HP reset (consumable)
+    const r2 = document.createElement('div'); r2.className = 'shop-row'
+    const n2 = document.createElement('span'); n2.className = 'nm'; n2.textContent = '🩹 체력 리셋'; r2.appendChild(n2)
+    const hpTxt = document.createElement('span'); hpTxt.className = 'use'; hpTxt.textContent = `HP ${me.hp}/${CAT_HP}`; r2.appendChild(hpTxt)
+    if (me.hp >= CAT_HP) { const s = document.createElement('span'); s.className = 'shop-owned'; s.textContent = '가득'; r2.appendChild(s) }
+    else { const b2 = document.createElement('button'); b2.className = 'shop-buy'; b2.textContent = '🪙500'; b2.disabled = tapCount < 500; b2.onclick = () => buyHpReset(); r2.appendChild(b2) }
+    el.appendChild(r2)
+  }
+  function buyHpReset() {
+    if (me.hp >= CAT_HP) return
+    if (!spendCoins(500)) { showToast('🪙 재화 부족 — 500 필요'); return }
+    resetCatHp(); showToast('🩹 체력 회복 완료!'); renderShop(); pushState()
+  }
+  function buyMissileUpgrade() {
+    if (missileUp >= 5) return
+    if (!spendCoins(3000)) { showToast('🪙 재화 부족 — 3,000 필요'); return }
+    missileUp++; localStorage.setItem('missileUp', String(missileUp))
+    showToast(`⬆️ 미사일 최대 ${5 + missileUp}개!${missileUp >= 5 ? ' (10개 합체 = ☢ 핵)' : ''}`); renderShop()
   }
   // weapon-slot selectors live at the bottom of the shop; unowned weapons show 🔒 and are blocked
   function renderSlots() {
@@ -324,7 +378,7 @@
   function connected() { return !!(net && net.readyState === WebSocket.OPEN) }
 
   function profileMsg() {
-    return { name: me.name, animal: me.animal, skin: me.skin, pattern: me.pattern, hat: me.hat }
+    return { name: me.name, animal: me.animal, skin: me.skin, pattern: me.pattern, hat: me.hat, shape: shapeStr(me.shape) }
   }
 
   function connect(url, room) {
@@ -349,21 +403,24 @@
           if (p.id === me.netId) continue
           seen.add(p.id)
           const ex = peers.get(p.id)
-          if (ex) { ex.name = p.name; ex.tint = p.skin || 'default'; ex.pattern = p.pattern || 'solid'; ex.hat = p.hat || 'none' }
-          else peers.set(p.id, { id: p.id, name: p.name, animal: 'cat', tint: p.skin || 'default', pattern: p.pattern || 'solid', hat: p.hat || 'none', feat: {}, ...newAnimState() })
+          if (ex) { ex.name = p.name; ex.tint = p.skin || 'default'; ex.pattern = p.pattern || 'solid'; ex.hat = p.hat || 'none'; ex.shape = parseShape(p.shape) }
+          else peers.set(p.id, { id: p.id, name: p.name, animal: 'cat', tint: p.skin || 'default', pattern: p.pattern || 'solid', hat: p.hat || 'none', shape: parseShape(p.shape), feat: {}, ...newAnimState() })
         }
         for (const id of [...peers.keys()]) if (!seen.has(id)) peers.delete(id)
         // drop any remote entities belonging to peers who left (no lingering state)
-        for (const m of [remoteMissiles, remoteShields, remoteAnts, remoteBlackholes, remoteGatlings, remoteGBullets])
+        for (const m of [remoteMissiles, remoteShields, remoteAnts, remoteBlackholes, remoteGatlings, remoteGBullets, remoteHumans, remoteHbullets])
           for (const id of [...m.keys()]) if (!seen.has(id)) m.delete(id)
         pushState()   // reflect the new count in the settings window
       }
-      else if (msg.t === 'pos') { const p = peers.get(msg.id); if (p) { p.nx = msg.nx; p.ny = msg.ny; p.taps = msg.taps } }
+      else if (msg.t === 'pos') { const p = peers.get(msg.id); if (p) { p.nx = msg.nx; p.ny = msg.ny; p.taps = msg.taps; if (msg.hp != null) p.hp = msg.hp } }
       else if (msg.t === 'pulse') { const p = peers.get(msg.id); if (p) pulse(p, msg.kind) }
       else if (msg.t === 'chat') { const p = peers.get(msg.id); if (p) showBubble(p, String(msg.text)) }
       else if (msg.t === 'throw') { const src = targetOf(msg.id); launch('me', src ? { from: src } : {}) }
       else if (msg.t === 'missiles') { mergeRemote(remoteMissiles, msg.id, msg.list, 'nx', 'ny') }
-      else if (msg.t === 'hit') { if (msg.target === me.netId) me.hitUntil = performance.now() + 1000 + Math.min((msg.power || 1) - 1, 5) * 200 }
+      else if (msg.t === 'hit') {
+        if (msg.target === me.netId) { me.hitUntil = performance.now() + 1000 + Math.min((msg.power || 1) - 1, 5) * 200; damageMyCat(msg.power || 1) }
+        else { const tp = peers.get(msg.target); if (tp) { tp.hitUntil = performance.now() + 800 + Math.min((msg.power || 1) - 1, 5) * 100; const c = peerCatCenter(tp); if (c) addEffect(c.x, c.y, Math.min(msg.power || 1, 3)) } }   // 3rd-party peers see the hit too
+      }
       else if (msg.t === 'shield') {
         if (msg.ttl > 0) remoteShields.set(msg.id, { until: performance.now() + msg.ttl, angle: msg.angle || 0, hp: msg.hp != null ? msg.hp : SHIELD_HP, max: msg.max || SHIELD_HP })
         else { if (msg.broke) remoteBreaks.push(msg.id); remoteShields.delete(msg.id) }
@@ -383,9 +440,14 @@
       }
       else if (msg.t === 'gbullets') { mergeRemote(remoteGBullets, msg.id, msg.list, 'nx', 'ny') }
       else if (msg.t === 'gat-hit') { if (msg.target === me.netId) damageMyGatling(msg.dmg || 1) }
+      else if (msg.t === 'human') {
+        if (msg.active) remoteHumans.set(msg.id, { nx: msg.nx, ny: msg.ny, hp: msg.hp, weapon: msg.weapon || '', face: msg.face || 1 })
+        else remoteHumans.delete(msg.id)
+      }
+      else if (msg.t === 'hbullets') { mergeRemote(remoteHbullets, msg.id, msg.list, 'nx', 'ny') }
       else if (msg.t === 'error' && msg.reason === 'room_full') { setStatus('방이 가득 찼어요'); ws.close() }
     }
-    ws.onclose = () => { if (net === ws) { net = null; peers.clear(); remoteAnts.clear(); remoteBlackholes.clear(); remoteGatlings.clear(); remoteGBullets.clear(); me.netId = undefined; roomCount = 0; setStatus('오프라인 — 혼자 연주 중') } }
+    ws.onclose = () => { if (net === ws) { net = null; peers.clear(); remoteAnts.clear(); remoteBlackholes.clear(); remoteGatlings.clear(); remoteGBullets.clear(); remoteHumans.clear(); remoteHbullets.clear(); me.netId = undefined; roomCount = 0; setStatus('오프라인 — 혼자 연주 중') } }
     ws.onerror = () => setStatus('접속 실패')
   }
   function disconnect() {
@@ -430,13 +492,14 @@
 
   function pushState() {
     inputSource.pushState({
-      name: me.name, skin: me.skin, pattern: me.pattern, hat: me.hat, slots: me.slots,
+      name: me.name, skin: me.skin, pattern: me.pattern, hat: me.hat, shape: Object.assign({}, me.shape), slots: me.slots,
       server: localStorage.getItem('server') || 'ws://localhost:8787',
       room: localStorage.getItem('room') || '',
       connected: connected(), status, editing,
       count: connected() ? roomCount : 0, max: roomMax,
       antKills, antGoal: ANT_KILL_GOAL, isHost, bhAvailable: bhAvailable(),
       catHits, catHitGoal: CAT_HIT_GOAL, catHitReward: CAT_HIT_REWARD, catHitRewarded,
+      destroys: destroyCount, destroyGoal: DESTROY_GOAL, destroyReward: DESTROY_REWARD, destroyRewarded, hp: me.hp,
       ownedHats: [...ownedHats]
     })
   }
@@ -449,22 +512,30 @@
       if (msg.skin) { me.skin = msg.skin; me.tint = msg.skin; localStorage.setItem('skin', me.skin) }
       if (msg.pattern) { me.pattern = msg.pattern; localStorage.setItem('pattern', me.pattern) }
       if (msg.hat) { me.hat = isHatOwned(msg.hat) ? msg.hat : 'none'; localStorage.setItem('hat', me.hat) }   // reject locked hats
+      // body-part shapes (character customization)
+      if (msg.shape && typeof msg.shape === 'object') {
+        for (const k of SHAPE_KEYS) if (typeof msg.shape[k] === 'string') me.shape[k] = msg.shape[k]
+        localStorage.setItem('catShape', JSON.stringify(me.shape))
+      }
       sendUpdate(); pushState()
     }
     else if (msg.t === 'connect') { connect(msg.url, msg.room) }
     else if (msg.t === 'disconnect') { disconnect(); setStatus('오프라인 — 혼자 연주 중') }
     else if (msg.t === 'edit') { setEditing(!!msg.on) }
     else if (msg.t === 'chat') { openChat() }
-    else if (msg.t === 'boost') { if (platformMode) { /* drawing */ } else if (me.humanActive) humanAttack(); else boostMissiles() }
+    else if (msg.t === 'boost') { if (!platformMode) boostMissiles() }   // left click = missile boost only (human attack moved to Q)
     else if (msg.t === 'lmb') {
       const was = lmbDown; lmbDown = !!msg.down
       if (platformMode) {   // drawing a platform stroke while the button is held
         if (lmbDown && !was) curStroke = { pts: [{ x: cursor.x, y: cursor.y }], hp: PLAT_HP }
         else if (!lmbDown && was && curStroke) { if (curStroke.pts.length >= 2) { platforms.push(curStroke); if (platforms.length > 40) platforms.shift() } curStroke = null }
-      } else if (was && !lmbDown && me.humanActive) humanRelease()   // sword: release → swing or fire 검기
+      }
     }
     else if (msg.t === 'platform-mode') { togglePlatformMode() }
-    else if (msg.t === 'human-key') { if (msg.down) humanKeys.add(msg.key); else humanKeys.delete(msg.key) }
+    else if (msg.t === 'human-key') {
+      if (msg.down) { if (!humanKeys.has(msg.key)) { humanKeys.add(msg.key); if (msg.key === 'q' && me.humanActive) humanAttack() } }   // Q = attack (aims at cursor)
+      else { humanKeys.delete(msg.key); if (msg.key === 'q' && me.humanActive) humanRelease() }
+    }
     else if (msg.t === 'fire-missile') { fireWeapon('missile') }
     else if (msg.t === 'fire-slot') { fireWeapon(me.slots[(msg.slot || 1) - 1] || 'none') }
     else if (msg.t === 'slots') {
@@ -578,7 +649,9 @@
   }
 
   const MAX_PROJECTILES = 40, MAX_EFFECTS = 40
-  const MAX_MISSILES = 6      // at most this many missiles can exist at once (they merge)
+  // missile cap (also the merge cap): base 5, +1 per shop upgrade → up to 10 (a fully merged 10 = nuke)
+  let missileUp = parseInt(localStorage.getItem('missileUp') || '0', 10) || 0   // 0..5 purchased upgrades
+  function missileMax() { return 5 + Math.min(5, Math.max(0, missileUp)) }
   const MISSILE_LIFE = 14000  // how long a missile lives before fizzling out (ms)
 
   // fire a missile from the bottom-left corner that then chases the mouse cursor and
@@ -588,7 +661,7 @@
     // count by total POWER (a merged power-5 missile counts as 5), not by missile count
     let activePower = 0
     for (const p of projectiles) if (p.homing) activePower += p.power
-    if (activePower >= MAX_MISSILES) return
+    if (activePower >= missileMax()) return
     // launch from just above MY cat (not a fixed corner) so in multiplayer each missile
     // starts over its owner's character and won't instantly collide with others.
     const myCat = catPos[0] || { x: canvas.clientWidth / 2, y: canvas.clientHeight - 120 }
@@ -748,20 +821,20 @@
     const hs = view.scale * HUMAN_SCALE, oy = me.humanY - 18 * hs
     const ang = Math.atan2(cursor.y - oy, cursor.x - me.humanX); me.humanFace = Math.cos(ang) >= 0 ? 1 : -1
     const hp = Math.max(1, Math.round(charge * 5))              // 1..5
-    hbullets.push({ x: me.humanX + Math.cos(ang) * 26 * hs, y: oy + Math.sin(ang) * 26 * hs, vx: Math.cos(ang) * 9, vy: Math.sin(ang) * 9, born: now, life: 1800, dmg: hp, adogen: true, hp, waveR: (10 + charge * 26) * view.scale, ang })
+    hbullets.push({ x: me.humanX + Math.cos(ang) * 26 * hs, y: oy + Math.sin(ang) * 26 * hs, vx: Math.cos(ang) * 9, vy: Math.sin(ang) * 9, born: now, life: 1800, adogen: true, hp, hp0: hp, waveR: (10 + charge * 26) * view.scale, ang })
   }
   function fireSlash(now, charge) {   // 검기: crescent wave — size/damage/HP scale with charge (max hp=dmg=3)
     const hs = view.scale * HUMAN_SCALE, oy = me.humanY - 18 * hs
     const ang = Math.atan2(cursor.y - oy, cursor.x - me.humanX); me.humanFace = Math.cos(ang) >= 0 ? 1 : -1
     const hp = Math.max(1, Math.round(charge * 3))              // 1..3
-    hbullets.push({ x: me.humanX + Math.cos(ang) * 22 * hs, y: oy + Math.sin(ang) * 22 * hs, vx: Math.cos(ang) * 11, vy: Math.sin(ang) * 11, born: now, life: 1500, dmg: hp, wave: true, hp, waveR: (12 + charge * 20) * view.scale, ang })
+    hbullets.push({ x: me.humanX + Math.cos(ang) * 22 * hs, y: oy + Math.sin(ang) * 22 * hs, vx: Math.cos(ang) * 11, vy: Math.sin(ang) * 11, born: now, life: 1500, wave: true, hp, hp0: hp, waveR: (12 + charge * 20) * view.scale, ang })
   }
   function humanMelee(w, now) {                   // sword: wider/stronger than a punch
     const hs = view.scale * HUMAN_SCALE
     const px = me.humanX + me.humanFace * w.range * hs, py = me.humanY - 18 * hs, r = w.range * 0.8 * hs
     for (const a of ants) if (!a.dead && Math.hypot(px - a.x, py - a.y) < r) { antTakeDmg(a, w.dmg); if (a.dead) addAntKill() }
     for (const [pid, rec] of remoteAnts) for (const a of rec.items.values()) { if (a.dead) continue; const sp = remoteAntScreenPos(pid, a); if (sp && Math.hypot(px - sp.x, py - sp.y) < r && connected()) net.send(JSON.stringify({ t: 'ant-hit', target: pid, ant: a.id, dmg: w.dmg })) }
-    for (let ci = 0; ci < catPos.length; ci++) { const cat = allRef[ci]; if (!cat) continue; const c = catPos[ci]; if (Math.hypot(px - c.x, py - c.y) < 56 * view.scale) { cat.hitUntil = now + 700; if (cat.id !== 'me' && connected()) net.send(JSON.stringify({ t: 'hit', target: cat.id, power: w.dmg })) } }
+    for (let ci = 0; ci < catPos.length; ci++) { const cat = allRef[ci]; if (!cat) continue; const c = catPos[ci]; if (Math.hypot(px - c.x, py - c.y) < 56 * view.scale) applyCatHit(cat, w.dmg, now) }
     spawnSpark(px, py)
   }
   function fireHumanBullet(w, now) {              // pistol / rifle → straight bullet toward the cursor
@@ -786,39 +859,44 @@
       if (p.x < -20 || p.x > W + 20 || p.y < -20 || p.y > H + 20) { hbullets.splice(i, 1); continue }
       if (inTaskbar(p.x, p.y)) { carveTaskbar(p.x, p.adogen ? p.hp * 0.8 : 0.1); spawnSpark(p.x, p.y); hbullets.splice(i, 1); continue }   // 아도겐: dig scales with size
       const energy = p.wave || p.adogen, waveR = p.waveR || 16 * s
-      // energy blasts (검기/아도겐) lose 1 HP per blocking collision (missile/bullet/platform), throttled
-      const deplete = () => { if (now < (p.hitCd || 0)) return false; p.hitCd = now + 130; addEffect(p.x, p.y, 1); spawnSpark(p.x, p.y); return (--p.hp) <= 0 }
+      const hpFrac = energy && p.hp0 ? p.hp / p.hp0 : 1
+      const effR = energy ? waveR * (0.45 + 0.55 * hpFrac) : waveR   // charged blast shrinks as its HP is chipped away
+      const dmg = energy ? p.hp : (p.dmg || 1)                       // energy damage = current HP
+      // energy blasts lose HP = the OTHER collidable's DMG per blocking hit (missile/bullet/platform), throttled
+      const deplete = (amt) => { if (now < (p.hitCd || 0)) return false; p.hitCd = now + 130; addEffect(p.x, p.y, 1); spawnSpark(p.x, p.y); p.hp -= (amt || 1); return p.hp <= 0 }
       const pl = hitPlatform(p.x, p.y)
-      if (pl) { damagePlatform(pl, p.dmg); if (!energy) { spawnSpark(p.x, p.y); hbullets.splice(i, 1); continue } else if (deplete()) { hbullets.splice(i, 1); continue } }
-      const antR = energy ? waveR : 12 * s   // energy sweeps wider + pierces
-      let hit = false
-      for (const a of ants) if (!a.dead && Math.hypot(p.x - a.x, p.y - a.y) < antR) { antTakeDmg(a, p.dmg); if (a.dead) addAntKill(); hit = true; if (!energy) break }
-      if (!hit || energy) { const ah = missileHitsAnt(p.x, p.y); if (ah && !ah.local) { if (connected()) net.send(JSON.stringify({ t: 'ant-hit', target: ah.pid, ant: ah.id, dmg: p.dmg })); hit = true } }
+      if (pl) { damagePlatform(pl, dmg); if (!energy) { spawnSpark(p.x, p.y); hbullets.splice(i, 1); continue } else if (deplete(1)) { hbullets.splice(i, 1); continue } }
+      const antR = energy ? effR : 12 * s   // energy sweeps wider + pierces
+      let hit = false, catHit = false
+      for (const a of ants) if (!a.dead && Math.hypot(p.x - a.x, p.y - a.y) < antR) { antTakeDmg(a, dmg); if (a.dead) addAntKill(); hit = true; if (!energy) break }
+      if (!hit || energy) { const ah = missileHitsAnt(p.x, p.y); if (ah && !ah.local) { if (connected()) net.send(JSON.stringify({ t: 'ant-hit', target: ah.pid, ant: ah.id, dmg })); hit = true } }
       // generous full-body cat hitbox (tall ellipse) so shots from the low human don't slip past the sprite
-      const chw = (energy ? waveR + 26 * s : 52 * s), chh = (energy ? waveR + 56 * s : 90 * s)
+      const chw = (energy ? effR + 26 * s : 52 * s), chh = (energy ? effR + 56 * s : 90 * s)
       for (let ci = 0; ci < catPos.length; ci++) {
         const cat = allRef[ci]; if (!cat) continue; const c = catPos[ci]
         const dx = p.x - c.x, dy = p.y - c.y
         if ((dx * dx) / (chw * chw) + (dy * dy) / (chh * chh) <= 1) {
-          if (!catShieldCovers(cat, c, p.x, p.y, now)) { cat.hitUntil = now + 700; if (cat.id !== 'me' && connected()) net.send(JSON.stringify({ t: 'hit', target: cat.id, power: p.dmg })) }
-          if (energy && now >= (p.catBurst || 0)) { p.catBurst = now + 120; addEffect(p.x, p.y, 1) }   // burst even while piercing
-          hit = true; if (!energy) break
+          if (!catShieldCovers(cat, c, p.x, p.y, now)) applyCatHit(cat, dmg, now)
+          hit = true; catHit = true; if (!energy) break
         }
       }
-      if (energy) {   // enemy missiles/bullets collide with the blast → they pop, blast loses HP
-        if (hitRemoteMissile(p.x, p.y, p.dmg) || hitRemoteGBullet(p.x, p.y)) { if (deplete()) { hbullets.splice(i, 1); continue } }
+      if (energy && catHit) { addEffect(p.x, p.y, 1); spawnSpark(p.x, p.y); hbullets.splice(i, 1); continue }   // character = solid: deliver DMG (via applyCatHit) then vanish
+      if (energy) {   // enemy projectiles chip the blast's HP by THEIR damage (missile = its power)
+        const rm = hitRemoteMissile(p.x, p.y, dmg)
+        if (rm) { if (deplete(rm.power || 1)) { hbullets.splice(i, 1); continue } }
+        else if (hitRemoteGBullet(p.x, p.y)) { if (deplete(1)) { hbullets.splice(i, 1); continue } }
       }
       if (hit && !energy) { addEffect(p.x, p.y, 1); spawnSpark(p.x, p.y); hbullets.splice(i, 1); continue }   // explode like a missile on contact
       ctx.save(); ctx.lineCap = 'round'
-      if (p.adogen) {   // 아도겐 — glowing ki ball
-        const grd = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, waveR)
+      if (p.adogen) {   // 아도겐 — glowing ki ball (shrinks with HP)
+        const grd = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, effR)
         grd.addColorStop(0, 'rgba(235,250,255,0.95)'); grd.addColorStop(0.5, 'rgba(120,200,255,0.8)'); grd.addColorStop(1, 'rgba(80,160,255,0)')
-        ctx.fillStyle = grd; ctx.beginPath(); ctx.arc(p.x, p.y, waveR, 0, Math.PI * 2); ctx.fill()
-        ctx.fillStyle = '#eaf8ff'; ctx.beginPath(); ctx.arc(p.x, p.y, waveR * 0.4, 0, Math.PI * 2); ctx.fill()
+        ctx.fillStyle = grd; ctx.beginPath(); ctx.arc(p.x, p.y, effR, 0, Math.PI * 2); ctx.fill()
+        ctx.fillStyle = '#eaf8ff'; ctx.beginPath(); ctx.arc(p.x, p.y, effR * 0.4, 0, Math.PI * 2); ctx.fill()
       } else if (p.wave) {   // 검기 — crescent perpendicular to travel
         ctx.translate(p.x, p.y); ctx.rotate(Math.atan2(p.vy, p.vx))
-        ctx.strokeStyle = 'rgba(150,210,255,0.9)'; ctx.lineWidth = (3 + p.hp) * s; ctx.beginPath(); ctx.arc(0, 0, waveR, -1.15, 1.15); ctx.stroke()
-        ctx.strokeStyle = 'rgba(235,248,255,0.8)'; ctx.lineWidth = 2 * s; ctx.beginPath(); ctx.arc(-3 * s, 0, waveR, -1.05, 1.05); ctx.stroke()
+        ctx.strokeStyle = 'rgba(150,210,255,0.9)'; ctx.lineWidth = (3 + p.hp) * s; ctx.beginPath(); ctx.arc(0, 0, effR, -1.15, 1.15); ctx.stroke()
+        ctx.strokeStyle = 'rgba(235,248,255,0.8)'; ctx.lineWidth = 2 * s; ctx.beginPath(); ctx.arc(-3 * s, 0, effR, -1.05, 1.05); ctx.stroke()
       } else {
         ctx.strokeStyle = 'rgba(255,210,90,0.9)'; ctx.lineWidth = (p.big ? 3.5 : 2.5) * s
         ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - p.vx * 1.1, p.y - p.vy * 1.1); ctx.stroke()
@@ -885,12 +963,13 @@
         else { humanTakeDmg(1, now); if (!me.humanActive) return }
       }
     }
-    if (me.charging) {   // build sword/아도겐 charge while holding; face the cursor
+    const qHeld = humanKeys.has('q')
+    if (me.charging) {   // build sword/아도겐 charge while Q held; face the cursor
       me.humanFace = cursor.x >= me.humanX ? 1 : -1
-      if (lmbDown) me.charge = Math.min(1, (now - me.chargeStart) / SWORD_CHARGE_MS)
+      if (qHeld) me.charge = Math.min(1, (now - me.chargeStart) / SWORD_CHARGE_MS)
       else { me.charging = false; me.charge = 0 }
     }
-    if (me.humanWeapon === 'rifle' && lmbDown && !platformMode && now >= (me.humanAtkCd || 0)) {   // full-auto
+    if (me.humanWeapon === 'rifle' && qHeld && now >= (me.humanAtkCd || 0)) {   // full-auto while Q held
       me.humanAtkCd = now + HUMAN_WEAPONS.rifle.cd; me.humanPunchUntil = now + 100; fireHumanBullet(HUMAN_WEAPONS.rifle, now)
     }
     drawHuman(now, moving && me.humanGround)
@@ -1097,6 +1176,29 @@
     }
     pushState()
   }
+  // apply a weapon hit to a character: flash + (my cat → lose HP; enemy → send the hit)
+  function applyCatHit(cat, power, now) {
+    cat.hitUntil = now + 700 + Math.min((power || 1) - 1, 5) * 100
+    if (cat.id === 'me') damageMyCat(power || 1)
+    else if (connected()) net.send(JSON.stringify({ t: 'hit', target: cat.id, power }))
+  }
+  function damageMyCat(dmg) {
+    if (!(dmg > 0) || me.hp <= 0) return
+    me.hp = Math.max(0, me.hp - dmg); localStorage.setItem('catHp', String(me.hp))
+    if (me.hp === 0) onCatDestroyed()
+  }
+  function onCatDestroyed() {   // desk fully wrecked; count toward the achievement (reset in the shop)
+    destroyCount++; localStorage.setItem('destroys', String(destroyCount))
+    const c = catPos[0]; if (c) { addEffect(c.x, c.y, 4); spawnDebris(c.x, c.y, 20, '#6a5a4a') }
+    showToast('💥 완전 파괴! 상점에서 🩹 체력 리셋')
+    if (!destroyRewarded && destroyCount >= DESTROY_GOAL) {
+      destroyRewarded = true; localStorage.setItem('destroyRewarded', '1')
+      tapCount += DESTROY_REWARD; counterDirty = true; renderCounter()
+      showToast(`🏆 완전 파괴 ${DESTROY_GOAL}회 — 🪙${DESTROY_REWARD.toLocaleString()} 지급!`)
+    }
+    pushState()
+  }
+  function resetCatHp() { me.hp = CAT_HP; localStorage.setItem('catHp', String(CAT_HP)) }
 
   // ---------- 🔫 gatling gun ----------
   function deployGatling() {
@@ -1227,10 +1329,7 @@
         const cat = allRef[ci]; if (!cat) continue
         const c = catPos[ci]
         if (Math.hypot(p.x - c.x, p.y - c.y) < 56 * view.scale) {
-          if (!catShieldCovers(cat, c, p.x, p.y, now)) {
-            cat.hitUntil = now + 800
-            if (cat.id !== 'me' && connected()) net.send(JSON.stringify({ t: 'hit', target: cat.id, power: GAT_DMG }))
-          }
+          if (!catShieldCovers(cat, c, p.x, p.y, now)) applyCatHit(cat, GAT_DMG, now)
           hitCat = true; break
         }
       }
@@ -1285,6 +1384,47 @@
       for (const it of rec.items.values()) {
         it.sx += (it.nx - it.sx) * 0.5; it.sy += (it.ny - it.sy) * 0.5
         ctx.save(); ctx.fillStyle = '#fff1b0'; ctx.beginPath(); ctx.arc(it.sx * W, it.sy * H, 3.6 * view.scale, 0, Math.PI * 2); ctx.fill(); ctx.restore()
+      }
+    }
+  }
+  function drawRemoteHumans(now) {   // peers' summoned humans are now visible
+    const W = canvas.clientWidth, H = canvas.clientHeight, s = view.scale * HUMAN_SCALE
+    for (const [pid, h] of remoteHumans) {
+      const x = h.nx * W, y = h.ny * H, f = h.face || 1
+      const col = SKIN_BODY[(peers.get(pid) || {}).tint] || SKIN_BODY.default, outline = 'rgba(0,0,0,0.5)'
+      const Hh = 34 * s, headR = 6.5 * s, shoulderY = -Hh * 0.74, hipY = -Hh * 0.42, headCY = -Hh + headR
+      ctx.save(); ctx.translate(x, y); ctx.lineCap = 'round'; ctx.lineJoin = 'round'
+      ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(0, 1, 10 * s, 3 * s, 0, 0, Math.PI * 2); ctx.fill()
+      const limbs = (color, lw) => { ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.beginPath(); ctx.moveTo(0, hipY); ctx.lineTo(3 * s, 0); ctx.moveTo(0, hipY); ctx.lineTo(-3 * s, 0); ctx.moveTo(0, hipY); ctx.lineTo(0, shoulderY); ctx.moveTo(0, shoulderY); ctx.lineTo(-f * 5 * s, shoulderY + 9 * s); ctx.moveTo(0, shoulderY); ctx.lineTo(f * 9 * s, shoulderY + 4 * s); ctx.stroke() }
+      limbs(outline, 6 * s); limbs(col, 3.8 * s)
+      if (h.weapon) { ctx.save(); ctx.translate(f * 11 * s, shoulderY + 4 * s); ctx.scale(f, 1); const L = (h.weapon === 'rifle' || h.weapon === 'bazooka') ? 30 * s : h.weapon === 'sword' ? 22 * s : 13 * s; drawWeapon(h.weapon, L); ctx.restore() }
+      ctx.fillStyle = col; ctx.strokeStyle = outline; ctx.lineWidth = 2 * s; ctx.beginPath(); ctx.arc(0, headCY, headR, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
+      ctx.fillStyle = '#2a2a30'; ctx.beginPath(); ctx.arc(f * headR * 0.4, headCY, 1.5 * s, 0, Math.PI * 2); ctx.fill()
+      const hpw = 22 * s, hp01 = Math.max(0, (h.hp || 0) / HUMAN_HP), by = headCY - headR - 6 * s
+      ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(-hpw / 2, by, hpw, 3 * s)
+      ctx.fillStyle = hp01 > 0.3 ? '#7ecb7e' : '#d05555'; ctx.fillRect(-hpw / 2, by, hpw * hp01, 3 * s)
+      ctx.restore()
+    }
+  }
+  function drawRemoteHbullets(now) {
+    const W = canvas.clientWidth, H = canvas.clientHeight, s = view.scale
+    for (const [pid, rec] of [...remoteHbullets]) {
+      if (now - rec.ts > 400) { remoteHbullets.delete(pid); continue }
+      for (const it of rec.items.values()) {
+        const dx = it.nx - it.sx, dy = it.ny - it.sy
+        it.sx += dx * SMOOTH; it.sy += dy * SMOOTH
+        const x = it.sx * W, y = it.sy * H, r = Math.max(4 * s, (it.r || 0.004) * W), ang = Math.atan2(dy, dx)
+        ctx.save()
+        if (it.k === 2) {   // 아도겐 ball
+          const grd = ctx.createRadialGradient(x, y, 0, x, y, r); grd.addColorStop(0, 'rgba(235,250,255,0.95)'); grd.addColorStop(0.5, 'rgba(120,200,255,0.8)'); grd.addColorStop(1, 'rgba(80,160,255,0)')
+          ctx.fillStyle = grd; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill()
+          ctx.fillStyle = '#eaf8ff'; ctx.beginPath(); ctx.arc(x, y, r * 0.4, 0, Math.PI * 2); ctx.fill()
+        } else if (it.k === 1) {   // 검기 crescent
+          ctx.translate(x, y); ctx.rotate(ang); ctx.strokeStyle = 'rgba(150,210,255,0.9)'; ctx.lineWidth = 4.5 * s; ctx.beginPath(); ctx.arc(0, 0, r, -1.15, 1.15); ctx.stroke()
+        } else {   // bullet
+          ctx.fillStyle = '#fff1b0'; ctx.beginPath(); ctx.arc(x, y, 3 * s, 0, Math.PI * 2); ctx.fill()
+        }
+        ctx.restore()
       }
     }
   }
@@ -1712,11 +1852,12 @@
 
   // red (power 1) → gold (power 6+)
   function missileColor(power) {
-    const t = Math.min(1, (power - 1) / 5)
+    if (power >= 10) return '#2f4a2a'   // NUKE — dark olive
+    const t = Math.min(1, (power - 1) / 8)
     const lerp = (a, b) => Math.round(a + (b - a) * t)
-    return `rgb(${lerp(225, 255)},${lerp(75, 207)},${lerp(75, 51)})`
+    return `rgb(${lerp(225, 255)},${lerp(75, 207)},${lerp(75, 51)})`   // red → gold as it merges
   }
-  function missileScale(power) { return 1 + Math.min(power - 1, 6) * 0.22 }
+  function missileScale(power) { return 1 + Math.min(power - 1, 9) * 0.16 }   // up to power 10
 
   // launch a projectile at cat `id`; opts.from = {x,y} source (defaults to a screen edge)
   function launch(id, opts = {}) {
@@ -1767,23 +1908,47 @@
         ctx.beginPath(); ctx.arc(Math.cos(a) * r, Math.sin(a) * r, 1.6, 0, Math.PI * 2); ctx.stroke()
       }
     }
+    if (power >= 10) {   // ☢ NUKE — pulsing green glow + radiation trefoil on the body
+      ctx.save(); ctx.globalAlpha = 0.35 + 0.2 * Math.sin(now / 110)
+      const ng = ctx.createRadialGradient(0, 0, 2, 0, 0, 24); ng.addColorStop(0, 'rgba(130,255,120,0.7)'); ng.addColorStop(1, 'rgba(60,180,60,0)')
+      ctx.fillStyle = ng; ctx.beginPath(); ctx.arc(0, 0, 24, 0, Math.PI * 2); ctx.fill(); ctx.restore()
+      ctx.save(); ctx.translate(-3, 0)
+      ctx.fillStyle = '#ffe600'; ctx.beginPath(); ctx.arc(0, 0, 4.6, 0, Math.PI * 2); ctx.fill()
+      ctx.fillStyle = '#1a1a1a'
+      for (let b = 0; b < 3; b++) { const a0 = b * 2.094 - 0.52; ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, 4.6, a0, a0 + 1.05); ctx.closePath(); ctx.fill() }
+      ctx.beginPath(); ctx.arc(0, 0, 1.4, 0, Math.PI * 2); ctx.fillStyle = '#ffe600'; ctx.fill()
+      ctx.restore()
+    }
     ctx.restore()
   }
 
   function drawExplosion(x, y, t, power = 1) {
-    const boom = 1 + Math.min(power - 1, 6) * 0.35
+    const nuke = power >= 10
+    const boom = 1 + Math.min(power - 1, 9) * (nuke ? 0.5 : 0.35)
     const gold = power > 3
     ctx.save(); ctx.translate(x, y); ctx.scale(boom, boom)
     const ease = 1 - Math.pow(1 - t, 2)
-    ctx.globalAlpha = Math.max(0, 1 - t * 1.4); ctx.fillStyle = gold ? '#fff0b0' : '#fff3c4'
+    // white-hot core + a second softer flash for punch
+    ctx.globalAlpha = Math.max(0, 1 - t * 1.4); ctx.fillStyle = nuke ? '#eaffea' : (gold ? '#fff0b0' : '#fff3c4')
     ctx.beginPath(); ctx.arc(0, 0, 8 + ease * 20, 0, Math.PI * 2); ctx.fill()
-    ctx.globalAlpha = Math.max(0, 1 - t); ctx.strokeStyle = gold ? '#ffcf33' : '#ff9d33'; ctx.lineWidth = 3
+    ctx.globalAlpha = Math.max(0, 0.7 - t); ctx.fillStyle = nuke ? 'rgba(150,230,120,0.6)' : 'rgba(255,180,60,0.55)'
+    ctx.beginPath(); ctx.arc(0, 0, 14 + ease * 30, 0, Math.PI * 2); ctx.fill()
+    // shockwave ring(s)
+    ctx.globalAlpha = Math.max(0, 1 - t); ctx.strokeStyle = nuke ? '#8fe66a' : (gold ? '#ffcf33' : '#ff9d33'); ctx.lineWidth = 3
     ctx.beginPath(); ctx.arc(0, 0, 10 + ease * 34, 0, Math.PI * 2); ctx.stroke()
-    ctx.strokeStyle = '#ffcf47'; ctx.lineWidth = 2.5; ctx.lineCap = 'round'
-    const spokes = gold ? 12 : 8
+    if (power > 3) { ctx.globalAlpha = Math.max(0, 0.8 - t); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(0, 0, 4 + ease * 52, 0, Math.PI * 2); ctx.stroke() }
+    ctx.strokeStyle = nuke ? '#b6f58a' : '#ffcf47'; ctx.lineWidth = 2.5; ctx.lineCap = 'round'
+    const spokes = nuke ? 16 : (gold ? 12 : 8)
     for (let i = 0; i < spokes; i++) {
-      const a = (i / spokes) * Math.PI * 2, r0 = 12 + ease * 20, r1 = 12 + ease * 38
+      const a = (i / spokes) * Math.PI * 2, r0 = 12 + ease * 20, r1 = 12 + ease * (nuke ? 52 : 38)
       ctx.beginPath(); ctx.moveTo(Math.cos(a) * r0, Math.sin(a) * r0); ctx.lineTo(Math.cos(a) * r1, Math.sin(a) * r1); ctx.stroke()
+    }
+    if (nuke) {   // rising mushroom cloud (radioactive green)
+      const rise = ease * 46; ctx.globalAlpha = Math.max(0, 0.85 - t)
+      ctx.fillStyle = 'rgba(120,200,90,0.55)'
+      ctx.beginPath(); ctx.roundRect(-6, -rise, 12, rise + 4, 5); ctx.fill()                                   // stem
+      ctx.beginPath(); ctx.ellipse(0, -rise, 20 + ease * 8, 13 + ease * 6, 0, 0, Math.PI * 2); ctx.fill()      // cap
+      ctx.fillStyle = 'rgba(180,240,150,0.5)'; ctx.beginPath(); ctx.ellipse(0, -rise, 12, 8, 0, 0, Math.PI * 2); ctx.fill()
     }
     ctx.restore()
   }
@@ -1863,8 +2028,8 @@
       const cat = allRef[i], c = catPos[i]
       if (Math.hypot(x - c.x, y - c.y) > R + view.scale * 30) continue   // blast overlaps the cat body
       if (catShieldCovers(cat, c, x, y, now)) continue
-      cat.hitUntil = now + 1000 + Math.min(power - 1, 5) * 200
-      if (cat.id !== 'me') { if (connected()) net.send(JSON.stringify({ t: 'hit', target: cat.id, power })); addCatHit() }   // achievement: enemy-cat hit
+      applyCatHit(cat, power, now)
+      if (cat.id !== 'me') addCatHit()   // achievement: enemy-cat missile hit
     }
   }
 
@@ -1933,7 +2098,7 @@
       if (t >= 1) {
         addEffect(p.tx, p.ty, 1)
         const cat = allRef.find((c) => c.id === p.targetId)
-        if (cat) cat.hitUntil = now + 1000
+        if (cat) applyCatHit(cat, 1, now)
         projectiles.splice(i, 1); continue
       }
       const x = p.sx + (p.tx - p.sx) * t
@@ -1951,7 +2116,7 @@
   }
 
   // stream my missiles (relative to my cat) + shield state so peers can see/collide/block
-  let sentMissiles = false, sentShield = false, sentAnts = false, sentBh = false, sentGat = false, sentGB = false
+  let sentMissiles = false, sentShield = false, sentAnts = false, sentBh = false, sentGat = false, sentGB = false, sentHuman = false, sentHB = false
   setInterval(() => {
     if (!connected()) return
     const now = performance.now()
@@ -1992,11 +2157,20 @@
       net.send(JSON.stringify({ t: 'gbullets', list: gbullets.slice(-40).map((p) => ({ id: p.id, nx: +(p.x / NW).toFixed(4), ny: +(p.y / NH).toFixed(4) })) }))
     } else if (sentGB) { net.send(JSON.stringify({ t: 'gbullets', list: [] })); sentGB = false }
 
+    if (me.humanActive) {   // human is local-authoritative but now VISIBLE to peers
+      sentHuman = true
+      net.send(JSON.stringify({ t: 'human', active: 1, nx: +(me.humanX / NW).toFixed(4), ny: +(me.humanY / NH).toFixed(4), hp: me.humanHp, weapon: me.humanWeapon || '', face: me.humanFace || 1 }))
+    } else if (sentHuman) { net.send(JSON.stringify({ t: 'human', active: 0 })); sentHuman = false }
+    if (hbullets.length) {
+      sentHB = true
+      net.send(JSON.stringify({ t: 'hbullets', list: hbullets.slice(-30).map((p) => { if (!p.id) p.id = hbId++; return { id: p.id, nx: +(p.x / NW).toFixed(4), ny: +(p.y / NH).toFixed(4), k: p.adogen ? 2 : (p.wave ? 1 : 0), r: +((p.waveR ? (p.waveR * (p.hp0 ? p.hp / p.hp0 : 1)) : 3 * view.scale) / NW).toFixed(4) } }) }))
+    } else if (sentHB) { net.send(JSON.stringify({ t: 'hbullets', list: [] })); sentHB = false }
+
     // my widget position (normalized 0..1 to my screen) + interaction count, so peers place
     // my cat where I put it and can see my counter
     if (wx != null) {
       const W = canvas.clientWidth || 1, H = canvas.clientHeight || 1
-      net.send(JSON.stringify({ t: 'pos', nx: +(wx / W).toFixed(4), ny: +(wy / H).toFixed(4), taps: tapCount }))
+      net.send(JSON.stringify({ t: 'pos', nx: +(wx / W).toFixed(4), ny: +(wy / H).toFixed(4), taps: tapCount, hp: me.hp }))
     }
   }, 50)   // ~20 updates/s — higher rate so remote missiles/ants move smoother
 
@@ -2004,9 +2178,9 @@
   // The window covers the whole screen. The cat "widget" (cat + desk + bottom bar)
   // sits at a draggable spot; everywhere else the window is click-through so it never
   // blocks your normal desktop use. Interactive only while the cursor is over the widget.
-  const SCALE = 0.8    // widget (cat + desk + bar) drawn 20% smaller (counter text stays CSS-sized)
+  const SCALE = 0.62   // widget (cat + desk + bar) size (counter text stays CSS-sized)
   const BAR_SPACE = 34 // room below the cell for the DOM #hud-bar
-  const GRID_COLS = 8, GRID_ROWS = 4   // drag-snap preset anchors
+  const GRID_COLS = 10, GRID_ROWS = 6   // drag-snap preset anchors
   const SIDE = 0   // HUD bar inset; 0 → bar width == desk width (both = cellPxW), always aligned
   const hudBar = document.getElementById('hud-bar')
   const cellPxW = CELL_W * SCALE
@@ -2078,6 +2252,15 @@
     chatbar.style.top = (wy - 34) + 'px'
   }
   // a peer's interaction counter — same bottom-bar design as MY HUD (#hud-bar + #counter),
+  // Screen-space center of a peer's cat body (same placement math as the render loop), so
+  // hit/destroy effects land on the right spot for every observer.
+  function peerCatCenter(p) {
+    if (!p || p.nx == null || p.ny == null) return null
+    const W = canvas.clientWidth, H = canvas.clientHeight, scale = SCALE, BUB = window.AnimalArt.BUBBLE_H
+    const ox = Math.max(0, Math.min(p.nx * W, W - CELL_W * scale))
+    const oy = Math.max(0, Math.min(p.ny * H, usableBottom() - (CELL_H * scale + BAR_SPACE)))
+    return { x: ox + CELL_W / 2 * scale, y: oy + (BUB + 100) * scale }
+  }
   // just WITHOUT the hamburger. Drawn on-canvas below their cat, full cell width, fixed text.
   function drawPeerCount(origin, taps) {
     const sc = view.scale
@@ -2226,6 +2409,8 @@
     drawRemoteGBullets(now)
     stepHbullets(now)
     stepHuman(now)
+    drawRemoteHumans(now)
+    drawRemoteHbullets(now)
     drawBhDust(now)
     ctx = stagectx
 

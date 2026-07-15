@@ -21,6 +21,22 @@
   // per-feature position nudges the user can drag in edit mode
   const DEFAULT_FEAT = { earDX: 0, earDY: 0, eyeDX: 0, eyeDY: 0, tailDX: 0, tailDY: 0 }
 
+  // selectable body-part SHAPES (character customization). Order matters for wire encoding.
+  const EAR_SHAPES = ['pointed', 'round', 'folded']
+  const EYE_SHAPES = ['oval', 'round', 'happy', 'sparkle']
+  const MOUTH_SHAPES = ['smile', 'cat', 'oh', 'wide']
+  const TAIL_SHAPES = ['curl', 'straight', 'fluffy', 'stub']
+  const DEFAULT_SHAPE = { ear: 'pointed', eye: 'oval', mouth: 'smile', tail: 'curl' }
+  function shapesOf(state) {
+    const s = state.shape || {}
+    return {
+      ear: EAR_SHAPES.includes(s.ear) ? s.ear : 'pointed',
+      eye: EYE_SHAPES.includes(s.eye) ? s.eye : 'oval',
+      mouth: MOUTH_SHAPES.includes(s.mouth) ? s.mouth : 'smile',
+      tail: TAIL_SHAPES.includes(s.tail) ? s.tail : 'curl'
+    }
+  }
+
   // ---------- color helpers ----------
   function parseColor(c) {
     if (c[0] === '#') {
@@ -230,6 +246,7 @@
     ctx.translate(0, BUBBLE_H)
     const pal = furPalette(state.tint)
     const f = feat(state)
+    const shp = shapesOf(state)
     const cx = 120
     const deskY = DESK_Y
     const pattern = state.pattern || 'solid'
@@ -240,6 +257,10 @@
     const bob = bobAt(now, state.seed)
     const hy = 84 + bob
     const active = Math.max(pL, pR, pM)
+    // character HP → desk/keyboard/mouse damage + expression (0 = healthy, 1 = destroyed)
+    const hpv = state.hp != null ? state.hp : 100
+    const dmg01 = Math.max(0, Math.min(1, 1 - hpv / 100))
+    const broken = hpv <= 0
 
     // hit reaction — shake the whole widget while recovering
     const hit = !!(state.hitUntil && now < state.hitUntil)
@@ -252,15 +273,21 @@
     ctx.fillStyle = 'rgba(40,30,25,0.14)'
     ctx.beginPath(); ctx.ellipse(cx, deskY + 3, 66, 10, 0, 0, Math.PI * 2); ctx.fill()
 
-    // tail (behind body) — nudgeable
+    // tail (behind body) — nudgeable + selectable shape
     ctx.save()
     ctx.translate(f.tailDX, f.tailDY)
     ctx.lineCap = 'round'
     const tailWag = Math.sin(now / 700 + 1) * 6
-    ctx.strokeStyle = LINE; ctx.lineWidth = 15
-    ctx.beginPath(); ctx.moveTo(cx + 44, deskY - 4); ctx.quadraticCurveTo(cx + 88, deskY - 22, cx + 80 + tailWag, deskY - 58); ctx.stroke()
-    ctx.strokeStyle = pal.body; ctx.lineWidth = 11
-    ctx.beginPath(); ctx.moveTo(cx + 44, deskY - 4); ctx.quadraticCurveTo(cx + 88, deskY - 22, cx + 80 + tailWag, deskY - 58); ctx.stroke()
+    let tipX = cx + 80 + tailWag, tipY = deskY - 58
+    const tailPath = () => {
+      ctx.beginPath()
+      if (shp.tail === 'straight') { tipX = cx + 70 + tailWag * 0.5; tipY = deskY - 74; ctx.moveTo(cx + 44, deskY - 4); ctx.quadraticCurveTo(cx + 74, deskY - 40, tipX, tipY) }
+      else if (shp.tail === 'stub') { tipX = cx + 62 + tailWag * 0.4; tipY = deskY - 22; ctx.moveTo(cx + 46, deskY - 2); ctx.quadraticCurveTo(cx + 60, deskY - 10, tipX, tipY) }
+      else { tipX = cx + 80 + tailWag; tipY = deskY - 58; ctx.moveTo(cx + 44, deskY - 4); ctx.quadraticCurveTo(cx + 88, deskY - 22, tipX, tipY) }   // curl + fluffy base
+    }
+    ctx.strokeStyle = LINE; ctx.lineWidth = shp.tail === 'fluffy' ? 18 : 15; tailPath(); ctx.stroke()
+    ctx.strokeStyle = pal.body; ctx.lineWidth = shp.tail === 'fluffy' ? 14 : 11; tailPath(); ctx.stroke()
+    if (shp.tail === 'fluffy') { ctx.beginPath(); ctx.ellipse(tipX, tipY, 13, 13, 0, 0, Math.PI * 2); ink(ctx, pal.body, 3) }   // puffy tip
     ctx.restore()
 
     // body
@@ -270,21 +297,35 @@
 
     // head group
     ctx.save()
-    // ears — nudgeable
+    // ears — nudgeable + selectable shape
     for (const s of [-1, 1]) {
       ctx.save()
       ctx.translate(s * f.earDX, f.earDY)
-      ctx.beginPath()
-      ctx.moveTo(cx + s * 16, hy - 30)
-      ctx.quadraticCurveTo(cx + s * 34, hy - 60, cx + s * 45, hy - 24)
-      ctx.quadraticCurveTo(cx + s * 30, hy - 22, cx + s * 16, hy - 30)
-      ctx.closePath(); ink(ctx, pal.ear, 3)
-      ctx.fillStyle = pal.earIn
-      ctx.beginPath()
-      ctx.moveTo(cx + s * 22, hy - 30)
-      ctx.quadraticCurveTo(cx + s * 33, hy - 48, cx + s * 39, hy - 27)
-      ctx.quadraticCurveTo(cx + s * 30, hy - 26, cx + s * 22, hy - 30)
-      ctx.closePath(); ctx.fill()
+      if (shp.ear === 'round') {
+        ctx.beginPath(); ctx.arc(cx + s * 31, hy - 33, 15, 0, Math.PI * 2); ink(ctx, pal.ear, 3)
+        ctx.fillStyle = pal.earIn; ctx.beginPath(); ctx.arc(cx + s * 31, hy - 31, 8, 0, Math.PI * 2); ctx.fill()
+      } else if (shp.ear === 'folded') {
+        ctx.beginPath()
+        ctx.moveTo(cx + s * 15, hy - 33)
+        ctx.quadraticCurveTo(cx + s * 42, hy - 44, cx + s * 41, hy - 24)
+        ctx.quadraticCurveTo(cx + s * 30, hy - 19, cx + s * 15, hy - 25)
+        ctx.closePath(); ink(ctx, pal.ear, 3)
+        ctx.fillStyle = pal.earIn; ctx.beginPath()
+        ctx.moveTo(cx + s * 22, hy - 29); ctx.quadraticCurveTo(cx + s * 35, hy - 33, cx + s * 34, hy - 25)
+        ctx.quadraticCurveTo(cx + s * 28, hy - 23, cx + s * 22, hy - 27); ctx.closePath(); ctx.fill()
+      } else {   // pointed (default)
+        ctx.beginPath()
+        ctx.moveTo(cx + s * 16, hy - 30)
+        ctx.quadraticCurveTo(cx + s * 34, hy - 60, cx + s * 45, hy - 24)
+        ctx.quadraticCurveTo(cx + s * 30, hy - 22, cx + s * 16, hy - 30)
+        ctx.closePath(); ink(ctx, pal.ear, 3)
+        ctx.fillStyle = pal.earIn
+        ctx.beginPath()
+        ctx.moveTo(cx + s * 22, hy - 30)
+        ctx.quadraticCurveTo(cx + s * 33, hy - 48, cx + s * 39, hy - 27)
+        ctx.quadraticCurveTo(cx + s * 30, hy - 26, cx + s * 22, hy - 30)
+        ctx.closePath(); ctx.fill()
+      }
       ctx.restore()
     }
 
@@ -310,8 +351,8 @@
     const eyeY = hy + 3 + f.eyeDY
     for (const s of [-1, 1]) {
       const ex = cx + s * (15 + f.eyeDX)
-      if (hit) {
-        // dizzy "X" eyes
+      if (hit || broken) {
+        // dizzy "X" eyes (hit reaction / KO)
         ctx.strokeStyle = LINE; ctx.lineWidth = 3; ctx.lineCap = 'round'
         ctx.beginPath()
         ctx.moveTo(ex - 5, eyeY - 5); ctx.lineTo(ex + 5, eyeY + 5)
@@ -320,19 +361,44 @@
       } else if (blinking) {
         ctx.strokeStyle = LINE; ctx.lineWidth = 3; ctx.lineCap = 'round'
         ctx.beginPath(); ctx.arc(ex, eyeY, 6, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke()
+      } else if (shp.eye === 'happy') {
+        // ^-^ smiley closed eyes (upward curve)
+        ctx.strokeStyle = LINE; ctx.lineWidth = 3; ctx.lineCap = 'round'
+        ctx.beginPath(); ctx.arc(ex, eyeY - 2, 6.5, Math.PI * 0.12, Math.PI * 0.88); ctx.stroke()
+      } else if (shp.eye === 'round') {
+        ctx.fillStyle = LINE; ctx.beginPath(); ctx.arc(ex, eyeY, 7.6, 0, Math.PI * 2); ctx.fill()
+        ctx.fillStyle = 'rgba(255,255,255,0.95)'; ctx.beginPath(); ctx.arc(ex - 2.6, eyeY - 3, 2.7, 0, Math.PI * 2); ctx.fill()
       } else {
         ctx.fillStyle = LINE; ctx.beginPath(); ctx.ellipse(ex, eyeY, 6, 7.5, 0, 0, Math.PI * 2); ctx.fill()
         ctx.fillStyle = 'rgba(255,255,255,0.95)'; ctx.beginPath(); ctx.arc(ex - 2, eyeY - 3, 2.1, 0, Math.PI * 2); ctx.fill()
+        if (shp.eye === 'sparkle') { ctx.beginPath(); ctx.arc(ex + 2, eyeY + 2.6, 1.4, 0, Math.PI * 2); ctx.fill() }
       }
     }
 
+    // worried eyebrows as damage rises (not while blinking/KO)
+    if (dmg01 > 0.35 && !hit && !broken) {
+      ctx.strokeStyle = LINE; ctx.lineWidth = 2.4; ctx.lineCap = 'round'
+      for (const s of [-1, 1]) { const ex = cx + s * (15 + f.eyeDX); ctx.beginPath(); ctx.moveTo(ex - s * 7, eyeY - 12); ctx.lineTo(ex + s * 6, eyeY - 7); ctx.stroke() }
+    }
     // nose + mouth
     ctx.fillStyle = '#e58aa3'
     ctx.beginPath(); ctx.moveTo(cx - 3.5, hy + 12); ctx.lineTo(cx + 3.5, hy + 12); ctx.lineTo(cx, hy + 15.5); ctx.closePath(); ctx.fill()
     ctx.strokeStyle = LINE; ctx.lineWidth = 1.8; ctx.lineCap = 'round'
-    if (active > 0.4) {
+    if (broken) {   // KO — open pained mouth
+      ctx.fillStyle = '#7a3a44'; ctx.beginPath(); ctx.ellipse(cx, hy + 20, 4.5, 3.5, 0, 0, Math.PI * 2); ctx.fill(); ink(ctx, LINE, 1.6)
+    } else if (active > 0.4) {
       ctx.fillStyle = '#e07d95'; ctx.beginPath(); ctx.ellipse(cx, hy + 19, 4.5, 3 + active * 2, 0, 0, Math.PI * 2); ctx.fill(); ink(ctx, null, 1.6)
-    } else {
+    } else if (dmg01 > 0.45) {   // frown
+      ctx.beginPath(); ctx.arc(cx, hy + 23, 5, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke()
+    } else if (shp.mouth === 'oh') {
+      ctx.fillStyle = '#7a3a44'; ctx.beginPath(); ctx.ellipse(cx, hy + 19, 3, 3.4, 0, 0, Math.PI * 2); ctx.fill(); ink(ctx, null, 1.6)
+    } else if (shp.mouth === 'wide') {
+      ctx.fillStyle = '#e07d95'; ctx.beginPath(); ctx.ellipse(cx, hy + 19, 6, 4.2, 0, 0, Math.PI * 2); ctx.fill(); ink(ctx, LINE, 1.6)
+      ctx.fillStyle = '#ff9db0'; ctx.beginPath(); ctx.ellipse(cx, hy + 21, 3, 2, 0, 0, Math.PI * 2); ctx.fill()   // tongue
+    } else if (shp.mouth === 'cat') {   // :3 — philtrum + wide ω
+      ctx.beginPath(); ctx.moveTo(cx, hy + 15.5); ctx.lineTo(cx, hy + 18); ctx.stroke()
+      ctx.beginPath(); ctx.arc(cx - 4, hy + 18, 4.2, 0.05 * Math.PI, 0.95 * Math.PI); ctx.arc(cx + 4, hy + 18, 4.2, 0.05 * Math.PI, 0.95 * Math.PI); ctx.stroke()
+    } else {   // smile (default)
       ctx.beginPath(); ctx.arc(cx - 3.5, hy + 17, 3.5, 0.1 * Math.PI, 0.9 * Math.PI); ctx.arc(cx + 3.5, hy + 17, 3.5, 0.1 * Math.PI, 0.9 * Math.PI); ctx.stroke()
     }
 
@@ -345,7 +411,12 @@
     }
 
     drawHat(ctx, state.hat, cx, hy - 36)
-    if (hit) drawDizzyStars(ctx, cx, hy - 52, now)
+    if (hit || broken) drawDizzyStars(ctx, cx, hy - 52, now)
+    if (dmg01 > 0.001) {   // HP bar over the head
+      const bw = 46, bx = cx - bw / 2, byy = hy - 46
+      ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fillRect(bx, byy, bw, 5)
+      ctx.fillStyle = hpv > 30 ? '#7ecb7e' : '#d05555'; ctx.fillRect(bx, byy, bw * Math.max(0, hpv / 100), 5)
+    }
     ctx.restore()
 
     // bottom bar
@@ -369,6 +440,28 @@
     ctx.beginPath(); ctx.ellipse(mouseX + mj, deskY + 26, 10, 14, 0, 0, Math.PI * 2); ink(ctx, '#eceef4', 2)
     ctx.strokeStyle = '#c2c5d0'; ctx.lineWidth = 1.1
     ctx.beginPath(); ctx.moveTo(mouseX + mj, deskY + 15); ctx.lineTo(mouseX + mj, deskY + 22); ctx.stroke()
+
+    // desk / keyboard / mouse damage — cracks + broken keys scale with HP loss (5 stages)
+    if (dmg01 > 0.05) {
+      const rnd = (i) => { const x = Math.sin(i * 91.7) * 43758.5453; return x - Math.floor(x) }
+      ctx.save()
+      const nc = Math.round(dmg01 * 9)   // cracks across the desk bar
+      ctx.strokeStyle = `rgba(60,40,25,${0.3 + dmg01 * 0.5})`; ctx.lineWidth = 1.3; ctx.lineCap = 'round'
+      for (let i = 0; i < nc; i++) {
+        let x = rnd(i) * CELL_W, y = deskY + 3 + rnd(i + 7) * (BAR_VIS - 6)
+        ctx.beginPath(); ctx.moveTo(x, y)
+        for (let g = 0; g < 3; g++) { x += (rnd(i * 3 + g) - 0.5) * 22; y += (rnd(i + g) - 0.3) * 8; ctx.lineTo(x, y) }
+        ctx.stroke()
+      }
+      const nk = Math.round(dmg01 * 8)   // broken keyboard keys (dark holes)
+      ctx.fillStyle = 'rgba(18,16,22,0.85)'
+      for (let i = 0; i < nk; i++) { const k = Math.floor(rnd(i + 3) * 8), r = Math.floor(rnd(i + 11) * 3); rr(ctx, kbX + pad + k * (kw + gap), kbY + pad + r * (kh + gap), kw, kh, 1.6); ctx.fill() }
+      if (dmg01 > 0.4) {   // cracked mouse
+        ctx.strokeStyle = 'rgba(60,60,70,0.75)'; ctx.lineWidth = 1
+        ctx.beginPath(); ctx.moveTo(mouseX + mj - 4, deskY + 20); ctx.lineTo(mouseX + mj + 2, deskY + 26); ctx.lineTo(mouseX + mj - 1, deskY + 31); ctx.stroke()
+      }
+      ctx.restore()
+    }
 
     // paws
     const restUp = deskY - 10, kbHit = deskY + 10, mouseHit = deskY + 17
@@ -408,5 +501,5 @@
     }
   }
 
-  window.AnimalArt = { draw, anchors, CELL_W, CELL_H, BUBBLE_H, DESK_Y, SLAP_MS, SKINS, HATS, PATTERNS, DEFAULT_FEAT }
+  window.AnimalArt = { draw, anchors, CELL_W, CELL_H, BUBBLE_H, DESK_Y, SLAP_MS, SKINS, HATS, PATTERNS, DEFAULT_FEAT, EAR_SHAPES, EYE_SHAPES, MOUTH_SHAPES, TAIL_SHAPES, DEFAULT_SHAPE }
 })()
