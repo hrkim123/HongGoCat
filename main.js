@@ -90,6 +90,7 @@ let settingsWin = null  // normal settings window
 let winOrigin = { x: 0, y: 0 } // top-left of the (multi-monitor) overlay in screen coords
 let chatting = false          // while true, the overlay is allowed to stay focused (for typing)
 let humanActive = false       // true while the WASD-controllable human weapon is summoned
+let gatlingActive = false     // true while a gatling turret is deployed (needs the Q fire key forwarded)
 
 // Only ever allow ONE overlay — prevents stale/ghost windows from stacking up
 // (repeated launches otherwise leave leftover windows that look like a stray bar).
@@ -331,7 +332,7 @@ app.whenReady().then(() => {
         slotHeld.add(e.keycode)
         if (win && !win.isDestroyed()) win.webContents.send('command', { t: 'fire-slot', slot: SLOT_KEYS[e.keycode], down: true })
       }
-      if (humanActive && MOVE_KEYS[e.keycode] && win && !win.isDestroyed()) {
+      if ((humanActive || gatlingActive) && MOVE_KEYS[e.keycode] && win && !win.isDestroyed()) {
         win.webContents.send('command', { t: 'human-key', key: MOVE_KEYS[e.keycode], down: true })
       }
     })
@@ -366,6 +367,7 @@ app.whenReady().then(() => {
 })
 
 ipcMain.on('human-control', (_e, active) => { humanActive = !!active })
+ipcMain.on('gatling-control', (_e, active) => { gatlingActive = !!active })
 ipcMain.on('open-settings', toggleSettings)
 ipcMain.on('apply-update', () => { if (updater) { try { updater.quitAndInstall(true, true) } catch (e) {} } })
 ipcMain.on('check-update', () => {

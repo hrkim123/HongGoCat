@@ -44,18 +44,7 @@
       : `접속 인원: — / ${max}명 (오프라인)`
     // platform tool: offline → anyone; online → host only. Hide only when connected & not host.
     const ht = $('host-tools'); if (ht) ht.classList.toggle('hidden', !!s.connected && !s.isHost)
-    // achievement: 🎯 저격수 (enemy-cat missile hits)
-    const ch = s.catHits || 0, chGoal = s.catHitGoal || 500, chDone = !!s.catHitRewarded
-    const chFill = $('achv-cathit-fill'), chSt = $('achv-cathit-status'), chCard = $('achv-cathit')
-    if (chFill) chFill.style.width = Math.min(100, (ch / chGoal) * 100) + '%'
-    if (chSt) chSt.textContent = chDone ? `달성! ${ch} / ${chGoal} ✓ (보상 지급됨)` : `${ch} / ${chGoal}`
-    if (chCard) chCard.classList.toggle('done', chDone)
-    // achievement: 💥 완전 파괴
-    const dv = s.destroys || 0, dvGoal = s.destroyGoal || 5, dvDone = !!s.destroyRewarded
-    const dvFill = $('achv-destroy-fill'), dvSt = $('achv-destroy-status'), dvCard = $('achv-destroy')
-    if (dvFill) dvFill.style.width = Math.min(100, (dv / dvGoal) * 100) + '%'
-    if (dvSt) dvSt.textContent = dvDone ? `달성! ${dv} / ${dvGoal} ✓ (보상 지급됨)` : `${dv} / ${dvGoal}`
-    if (dvCard) dvCard.classList.toggle('done', dvDone)
+    // (achievements moved out of settings → dedicated 🏆 button under the shop button in the overlay)
     ready = true
   })
 

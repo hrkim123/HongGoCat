@@ -103,12 +103,24 @@ wss.on('connection', (ws, req) => {
       broadcast(joinedRoom, { t: 'gbullets', id, list: msg.list.slice(0, 40) }, id)
     } else if (msg.t === 'gat-hit') {
       broadcast(joinedRoom, { t: 'gat-hit', id, target: msg.target, dmg: msg.dmg }, id)
+    } else if (msg.t === 'kill') {
+      broadcast(joinedRoom, { t: 'kill', id, kind: msg.kind, by: msg.by }, id)   // credit a gatling/human destroy to the killer
     } else if (msg.t === 'human') {
       broadcast(joinedRoom, { t: 'human', id, active: msg.active, nx: msg.nx, ny: msg.ny, hp: msg.hp, weapon: msg.weapon, face: msg.face }, id)
+    } else if (msg.t === 'net') {
+      broadcast(joinedRoom, { t: 'net', id, active: msg.active, ph: msg.ph, ax: msg.ax, ay: msg.ay, bx: msg.bx, by: msg.by, sp: msg.sp, items: Array.isArray(msg.items) ? msg.items.slice(0, 12) : [], n: msg.n }, id)
     } else if (msg.t === 'hbullets' && Array.isArray(msg.list)) {
       broadcast(joinedRoom, { t: 'hbullets', id, list: msg.list.slice(0, 30) }, id)
     } else if (msg.t === 'bolt') {
       broadcast(joinedRoom, { t: 'bolt', id, nx: msg.nx, nyTop: msg.nyTop, nyBot: msg.nyBot, level: msg.level }, id)
+    } else if (msg.t === 'platforms' && Array.isArray(msg.list)) {
+      broadcast(joinedRoom, { t: 'platforms', id, list: msg.list.slice(0, 40) }, id)   // host → peers (authoritative floor list)
+    } else if (msg.t === 'platdraw' && Array.isArray(msg.p)) {
+      broadcast(joinedRoom, { t: 'platdraw', id, p: msg.p.slice(0, 800) }, id)          // host → peers (live stroke preview)
+    } else if (msg.t === 'plathp' && Array.isArray(msg.ups)) {
+      broadcast(joinedRoom, { t: 'plathp', id, ups: msg.ups.slice(0, 40) }, id)          // host → peers (platform HP deltas)
+    } else if (msg.t === 'plat-hit') {
+      broadcast(joinedRoom, { t: 'plat-hit', id, pid: msg.pid, dmg: msg.dmg }, id)        // peer → host (report a platform hit)
     } else if (msg.t === 'chat' && typeof msg.text === 'string') {
       const now = Date.now()
       if (now - (me.lastChat || 0) < 400) return // spam guard
