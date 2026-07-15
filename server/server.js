@@ -70,7 +70,7 @@ wss.on('connection', (ws, req) => {
     if (!me) return
 
     if (msg.t === 'pos') {
-      broadcast(joinedRoom, { t: 'pos', id, nx: msg.nx, ny: msg.ny, taps: msg.taps, hp: msg.hp }, id)
+      broadcast(joinedRoom, { t: 'pos', id, nx: msg.nx, ny: msg.ny, taps: msg.taps, hp: msg.hp, away: msg.away }, id)
     } else if (msg.t === 'pulse' && (msg.kind === 'key' || msg.kind === 'mouse')) {
       broadcast(joinedRoom, { t: 'pulse', id, kind: msg.kind }, id)
     } else if (msg.t === 'throw') {
@@ -82,7 +82,7 @@ wss.on('connection', (ws, req) => {
       // live missile positions (relative to the thrower's cat) so peers can render/collide
       broadcast(joinedRoom, { t: 'missiles', id, list: msg.list.slice(0, 8) }, id)
     } else if (msg.t === 'hit') {
-      broadcast(joinedRoom, { t: 'hit', id, target: msg.target, power: msg.power }, id)
+      broadcast(joinedRoom, { t: 'hit', id, target: msg.target, power: msg.power, shock: msg.shock }, id)
     } else if (msg.t === 'shield') {
       broadcast(joinedRoom, { t: 'shield', id, angle: msg.angle, ttl: msg.ttl, hp: msg.hp, max: msg.max, broke: !!msg.broke }, id)
     } else if (msg.t === 'shield-hit') {
@@ -107,6 +107,8 @@ wss.on('connection', (ws, req) => {
       broadcast(joinedRoom, { t: 'human', id, active: msg.active, nx: msg.nx, ny: msg.ny, hp: msg.hp, weapon: msg.weapon, face: msg.face }, id)
     } else if (msg.t === 'hbullets' && Array.isArray(msg.list)) {
       broadcast(joinedRoom, { t: 'hbullets', id, list: msg.list.slice(0, 30) }, id)
+    } else if (msg.t === 'bolt') {
+      broadcast(joinedRoom, { t: 'bolt', id, nx: msg.nx, nyTop: msg.nyTop, nyBot: msg.nyBot, level: msg.level }, id)
     } else if (msg.t === 'chat' && typeof msg.text === 'string') {
       const now = Date.now()
       if (now - (me.lastChat || 0) < 400) return // spam guard

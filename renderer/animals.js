@@ -348,6 +348,7 @@
 
     // eyes — nudgeable; natural blink
     const blinking = state.blinkUntil && now < state.blinkUntil
+    const asleep = !!state.away && !hit && !broken   // 자리비움 → 눈 감고 졸기
     const eyeY = hy + 3 + f.eyeDY
     for (const s of [-1, 1]) {
       const ex = cx + s * (15 + f.eyeDX)
@@ -358,6 +359,10 @@
         ctx.moveTo(ex - 5, eyeY - 5); ctx.lineTo(ex + 5, eyeY + 5)
         ctx.moveTo(ex + 5, eyeY - 5); ctx.lineTo(ex - 5, eyeY + 5)
         ctx.stroke()
+      } else if (asleep) {
+        // closed sleeping lids (gentle downward arc)
+        ctx.strokeStyle = LINE; ctx.lineWidth = 2.6; ctx.lineCap = 'round'
+        ctx.beginPath(); ctx.arc(ex, eyeY - 2, 6, Math.PI * 1.12, Math.PI * 1.88); ctx.stroke()
       } else if (blinking) {
         ctx.strokeStyle = LINE; ctx.lineWidth = 3; ctx.lineCap = 'round'
         ctx.beginPath(); ctx.arc(ex, eyeY, 6, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke()
@@ -417,6 +422,35 @@
       ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fillRect(bx, byy, bw, 5)
       ctx.fillStyle = hpv > 30 ? '#7ecb7e' : '#d05555'; ctx.fillRect(bx, byy, bw * Math.max(0, hpv / 100), 5)
     }
+    // electrocuted (⚡ 낙뢰 hit) — jittering arcs + blue flash around the cat
+    if (state.shockUntil && now < state.shockUntil) {
+      const sa = Math.max(0, Math.min(1, (state.shockUntil - now) / 650))
+      ctx.save()
+      ctx.globalAlpha = 0.16 * sa * (0.5 + 0.5 * Math.sin(now / 45))
+      ctx.fillStyle = '#bfe4ff'; ctx.beginPath(); ctx.ellipse(cx, hy + 6, 60, 58, 0, 0, Math.PI * 2); ctx.fill()
+      ctx.globalAlpha = 1
+      ctx.strokeStyle = `rgba(190,230,255,${0.9 * sa})`; ctx.lineWidth = 2; ctx.lineCap = 'round'
+      ctx.shadowColor = 'rgba(150,210,255,0.9)'; ctx.shadowBlur = 8
+      for (let k = 0; k < 5; k++) {
+        const a0 = now / 40 + k * 1.7, r0 = 42 + Math.sin(now / 30 + k) * 6
+        let px = cx + Math.cos(a0) * r0, py = (hy + 6) + Math.sin(a0) * (r0 * 0.72)
+        ctx.beginPath(); ctx.moveTo(px, py)
+        for (let j = 1; j <= 3; j++) { const a1 = a0 + j * 0.5, r1 = r0 - j * (6 + Math.sin(now / 20 + k + j) * 4); ctx.lineTo(cx + Math.cos(a1) * r1, (hy + 6) + Math.sin(a1) * (r1 * 0.72)) }
+        ctx.stroke()
+      }
+      ctx.restore()
+    }
+    // 자리비움(away): floating 💤 z's rising and fading above the head
+    if (state.away && !broken) {
+      ctx.save(); ctx.textBaseline = 'middle'; ctx.textAlign = 'center'; ctx.fillStyle = '#8fb4e6'
+      for (let k = 0; k < 3; k++) {
+        const ph = ((now / 900) + k / 3) % 1
+        ctx.globalAlpha = Math.max(0, 1 - ph) * 0.9
+        ctx.font = `bold ${11 + k * 4}px "Segoe UI", "Malgun Gothic", sans-serif`
+        ctx.fillText('z', cx + 28 + ph * 18, hy - 40 - ph * 28)
+      }
+      ctx.restore()
+    }
     ctx.restore()
 
     // bottom bar
@@ -441,24 +475,78 @@
     ctx.strokeStyle = '#c2c5d0'; ctx.lineWidth = 1.1
     ctx.beginPath(); ctx.moveTo(mouseX + mj, deskY + 15); ctx.lineTo(mouseX + mj, deskY + 22); ctx.stroke()
 
-    // desk / keyboard / mouse damage — cracks + broken keys scale with HP loss (5 stages)
+    // desk / keyboard / mouse DESTRUCTION — gouges, branching cracks, scorch, popped keys (5 stages)
     if (dmg01 > 0.05) {
       const rnd = (i) => { const x = Math.sin(i * 91.7) * 43758.5453; return x - Math.floor(x) }
+      const stage = Math.min(5, Math.ceil(dmg01 * 5))
       ctx.save()
-      const nc = Math.round(dmg01 * 9)   // cracks across the desk bar
-      ctx.strokeStyle = `rgba(60,40,25,${0.3 + dmg01 * 0.5})`; ctx.lineWidth = 1.3; ctx.lineCap = 'round'
-      for (let i = 0; i < nc; i++) {
-        let x = rnd(i) * CELL_W, y = deskY + 3 + rnd(i + 7) * (BAR_VIS - 6)
-        ctx.beginPath(); ctx.moveTo(x, y)
-        for (let g = 0; g < 3; g++) { x += (rnd(i * 3 + g) - 0.5) * 22; y += (rnd(i + g) - 0.3) * 8; ctx.lineTo(x, y) }
-        ctx.stroke()
+      ctx.beginPath(); ctx.rect(0, deskY, CELL_W, BAR_VIS + 4); ctx.clip()   // keep the wreckage on the desk
+
+      // 1) chunks gouged out of the desk surface — dark jagged pits with a chipped rim + depth shadow
+      const nHoles = Math.round(dmg01 * 7)
+      for (let i = 0; i < nHoles; i++) {
+        const hx = rnd(i * 2 + 1) * CELL_W, hy = deskY + 8 + rnd(i * 2 + 5) * (BAR_VIS - 14), rad = (3 + rnd(i + 9) * 6) * (0.6 + dmg01)
+        const pts = 6 + Math.floor(rnd(i) * 3)
+        ctx.beginPath()
+        for (let p = 0; p < pts; p++) { const a = (p / pts) * Math.PI * 2, rr2 = rad * (0.55 + rnd(i * 7 + p) * 0.75), px = hx + Math.cos(a) * rr2, py = hy + Math.sin(a) * rr2 * 0.82; p === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py) }
+        ctx.closePath()
+        ctx.fillStyle = 'rgba(20,14,11,0.92)'; ctx.fill()
+        ctx.strokeStyle = 'rgba(255,238,205,0.28)'; ctx.lineWidth = 1; ctx.stroke()
+        ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.beginPath(); ctx.ellipse(hx, hy + rad * 0.25, rad * 0.55, rad * 0.38, 0, 0, Math.PI * 2); ctx.fill()
       }
-      const nk = Math.round(dmg01 * 8)   // broken keyboard keys (dark holes)
-      ctx.fillStyle = 'rgba(18,16,22,0.85)'
-      for (let i = 0; i < nk; i++) { const k = Math.floor(rnd(i + 3) * 8), r = Math.floor(rnd(i + 11) * 3); rr(ctx, kbX + pad + k * (kw + gap), kbY + pad + r * (kh + gap), kw, kh, 1.6); ctx.fill() }
-      if (dmg01 > 0.4) {   // cracked mouse
-        ctx.strokeStyle = 'rgba(60,60,70,0.75)'; ctx.lineWidth = 1
-        ctx.beginPath(); ctx.moveTo(mouseX + mj - 4, deskY + 20); ctx.lineTo(mouseX + mj + 2, deskY + 26); ctx.lineTo(mouseX + mj - 1, deskY + 31); ctx.stroke()
+
+      // 2) branching cracks — dark fracture core with a bright split highlight
+      const nc = Math.round(dmg01 * 8)
+      for (let i = 0; i < nc; i++) {
+        const x0 = rnd(i) * CELL_W, y0 = deskY + 3 + rnd(i + 7) * (BAR_VIS - 6)
+        const drawCrack = (lw, col) => {
+          let x = x0, y = y0; ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(x, y)
+          for (let g = 0; g < 4; g++) { x += (rnd(i * 3 + g) - 0.5) * 26; y += (rnd(i + g) - 0.3) * 9; ctx.lineTo(x, y) }
+          ctx.stroke()
+          const bx = x0 + (rnd(i + 2) - 0.5) * 14, by = y0 + rnd(i + 4) * 8
+          ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx + (rnd(i + 3) - 0.5) * 22, by + rnd(i + 6) * 11); ctx.stroke()
+        }
+        drawCrack(2.2, `rgba(10,6,4,${0.4 + dmg01 * 0.5})`)
+        drawCrack(0.8, `rgba(255,236,202,${0.14 + dmg01 * 0.24})`)
+      }
+
+      // 3) scorch smudges at heavy damage
+      if (stage >= 4) {
+        for (let i = 0; i < stage; i++) {
+          const sx = rnd(i + 20) * CELL_W, sy = deskY + 8 + rnd(i + 25) * (BAR_VIS - 12), sr = 8 + rnd(i + 30) * 10
+          const g = ctx.createRadialGradient(sx, sy, 1, sx, sy, sr)
+          g.addColorStop(0, 'rgba(14,9,9,0.55)'); g.addColorStop(1, 'rgba(14,9,9,0)')
+          ctx.fillStyle = g; ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI * 2); ctx.fill()
+        }
+      }
+
+      // 4) keyboard: dark broken keys, then popped-off keys scattered, then a fracture across it
+      const nk = Math.round(dmg01 * 9)
+      for (let i = 0; i < nk; i++) {
+        const k = Math.floor(rnd(i + 3) * 8), r = Math.floor(rnd(i + 11) * 3)
+        ctx.fillStyle = 'rgba(12,10,16,0.9)'; rr(ctx, kbX + pad + k * (kw + gap), kbY + pad + r * (kh + gap), kw, kh, 1.6); ctx.fill()
+        ctx.strokeStyle = 'rgba(90,95,110,0.5)'; ctx.lineWidth = 0.6; ctx.stroke()
+      }
+      if (stage >= 3) {
+        ctx.fillStyle = '#5a5f6d'
+        for (let i = 0; i < stage - 2; i++) {
+          const px = kbX + rnd(i + 40) * kbW, py = deskY + 30 + rnd(i + 44) * 16
+          ctx.save(); ctx.translate(px, py); ctx.rotate((rnd(i + 46) - 0.5) * 2)
+          rr(ctx, -kw / 2, -kh / 2, kw, kh, 1.6); ctx.fill(); ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 0.6; ctx.stroke(); ctx.restore()
+        }
+      }
+      if (stage >= 4) {
+        ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1.4; ctx.lineCap = 'round'
+        ctx.beginPath(); ctx.moveTo(kbX + 4, kbY + kbH * 0.3); ctx.lineTo(kbX + kbW * 0.4, kbY + kbH * 0.72); ctx.lineTo(kbX + kbW * 0.7, kbY + kbH * 0.22); ctx.lineTo(kbX + kbW - 4, kbY + kbH * 0.6); ctx.stroke()
+      }
+
+      // 5) mouse: crack, then a shattered chunk missing
+      if (dmg01 > 0.4) {
+        ctx.strokeStyle = 'rgba(30,30,38,0.85)'; ctx.lineWidth = 1; ctx.lineCap = 'round'
+        ctx.beginPath(); ctx.moveTo(mouseX + mj - 5, deskY + 19); ctx.lineTo(mouseX + mj + 2, deskY + 26); ctx.lineTo(mouseX + mj - 2, deskY + 32); ctx.stroke()
+      }
+      if (stage >= 5) {
+        ctx.fillStyle = 'rgba(15,12,18,0.92)'; ctx.beginPath(); ctx.moveTo(mouseX + mj + 2, deskY + 20); ctx.lineTo(mouseX + mj + 9, deskY + 24); ctx.lineTo(mouseX + mj + 4, deskY + 31); ctx.closePath(); ctx.fill()
       }
       ctx.restore()
     }

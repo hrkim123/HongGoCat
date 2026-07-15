@@ -130,7 +130,7 @@ html, body {
 .shop-buy:disabled { background: #44485a; color: #8a8f9c; cursor: default; }
 .shop-owned { margin-left: auto; font-size: 12px; font-weight: 700; color: #7ecb7e; white-space: nowrap; flex: 0 0 auto; }
 #shop-upgrade { margin-top: 10px; border-top: 1px solid #333644; padding-top: 8px; }
-#shop-upgrade-list { margin-top: 6px; }
+#shop-upgrade-list { display: flex; flex-direction: column; gap: 7px; margin-top: 6px; }
 .upg-gauge { display: flex; gap: 3px; margin-left: auto; }
 .upg-seg { width: 13px; height: 11px; border-radius: 2px; background: #3a3d4a; }
 .upg-seg.on { background: linear-gradient(180deg, #ffd76b, #f4a742); box-shadow: 0 0 4px rgba(244,167,66,0.5); }

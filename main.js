@@ -318,6 +318,7 @@ app.whenReady().then(() => {
     // number = Explorer/desktop icon-view size. Ctrl+Alt+number isn't a standard shortcut.
     // uiohook keycodes are physical → the number key matches regardless of any shifted symbol.
     const SLOT_KEYS = { [UiohookKey['1']]: 1, [UiohookKey['2']]: 2, [UiohookKey['3']]: 3 }
+    const slotHeld = new Set()   // number keys whose Ctrl+Alt combo press we forwarded (for hold-to-charge weapons)
     // WASD forwarded to the overlay ONLY while a controllable human is active (privacy: we don't
     // leak key identity otherwise). The renderer toggles this via the 'human-control' ipc below.
     const MOVE_KEYS = { [UiohookKey.W]: 'w', [UiohookKey.A]: 'a', [UiohookKey.S]: 's', [UiohookKey.D]: 'd', [UiohookKey.E]: 'e', [UiohookKey.Q]: 'q' }
@@ -327,7 +328,8 @@ app.whenReady().then(() => {
       keysDown.add(e.keycode)
       sendInput('key')
       if (SLOT_KEYS[e.keycode] && isCtrl() && isAlt()) {
-        if (win && !win.isDestroyed()) win.webContents.send('command', { t: 'fire-slot', slot: SLOT_KEYS[e.keycode] })
+        slotHeld.add(e.keycode)
+        if (win && !win.isDestroyed()) win.webContents.send('command', { t: 'fire-slot', slot: SLOT_KEYS[e.keycode], down: true })
       }
       if (humanActive && MOVE_KEYS[e.keycode] && win && !win.isDestroyed()) {
         win.webContents.send('command', { t: 'human-key', key: MOVE_KEYS[e.keycode], down: true })
@@ -338,6 +340,11 @@ app.whenReady().then(() => {
       // always forward key-up so movement can't get stuck if the human is dismissed mid-hold
       if (MOVE_KEYS[e.keycode] && win && !win.isDestroyed()) {
         win.webContents.send('command', { t: 'human-key', key: MOVE_KEYS[e.keycode], down: false })
+      }
+      // release a held slot key (hold-to-charge weapons like 낙뢰) — forward regardless of modifiers
+      if (slotHeld.has(e.keycode) && SLOT_KEYS[e.keycode]) {
+        slotHeld.delete(e.keycode)
+        if (win && !win.isDestroyed()) win.webContents.send('command', { t: 'fire-slot', slot: SLOT_KEYS[e.keycode], down: false })
       }
     })
     uIOhook.on('mousedown', (e) => {

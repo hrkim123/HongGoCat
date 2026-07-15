@@ -30,7 +30,7 @@
   try { savedFeat = JSON.parse(localStorage.getItem('feat') || '{}') } catch {}
 
   // Weapons registry (extensible — add new weapons here + a case in fireWeapon()).
-  const WEAPONS = { none: '없음', missile: '🚀 미사일', shield: '🛡 쉴드', ant: '🐜 개미', blackhole: '🕳 블랙홀', gatling: '🔫 게틀링건', human: '🕺 인간', adogen: '🔵 아도겐' }
+  const WEAPONS = { none: '없음', missile: '🚀 미사일', shield: '🛡 쉴드', ant: '🐜 개미', blackhole: '🕳 블랙홀', gatling: '🔫 게틀링건', human: '🕺 인간', adogen: '🔵 아도겐', lightning: '⚡ 낙뢰' }
   // 🔫 Gatling: deploy a turret at the cursor (fixed). Hold LEFT-CLICK to spray bullets toward
   // the cursor. Overheats after ~5s continuous fire (3s lock). HP 10 — enemy missiles/bullets/
   // ants damage it; at 0 it's destroyed (60s cooldown). Bullets collide with everything.
@@ -52,8 +52,11 @@
   // 🕳 Black hole: cast at the cursor, fixed for 10s, 60s cooldown. Pulls missiles/ants within
   // its radius toward the center (stronger nearer); reaching the core dust-particles them away.
   const BH_DUR = 10000, BH_CD = 60000
-  const BH_R = 0.096    // radius as a fraction of screen width (80% of the old 0.12)
+  const BH_R = 0.096    // VISUAL radius (fraction of width) — the vortex art size; pull now reaches the whole screen
   const BH_CORE = 0.016 // core radius (fraction) — objects here get consumed
+  const BH_NEAR = 0.09  // characteristic pull distance: force is at half-strength ~here, falls off with distance²
+  // whole-screen gravity: strong near the summon point, weak (but never zero on-screen) far away
+  function bhForce(d, peak) { const n = BH_NEAR * canvas.clientWidth; return peak * (n * n) / (n * n + d * d) }
   const remoteBlackholes = new Map()  // peerId -> { nx, ny, until }
   const bhDust = []                   // consumption particles (spiral into center + fade)
   // achievement: kill 100 ants to unlock the black hole. antKills persists in localStorage.
@@ -76,11 +79,11 @@
   // ---------- shop / ownership ----------
   // Every weapon except the basic missile must be PURCHASED in the shop, spending the counter
   // (taps) as currency. One-time purchase → permanently owned (localStorage). Host owns all.
-  const PRICES = { shield: 10000, gatling: 10000, blackhole: 10000, ant: 10000, human: 10000, adogen: 10000 }   // all unlocks 10k
+  const PRICES = { shield: 10000, gatling: 10000, blackhole: 10000, ant: 10000, human: 10000, adogen: 10000, lightning: 10000 }   // all unlocks 10k
   // per-summon cost: even after unlocking, these charge the counter EACH time you summon them
   const USE_COST = { gatling: 500, human: 500, blackhole: 1000 }
-  const SHOP_ITEMS = ['shield', 'gatling', 'ant', 'human', 'blackhole']
-  const SLOT_CHOICES = ['none', 'missile', 'shield', 'gatling', 'ant', 'human', 'blackhole']
+  const SHOP_ITEMS = ['shield', 'gatling', 'ant', 'human', 'blackhole', 'lightning']
+  const SLOT_CHOICES = ['none', 'missile', 'shield', 'gatling', 'ant', 'human', 'blackhole', 'lightning']
   let owned = new Set()
   try { const a = JSON.parse(localStorage.getItem('owned') || '[]'); if (Array.isArray(a)) owned = new Set(a) } catch {}
   function isOwned(id) { return isHost || isDev || owned.has(id) }
@@ -123,6 +126,9 @@
   }
   me.tint = me.skin
   me.shape = loadShape()
+  const IDLE_MS = 5 * 60 * 1000      // no key/mouse input for 5 min → 자리비움(away)
+  me.lastInput = performance.now()   // for the 자리비움(away) animation
+  me.away = false
   me.hp = parseInt(localStorage.getItem('catHp') || String(CAT_HP), 10); if (!(me.hp >= 0) || me.hp > CAT_HP) me.hp = CAT_HP
   if (!isHatOwned(me.hat)) { me.hat = 'none'; localStorage.setItem('hat', 'none') }   // hats locked for now
   while (me.slots.length < 3) me.slots.push('none')
@@ -217,19 +223,25 @@
   function renderUpgrades() {
     const el = document.getElementById('shop-upgrade-list'); if (!el) return
     el.innerHTML = ''
-    const row = document.createElement('div'); row.className = 'shop-row'
-    const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = '🚀 미사일 최대'; row.appendChild(nm)
-    const gauge = document.createElement('div'); gauge.className = 'upg-gauge'
-    for (let k = 0; k < 5; k++) { const seg = document.createElement('span'); seg.className = 'upg-seg' + (k < missileUp ? ' on' : ''); gauge.appendChild(seg) }
-    row.appendChild(gauge)
-    const lvl = document.createElement('span'); lvl.className = 'use'; lvl.textContent = `${5 + missileUp}개`; row.appendChild(lvl)
-    if (missileUp >= 5) { const s = document.createElement('span'); s.className = 'shop-owned'; s.textContent = 'MAX'; row.appendChild(s) }
-    else { const b = document.createElement('button'); b.className = 'shop-buy'; b.textContent = '+1 🪙3,000'; b.disabled = tapCount < 3000; b.onclick = () => buyMissileUpgrade(); row.appendChild(b) }
-    el.appendChild(row)
+    // generic 5-segment gauge upgrade row
+    const gaugeRow = (label, level, valueText, price, onBuy) => {
+      const row = document.createElement('div'); row.className = 'shop-row'
+      const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = label; row.appendChild(nm)
+      const gauge = document.createElement('div'); gauge.className = 'upg-gauge'
+      for (let k = 0; k < 5; k++) { const seg = document.createElement('span'); seg.className = 'upg-seg' + (k < level ? ' on' : ''); gauge.appendChild(seg) }
+      row.appendChild(gauge)
+      const v = document.createElement('span'); v.className = 'use'; v.textContent = valueText; row.appendChild(v)
+      if (level >= 5) { const s = document.createElement('span'); s.className = 'shop-owned'; s.textContent = 'MAX'; row.appendChild(s) }
+      else { const b = document.createElement('button'); b.className = 'shop-buy'; b.textContent = `+1 🪙${price.toLocaleString()}`; b.disabled = tapCount < price; b.onclick = onBuy; row.appendChild(b) }
+      el.appendChild(row)
+    }
+    gaugeRow('🚀 미사일 최대', missileUp, `${5 + missileUp}개`, 3000, buyMissileUpgrade)
+    gaugeRow('🐜 개미 최대', antUp, `${antMax()}마리`, 1000, buyAntUpgrade)
+    gaugeRow('⚡ 낙뢰 충전', lightningUp, lightningUp < 1 ? '충전 불가' : `${lightningMax()}단계`, 3000, buyLightningUpgrade)
     // 🩹 HP reset (consumable)
     const r2 = document.createElement('div'); r2.className = 'shop-row'
     const n2 = document.createElement('span'); n2.className = 'nm'; n2.textContent = '🩹 체력 리셋'; r2.appendChild(n2)
-    const hpTxt = document.createElement('span'); hpTxt.className = 'use'; hpTxt.textContent = `HP ${me.hp}/${CAT_HP}`; r2.appendChild(hpTxt)
+    const hpTxt = document.createElement('span'); hpTxt.className = 'use'; hpTxt.textContent = `HP ${Math.round(me.hp * 10) / 10}/${CAT_HP}`; r2.appendChild(hpTxt)
     if (me.hp >= CAT_HP) { const s = document.createElement('span'); s.className = 'shop-owned'; s.textContent = '가득'; r2.appendChild(s) }
     else { const b2 = document.createElement('button'); b2.className = 'shop-buy'; b2.textContent = '🪙500'; b2.disabled = tapCount < 500; b2.onclick = () => buyHpReset(); r2.appendChild(b2) }
     el.appendChild(r2)
@@ -244,6 +256,18 @@
     if (!spendCoins(3000)) { showToast('🪙 재화 부족 — 3,000 필요'); return }
     missileUp++; localStorage.setItem('missileUp', String(missileUp))
     showToast(`⬆️ 미사일 최대 ${5 + missileUp}개!${missileUp >= 5 ? ' (10개 합체 = ☢ 핵)' : ''}`); renderShop()
+  }
+  function buyAntUpgrade() {
+    if (antUp >= 5) return
+    if (!spendCoins(1000)) { showToast('🪙 재화 부족 — 1,000 필요'); return }
+    antUp++; localStorage.setItem('antUp', String(antUp))
+    showToast(`⬆️ 개미 최대 ${antMax()}마리!`); renderShop()
+  }
+  function buyLightningUpgrade() {
+    if (lightningUp >= 5) return
+    if (!spendCoins(3000)) { showToast('🪙 재화 부족 — 3,000 필요'); return }
+    lightningUp++; localStorage.setItem('lightningUp', String(lightningUp))
+    showToast(`⬆️ 낙뢰 충전 ${lightningMax()}단계까지!`); renderShop()
   }
   // weapon-slot selectors live at the bottom of the shop; unowned weapons show 🔒 and are blocked
   function renderSlots() {
@@ -363,6 +387,7 @@
   let net = null, sendBudget = 0, budgetRefill = performance.now()
   inputSource.onInput((kind) => {
     pulse(me, kind)
+    me.lastInput = performance.now(); me.away = false   // any input clears 자리비움
     tapCount++; counterDirty = true; renderCounter()
     if (net && net.readyState === WebSocket.OPEN) {
       const now = performance.now()
@@ -412,15 +437,16 @@
           for (const id of [...m.keys()]) if (!seen.has(id)) m.delete(id)
         pushState()   // reflect the new count in the settings window
       }
-      else if (msg.t === 'pos') { const p = peers.get(msg.id); if (p) { p.nx = msg.nx; p.ny = msg.ny; p.taps = msg.taps; if (msg.hp != null) p.hp = msg.hp } }
+      else if (msg.t === 'pos') { const p = peers.get(msg.id); if (p) { p.nx = msg.nx; p.ny = msg.ny; p.taps = msg.taps; if (msg.hp != null) p.hp = msg.hp; p.away = !!msg.away } }
       else if (msg.t === 'pulse') { const p = peers.get(msg.id); if (p) pulse(p, msg.kind) }
       else if (msg.t === 'chat') { const p = peers.get(msg.id); if (p) showBubble(p, String(msg.text)) }
       else if (msg.t === 'throw') { const src = targetOf(msg.id); launch('me', src ? { from: src } : {}) }
       else if (msg.t === 'missiles') { mergeRemote(remoteMissiles, msg.id, msg.list, 'nx', 'ny') }
       else if (msg.t === 'hit') {
-        if (msg.target === me.netId) { me.hitUntil = performance.now() + 1000 + Math.min((msg.power || 1) - 1, 5) * 200; damageMyCat(msg.power || 1) }
-        else { const tp = peers.get(msg.target); if (tp) { tp.hitUntil = performance.now() + 800 + Math.min((msg.power || 1) - 1, 5) * 100; const c = peerCatCenter(tp); if (c) addEffect(c.x, c.y, Math.min(msg.power || 1, 3)) } }   // 3rd-party peers see the hit too
+        if (msg.target === me.netId) { me.hitUntil = performance.now() + 1000 + Math.min((msg.power || 1) - 1, 5) * 200; if (msg.shock) me.shockUntil = performance.now() + 650; damageMyCat(msg.power || 1) }
+        else { const tp = peers.get(msg.target); if (tp) { tp.hitUntil = performance.now() + 800 + Math.min((msg.power || 1) - 1, 5) * 100; if (msg.shock) tp.shockUntil = performance.now() + 650; const c = peerCatCenter(tp); if (c) addEffect(c.x, c.y, Math.min(msg.power || 1, 3)) } }   // 3rd-party peers see the hit too
       }
+      else if (msg.t === 'bolt') { const bx = (msg.nx || 0) * canvas.clientWidth, H2 = canvas.clientHeight; spawnBolt(bx, (msg.nyTop || 0) * H2, msg.nyBot != null ? msg.nyBot * H2 : boltGroundY(bx), msg.level || 1, false) }
       else if (msg.t === 'shield') {
         if (msg.ttl > 0) remoteShields.set(msg.id, { until: performance.now() + msg.ttl, angle: msg.angle || 0, hp: msg.hp != null ? msg.hp : SHIELD_HP, max: msg.max || SHIELD_HP })
         else { if (msg.broke) remoteBreaks.push(msg.id); remoteShields.delete(msg.id) }
@@ -537,7 +563,11 @@
       else { humanKeys.delete(msg.key); if (msg.key === 'q' && me.humanActive) humanRelease() }
     }
     else if (msg.t === 'fire-missile') { fireWeapon('missile') }
-    else if (msg.t === 'fire-slot') { fireWeapon(me.slots[(msg.slot || 1) - 1] || 'none') }
+    else if (msg.t === 'fire-slot') {
+      const id = me.slots[(msg.slot || 1) - 1] || 'none'
+      if (id === 'lightning') { if (msg.down === false) lightningRelease(); else lightningPress() }
+      else if (msg.down !== false) fireWeapon(id)   // other weapons fire once on press; ignore key-up
+    }
     else if (msg.t === 'slots') {
       if (Array.isArray(msg.slots)) { me.slots = msg.slots.slice(0, 3); while (me.slots.length < 3) me.slots.push('none'); localStorage.setItem('slots', JSON.stringify(me.slots)); pushState() }
     }
@@ -652,6 +682,10 @@
   // missile cap (also the merge cap): base 5, +1 per shop upgrade → up to 10 (a fully merged 10 = nuke)
   let missileUp = parseInt(localStorage.getItem('missileUp') || '0', 10) || 0   // 0..5 purchased upgrades
   function missileMax() { return 5 + Math.min(5, Math.max(0, missileUp)) }
+  let antUp = parseInt(localStorage.getItem('antUp') || '0', 10) || 0            // 0..5 → ant cap 5..10
+  function antMax() { return 5 + Math.min(5, Math.max(0, antUp)) }
+  let lightningUp = parseInt(localStorage.getItem('lightningUp') || '0', 10) || 0 // 0..5 → charge ceiling (0 = no charge)
+  function lightningMax() { return Math.min(5, Math.max(0, lightningUp)) }
   const MISSILE_LIFE = 14000  // how long a missile lives before fizzling out (ms)
 
   // fire a missile from the bottom-left corner that then chases the mouse cursor and
@@ -694,10 +728,119 @@
     else if (id === 'blackhole') activateBlackhole()
     else if (id === 'gatling') deployGatling()
     else if (id === 'human') deployHuman()
+    else if (id === 'lightning') lightningPress()   // (release handled via fire-slot key-up)
     // future: else if (id === 'rock') fireRock() ...
   }
 
-  // ---------- 🕺 controllable human (WASD) — LOCAL ONLY, never broadcast (others can't see it) ----------
+  // ---------- ⚡ 낙뢰 (lightning) — strike from the cursor down to the taskbar; hold to charge (1..5) ----------
+  const bolts = []                 // { x, yTop, yBot, level, born, life, seed, mine }
+  const LIGHT_CHARGE_MS = 950      // hold this long to reach max level
+  const LIGHT_CD = 500             // 0.5s cooldown between strikes
+  let nextBoltSeed = 1
+  // color ramps electric-yellow (lvl1) → violet (lvl5)
+  function lightningColor(level, a) {
+    const t = Math.min(1, Math.max(0, (level - 1) / 4))
+    const r = Math.round(255 - t * 100), g = Math.round(238 - t * 175), b = Math.round(150 + t * 105)
+    return `rgba(${r},${g},${b},${a == null ? 1 : a})`
+  }
+  function boltGroundY(x) { const tb = taskbarRect(); return tb ? tb.top : (canvas.clientHeight - 4) }
+  function lightningPress() {
+    if (!weaponUsable('lightning')) { showToast('🛒 ⚡ 낙뢰은(는) 상점에서 먼저 구매하세요'); return }
+    if (performance.now() < (me.lightCd || 0)) return                     // 0.5s cooldown between strikes
+    if (lightningMax() < 1) { fireBolt(cursor.x, cursor.y, 1); return }   // no charge upgrade → fixed lvl-1 strike
+    me.lightCharging = true; me.lightChargeStart = performance.now(); me.lightCharge = 0
+  }
+  function lightningRelease() {
+    if (!me.lightCharging) return
+    me.lightCharging = false
+    const maxL = lightningMax()
+    const level = maxL <= 1 ? 1 : 1 + Math.round((me.lightCharge || 0) * (maxL - 1))
+    fireBolt(cursor.x, cursor.y, Math.max(1, level))
+    me.lightCharge = 0
+  }
+  function electrocuteAt(x, y, level) {   // crackle burst where the bolt lands on something
+    for (let k = 0; k < 3 + level; k++) spawnSpark(x + (Math.random() - 0.5) * 26, y + (Math.random() - 0.5) * 34)
+    addEffect(x, y, Math.min(level, 3))
+  }
+  function spawnBolt(x, yTop, yBot, level, mine) {   // visual only
+    bolts.push({ x, yTop: Math.min(yTop, yBot - 4), yBot, level, born: performance.now(), life: 320, seed: nextBoltSeed++, mine })
+    spawnSpark(x, yBot)
+  }
+  // LOCAL strike: the bolt travels DOWN from the cursor and STOPS at the first thing it hits
+  // (cat / ant / human). Only if it reaches the taskbar untouched does it dig the ground.
+  function fireBolt(x, yTop, level) {
+    const now = performance.now(), W = canvas.clientWidth, H = canvas.clientHeight, s = view.scale
+    me.lightCd = now + LIGHT_CD
+    const ground = boltGroundY(x)
+    const hitW = (14 + level * 8) * s, top = yTop - 8 * s
+    let impactY = ground, target = null   // default: no obstacle → reaches the taskbar
+    const consider = (oy, kind, ref) => { if (oy >= top && oy < impactY) { impactY = oy; target = { kind, ref } } }
+    for (let ci = 0; ci < catPos.length; ci++) { const cat = allRef[ci]; if (!cat) continue; const c = catPos[ci]; if (Math.abs(c.x - x) < hitW + 30 * s) consider(c.y - 24 * s, 'cat', { cat, c }) }
+    for (const a of ants) if (!a.dead && Math.abs(a.x - x) < hitW) consider(a.y, 'ant', a)
+    for (const [pid, rec] of remoteAnts) for (const a of rec.items.values()) { if (a.dead) continue; const sp = remoteAntScreenPos(pid, a); if (sp && Math.abs(sp.x - x) < hitW) consider(sp.y, 'rant', { pid, id: a.id }) }
+    if (me.humanActive && Math.abs(me.humanX - x) < hitW) consider(me.humanY - 15 * view.scale * HUMAN_SCALE, 'human', null)
+    if (target) {   // cut the bolt at the FIRST obstacle and resolve only that one
+      if (target.kind === 'cat') { const { cat, c } = target.ref; if (!catShieldCovers(cat, c, x, impactY, now)) applyCatHit(cat, level, now, true) }
+      else if (target.kind === 'ant') { const a = target.ref; antTakeDmg(a, level); if (a.dead) addAntKill() }
+      else if (target.kind === 'rant') { if (connected()) net.send(JSON.stringify({ t: 'ant-hit', target: target.ref.pid, ant: target.ref.id, dmg: level })) }
+      else if (target.kind === 'human') { humanTakeDmg(level, now) }
+      electrocuteAt(x, impactY, level)
+    } else {   // clean strike all the way down → dig the taskbar
+      carveTaskbar(x, level * 0.192)   // 50% of a fully-merged missile's dig at level 5
+      electrocuteAt(x, ground, level)
+    }
+    spawnBolt(x, yTop, impactY, level, true)
+    if (connected() && net) net.send(JSON.stringify({ t: 'bolt', nx: +(x / W).toFixed(4), nyTop: +(yTop / H).toFixed(4), nyBot: +(impactY / H).toFixed(4), level }))
+  }
+  function stepLightning(now) {
+    if (me.lightCharging) {
+      const maxL = lightningMax()
+      me.lightCharge = Math.min(1, (now - me.lightChargeStart) / LIGHT_CHARGE_MS)
+      const level = maxL <= 1 ? 1 : 1 + Math.round(me.lightCharge * (maxL - 1))
+      const s = view.scale, R = (10 + level * 6) * s
+      ctx.save()   // charge orb at the cursor
+      const g = ctx.createRadialGradient(cursor.x, cursor.y, 0, cursor.x, cursor.y, R)
+      g.addColorStop(0, lightningColor(level, 0.9)); g.addColorStop(0.6, lightningColor(level, 0.4)); g.addColorStop(1, lightningColor(level, 0))
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cursor.x, cursor.y, R, 0, Math.PI * 2); ctx.fill()
+      ctx.strokeStyle = lightningColor(level, 0.9); ctx.lineWidth = 1.5 * s
+      for (let k = 0; k < level + 1; k++) { const a0 = (now / 90 + k * 2.1) % (Math.PI * 2); ctx.beginPath(); ctx.moveTo(cursor.x + Math.cos(a0) * R * 0.4, cursor.y + Math.sin(a0) * R * 0.4); ctx.lineTo(cursor.x + Math.cos(a0) * R, cursor.y + Math.sin(a0) * R); ctx.stroke() }
+      ctx.restore()
+    }
+    drawBolts(now)
+  }
+  function drawBolts(now) {
+    const s = view.scale
+    for (let i = bolts.length - 1; i >= 0; i--) {
+      const b = bolts[i], t = (now - b.born) / b.life
+      if (t >= 1) { bolts.splice(i, 1); continue }
+      const a = 1 - t, span = b.yBot - b.yTop
+      const rnd = (n) => { const v = Math.sin((b.seed * 12.9 + n * 78.233)) * 43758.5453; return v - Math.floor(v) }
+      const segs = Math.max(4, Math.round(span / (26 * s)))
+      const jag = (6 + b.level * 3) * s
+      const stroke = (lw, col) => {
+        ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.beginPath(); ctx.moveTo(b.x, b.yTop)
+        for (let k = 1; k <= segs; k++) { const yy = b.yTop + span * (k / segs); const xx = k === segs ? b.x : b.x + (rnd(k) - 0.5) * 2 * jag; ctx.lineTo(xx, yy) }
+        ctx.stroke()
+      }
+      ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round'
+      ctx.shadowColor = lightningColor(b.level, 0.9); ctx.shadowBlur = 12 * s
+      stroke((2 + b.level) * 2.4 * s, lightningColor(b.level, a * 0.35))   // outer glow
+      ctx.shadowBlur = 0
+      stroke((1.4 + b.level * 0.5) * s, lightningColor(b.level, a))         // core
+      stroke(1 * s, `rgba(255,255,255,${a})`)                              // white hot center
+      // a couple of branches
+      for (let k = 1; k < segs - 1; k++) {
+        if (rnd(k + 40) > 0.7) { const yy = b.yTop + span * (k / segs), xx = b.x + (rnd(k) - 0.5) * 2 * jag
+          ctx.strokeStyle = lightningColor(b.level, a * 0.8); ctx.lineWidth = 1 * s
+          ctx.beginPath(); ctx.moveTo(xx, yy); ctx.lineTo(xx + (rnd(k + 5) - 0.5) * 40 * s, yy + 16 * s); ctx.stroke() }
+      }
+      // impact flash at the ground
+      ctx.fillStyle = lightningColor(b.level, a * 0.5); ctx.beginPath(); ctx.ellipse(b.x, b.yBot, (10 + b.level * 5) * s, 4 * s, 0, 0, Math.PI * 2); ctx.fill()
+      ctx.restore()
+    }
+  }
+
+  // ---------- 🕺 controllable human (WASD) — broadcast so peers see it (t:'human' / 'hbullets') ----------
   // WASD move + W jump, E = raise a shield (blocks front hits), left-click = punch (dmg 1).
   const HUMAN_SPEED = 3.4, HUMAN_JUMP = 12, HUMAN_GRAV = 0.62, HUMAN_HP = 5, HUMAN_SCALE = 1.8
   const humanKeys = new Set()
@@ -738,7 +881,7 @@
 
   // ---------- 🕺 human weapons (pick up from the ground; sword/pistol/rifle/bazooka) ----------
   const HUMAN_WEAPONS = {
-    sword:   { name: '🗡️ 칼', price: 5000, emoji: '🗡️', melee: true, range: 24, dmg: 2, cd: 320 },
+    sword:   { name: '🗡️ 칼', price: 5000, emoji: '🗡️', melee: true, range: 24, dmg: 1, cd: 320 },
     pistol:  { name: '🔫 권총', price: 10000, emoji: '🔫', speed: 13, dmg: 1, cd: 340, life: 900 },
     rifle:   { name: '🎯 라이플', price: 30000, emoji: '🎯', speed: 19, dmg: 2, cd: 150, life: 1100 },
     bazooka: { name: '🚀 바주카', price: 50000, emoji: '🚀', power: 3, cd: 800 }
@@ -823,15 +966,18 @@
     const hp = Math.max(1, Math.round(charge * 5))              // 1..5
     hbullets.push({ x: me.humanX + Math.cos(ang) * 26 * hs, y: oy + Math.sin(ang) * 26 * hs, vx: Math.cos(ang) * 9, vy: Math.sin(ang) * 9, born: now, life: 1800, adogen: true, hp, hp0: hp, waveR: (10 + charge * 26) * view.scale, ang })
   }
-  function fireSlash(now, charge) {   // 검기: crescent wave — size/damage/HP scale with charge (max hp=dmg=3)
+  function fireSlash(now, charge) {   // 검기: crescent wave — size/damage/HP scale with charge (max hp=dmg=6, 2× size)
     const hs = view.scale * HUMAN_SCALE, oy = me.humanY - 18 * hs
     const ang = Math.atan2(cursor.y - oy, cursor.x - me.humanX); me.humanFace = Math.cos(ang) >= 0 ? 1 : -1
-    const hp = Math.max(1, Math.round(charge * 3))              // 1..3
-    hbullets.push({ x: me.humanX + Math.cos(ang) * 22 * hs, y: oy + Math.sin(ang) * 22 * hs, vx: Math.cos(ang) * 11, vy: Math.sin(ang) * 11, born: now, life: 1500, wave: true, hp, hp0: hp, waveR: (12 + charge * 20) * view.scale, ang })
+    const hp = Math.max(1, Math.round(charge * 6))              // 1..6 (2× damage)
+    hbullets.push({ x: me.humanX + Math.cos(ang) * 22 * hs, y: oy + Math.sin(ang) * 22 * hs, vx: Math.cos(ang) * 11, vy: Math.sin(ang) * 11, born: now, life: 1500, wave: true, hp, hp0: hp, waveR: (24 + charge * 40) * view.scale, ang })
   }
-  function humanMelee(w, now) {                   // sword: wider/stronger than a punch
+  function humanMelee(w, now) {                   // sword: swing toward the cursor
     const hs = view.scale * HUMAN_SCALE
-    const px = me.humanX + me.humanFace * w.range * hs, py = me.humanY - 18 * hs, r = w.range * 0.8 * hs
+    const oy = me.humanY - 18 * hs
+    const ang = Math.atan2(cursor.y - oy, cursor.x - me.humanX)
+    me.humanFace = Math.cos(ang) >= 0 ? 1 : -1; me.swingAng = ang
+    const px = me.humanX + Math.cos(ang) * w.range * hs, py = oy + Math.sin(ang) * w.range * hs, r = w.range * 0.8 * hs
     for (const a of ants) if (!a.dead && Math.hypot(px - a.x, py - a.y) < r) { antTakeDmg(a, w.dmg); if (a.dead) addAntKill() }
     for (const [pid, rec] of remoteAnts) for (const a of rec.items.values()) { if (a.dead) continue; const sp = remoteAntScreenPos(pid, a); if (sp && Math.hypot(px - sp.x, py - sp.y) < r && connected()) net.send(JSON.stringify({ t: 'ant-hit', target: pid, ant: a.id, dmg: w.dmg })) }
     for (let ci = 0; ci < catPos.length; ci++) { const cat = allRef[ci]; if (!cat) continue; const c = catPos[ci]; if (Math.hypot(px - c.x, py - c.y) < 56 * view.scale) applyCatHit(cat, w.dmg, now) }
@@ -846,7 +992,7 @@
     const hs = view.scale * HUMAN_SCALE, oy = me.humanY - 18 * hs
     const ang = Math.atan2(cursor.y - oy, cursor.x - me.humanX); me.humanFace = Math.cos(ang) >= 0 ? 1 : -1
     const spd = MISSILE_SPEED * BOOST_MULT
-    projectiles.push({ homing: true, boost: true, power: w.power, mid: nextMid++, x: me.humanX + Math.cos(ang) * 18 * hs, y: oy + Math.sin(ang) * 18 * hs, vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd, born: now, life: MISSILE_LIFE })
+    projectiles.push({ homing: true, boost: true, human: true, power: w.power, mid: nextMid++, x: me.humanX + Math.cos(ang) * 18 * hs, y: oy + Math.sin(ang) * 18 * hs, vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd, born: now, life: MISSILE_LIFE })
   }
   function stepHbullets(now) {
     const W = canvas.clientWidth, H = canvas.clientHeight, s = view.scale
@@ -857,7 +1003,7 @@
       const bh = blackholePull(p, now); if (bh) { spawnDustToHole(p.x, p.y, bh); hbullets.splice(i, 1); continue }
       p.x += p.vx; p.y += p.vy
       if (p.x < -20 || p.x > W + 20 || p.y < -20 || p.y > H + 20) { hbullets.splice(i, 1); continue }
-      if (inTaskbar(p.x, p.y)) { carveTaskbar(p.x, p.adogen ? p.hp * 0.8 : 0.1); spawnSpark(p.x, p.y); hbullets.splice(i, 1); continue }   // 아도겐: dig scales with size
+      if (inTaskbar(p.x, p.y)) { carveTaskbar(p.x, p.adogen ? p.hp * 0.32 : (p.wave ? p.hp * 0.05 : 0.1)); spawnSpark(p.x, p.y); hbullets.splice(i, 1); continue }   // 아도겐: dig scales with size (~40% of before); 검기: ~3× its old dent
       const energy = p.wave || p.adogen, waveR = p.waveR || 16 * s
       const hpFrac = energy && p.hp0 ? p.hp / p.hp0 : 1
       const effR = energy ? waveR * (0.45 + 0.55 * hpFrac) : waveR   // charged blast shrinks as its HP is chipped away
@@ -912,10 +1058,10 @@
     let bhPull = null
     for (const b of activeBlackholes(now)) {
       const dx = b.x - me.humanX, dy = b.y - me.humanY, d = Math.hypot(dx, dy) || 0.001
-      if (d > b.r) continue
       if (d < BH_CORE * W + 6 * s) { spawnDustToHole(me.humanX, me.humanY, b); removeHuman(); return }
-      const t = 1 - d / b.r, sp = (1.4 + t * t * 9) * s   // stronger/faster suction
-      bhPull = { x: (dx / d) * sp, y: (dy / d) * sp }; break
+      const sp = bhForce(d, 10) * s                       // whole-screen suction (summed over all holes)
+      if (!bhPull) bhPull = { x: 0, y: 0 }
+      bhPull.x += (dx / d) * sp; bhPull.y += (dy / d) * sp
     }
     let moving = false
     if (humanKeys.has('a')) { me.humanX -= HUMAN_SPEED * hs; me.humanFace = -1; moving = true }
@@ -961,6 +1107,20 @@
         const blocked = humanKeys.has('e') && angDiff(Math.atan2(ty - scy, tx - scx), shieldAng) <= SHIELD_SPAN / 2
         if (blocked) { spawnSpark(scx + Math.cos(shieldAng) * 30 * hs, scy + Math.sin(shieldAng) * 30 * hs); me.humanHitCd = now + 150 }
         else { humanTakeDmg(1, now); if (!me.humanActive) return }
+      }
+    }
+    // the human is solid to its OWNER's OWN missiles too — you can attack your own human
+    if (now >= (me.humanHitCd || 0)) {
+      const cx = me.humanX, cy = me.humanY - 15 * hs, r = 20 * hs
+      for (let i = projectiles.length - 1; i >= 0; i--) {
+        const pr = projectiles[i]
+        if (pr.human) continue                                   // skip the human's own bazooka shot
+        if (Math.hypot(cx - pr.x, cy - pr.y) < r + (pr.power ? pr.power * 3 : 0)) {
+          const dmg = pr.power || 1
+          addEffect(pr.x, pr.y, dmg); spawnSpark(pr.x, pr.y); projectiles.splice(i, 1)
+          humanTakeDmg(dmg, now); if (!me.humanActive) return
+          break
+        }
       }
     }
     const qHeld = humanKeys.has('q')
@@ -1130,10 +1290,8 @@
     const W = canvas.clientWidth, core = BH_CORE * W
     for (const b of activeBlackholes(now)) {
       const dx = b.x - o.x, dy = b.y - o.y, d = Math.hypot(dx, dy) || 0.001
-      if (d > b.r) continue
-      if (d < core) return b                       // consumed
-      const t = 1 - d / b.r                         // 0 at rim → 1 near center
-      const accel = 0.7 + t * t * 5.5               // stronger near the center
+      if (d < core) return b                        // consumed
+      const accel = bhForce(d, 6)                   // whole-screen: strong near, gently weak far
       o.vx += (dx / d) * accel; o.vy += (dy / d) * accel
     }
     return null
@@ -1177,10 +1335,11 @@
     pushState()
   }
   // apply a weapon hit to a character: flash + (my cat → lose HP; enemy → send the hit)
-  function applyCatHit(cat, power, now) {
+  function applyCatHit(cat, power, now, shock) {
     cat.hitUntil = now + 700 + Math.min((power || 1) - 1, 5) * 100
+    if (shock) cat.shockUntil = now + 650
     if (cat.id === 'me') damageMyCat(power || 1)
-    else if (connected()) net.send(JSON.stringify({ t: 'hit', target: cat.id, power }))
+    else if (connected()) net.send(JSON.stringify({ t: 'hit', target: cat.id, power, shock: shock ? 1 : 0 }))
   }
   function damageMyCat(dmg) {
     if (!(dmg > 0) || me.hp <= 0) return
@@ -1256,9 +1415,8 @@
       const core = BH_CORE * W
       for (const b of activeBlackholes(now)) {
         const dx = b.x - me.gatX, dy = b.y - me.gatY, d = Math.hypot(dx, dy) || 0.001
-        if (d > b.r) continue
         if (d < core + 6 * view.scale) { spawnDustToHole(me.gatX, me.gatY, b); me.gatActive = false; me.gatCdUntil = now + GAT_CD; break }
-        const t = 1 - d / b.r, step = (1.2 + t * t * 8) * view.scale   // faster the nearer the center
+        const step = bhForce(d, 9) * view.scale   // whole-screen drag
         me.gatX += (dx / d) * step; me.gatY += (dy / d) * step
       }
     }
@@ -1686,7 +1844,6 @@
   // ---------- ants (🐜) — crawl on the taskbar, fight enemy ants, die in 3 hits ----------
   const ants = []              // MY ants (I simulate them authoritatively)
   const remoteAnts = new Map() // peerId -> { list:[{id,x,y,hp,dead}], ts }  (x,y relative to peer cat)
-  const MAX_ANTS = 5
   const ANT_HP = 1
   const ANT_DRAW = 2   // ant visual size multiplier (on top of view.scale)
   // per-player ant color — tied to the owner's fur skin so each player's ants are distinct
@@ -1698,7 +1855,7 @@
   // ants stand on the DUG surface at their x (dip into pits), not the flat taskbar top
   function antGroundY(x) { const tb = taskbarRect(); return (tb ? tb.top + carveDepthAt(x || 0) : canvas.clientHeight) - 5 * view.scale }
   function summonAnt() {
-    if (ants.filter((a) => !a.dead).length >= MAX_ANTS) return
+    if (ants.filter((a) => !a.dead).length >= antMax()) return
     ants.push({ id: nextAntId++, x: cursor.x, y: cursor.y, vy: 0, onGround: false, hp: ANT_HP,
       dir: Math.random() < 0.5 ? -1 : 1, wanderUntil: 0, atkCd: 0, dead: false, deadAt: 0, step: Math.random() * 10 })
   }
@@ -1753,13 +1910,13 @@
         else drawAntCorpse(a, now)
         continue
       }
-      // black hole pull overrides falling + AI; reaching the core dust-consumes the ant
+      // black hole pull overrides falling + AI; reaching the core dust-consumes the ant (whole-screen)
       let hole = null, hbest = Infinity
-      for (const b of activeBlackholes(now)) { const dd = Math.hypot(b.x - a.x, b.y - a.y); if (dd <= b.r && dd < hbest) { hbest = dd; hole = b } }
+      for (const b of activeBlackholes(now)) { const dd = Math.hypot(b.x - a.x, b.y - a.y); if (dd < hbest) { hbest = dd; hole = b } }
       if (hole) {
         const dx = hole.x - a.x, dy = hole.y - a.y, d = hbest || 1
         if (d < BH_CORE * W) { spawnDustToHole(a.x, a.y, hole); if (hole.mine) addAntKill(); ants.splice(i, 1); continue }
-        const sp = 2 + (1 - d / hole.r) * 8
+        const sp = bhForce(d, 10)
         a.x += (dx / d) * sp; a.y += (dy / d) * sp; a.onGround = false
         a.dir = dx >= 0 ? 1 : -1; a.step += 0.4
         drawAnt(a, now, false, myCol); continue
@@ -2170,7 +2327,7 @@
     // my cat where I put it and can see my counter
     if (wx != null) {
       const W = canvas.clientWidth || 1, H = canvas.clientHeight || 1
-      net.send(JSON.stringify({ t: 'pos', nx: +(wx / W).toFixed(4), ny: +(wy / H).toFixed(4), taps: tapCount, hp: me.hp }))
+      net.send(JSON.stringify({ t: 'pos', nx: +(wx / W).toFixed(4), ny: +(wy / H).toFixed(4), taps: tapCount, hp: me.hp, away: me.away ? 1 : 0 }))
     }
   }, 50)   // ~20 updates/s — higher rate so remote missiles/ants move smoother
 
@@ -2351,6 +2508,7 @@
 
     const all = [me, ...peers.values()]
     allRef = all
+    me.away = (now - (me.lastInput || now)) > IDLE_MS   // 5-min 자리비움
     for (const p of all) tickBlink(p, now)
 
     const scale = SCALE
@@ -2411,6 +2569,7 @@
     stepHuman(now)
     drawRemoteHumans(now)
     drawRemoteHbullets(now)
+    stepLightning(now)
     drawBhDust(now)
     ctx = stagectx
 
