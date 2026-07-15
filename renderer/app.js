@@ -997,9 +997,9 @@
 
   // ---------- 🕸️ 그물 (net) — cast (투망) from the hotkey spot, spread open to trap collidables, then a cursor pendulum ----------
   const NET_LEN = 130                                   // rope length (held phase; long → big swings)
-  const NET_GRAV = 0.5, NET_DAMP = 0.99                 // low damping = swing persists (exaggerated); rope is a hard constraint
+  const NET_GRAV = 0.5, NET_DAMP = 0.97, NET_COUPLE = 0.25   // cursor motion couples into the bob (light + builds momentum); damping caps the top speed
   const NET_R = 40, NET_CAP = 20                        // held pouch radius + capacity
-  const NET_MAX_PULL = 260, NET_FLING = 0.9
+  const NET_MAX_PULL = 260, NET_FLING = 1.35, NET_KILL_SPEED = 9   // fling strength; ≥ NET_KILL_SPEED (×scale) → dies on ground impact
   const NET_MIN_RANGE = 60, NET_RANGE_SPAN = 360        // cast distance (px, pre-scale) scaled by pull power
   const NET_SPREAD = 82                                 // fully-open cast canopy radius (pre-scale)
   const CAST_MS = 380                                   // cast (투망) opening duration
@@ -1028,6 +1028,7 @@
     me.netDirX = a.dx; me.netDirY = a.dy
     me.netRange = (NET_MIN_RANGE + a.power * NET_RANGE_SPAN) * view.scale
     me.netBx = a.ox; me.netBy = a.oy; me.netVx = 0; me.netVy = 0; me.netSpread = NET_R * view.scale * 0.5
+    me.netPrevBx = a.ox; me.netPrevBy = a.oy; me.netScreenVx = 0; me.netScreenVy = 0; me.netPrevAx = cursor.x; me.netPrevAy = cursor.y
     showToast('🕸️ 투망! 커서로 휘두르고 다시 왼클릭하면 풀림')
   }
   function netCatch(radius) {
@@ -1045,6 +1046,13 @@
   }
   function stepNet(now) {
     if (!me.netActive) return
+    // measure the bundle's ACTUAL on-screen velocity (position delta) — this captures how hard you
+    // whip the cursor, unlike the physics velocity which only holds gravity/damping. Used for the fling.
+    const pvx = me.netBx - (me.netPrevBx != null ? me.netPrevBx : me.netBx)
+    const pvy = me.netBy - (me.netPrevBy != null ? me.netPrevBy : me.netBy)
+    me.netScreenVx = (me.netScreenVx || 0) * 0.35 + pvx * 0.65
+    me.netScreenVy = (me.netScreenVy || 0) * 0.35 + pvy * 0.65
+    me.netPrevBx = me.netBx; me.netPrevBy = me.netBy
     const s = view.scale, H = canvas.clientHeight
     if (me.netPhase === 'cast') {   // 투망: the net flies from the hotkey spot, spreading wide open
       const t = Math.min(1, (now - me.netCastStart) / CAST_MS)
@@ -1058,16 +1066,20 @@
     }
     // held: closed pouch hanging from the live cursor (pendulum)
     const L = NET_LEN * s, ax = cursor.x, ay = cursor.y
+    // couple the CURSOR's motion into the bob's velocity → feels light (tracks the cursor) AND builds
+    // momentum when you keep circling (energy pumped in each frame; damping caps it → speeds up then plateaus)
+    const avx = ax - (me.netPrevAx != null ? me.netPrevAx : ax), avy = ay - (me.netPrevAy != null ? me.netPrevAy : ay)
+    me.netPrevAx = ax; me.netPrevAy = ay
+    me.netVx += avx * NET_COUPLE; me.netVy += avy * NET_COUPLE
     me.netVy += NET_GRAV * s
     me.netVx *= NET_DAMP; me.netVy *= NET_DAMP
     me.netBx += me.netVx; me.netBy += me.netVy
     if (me.netBy > H) { me.netVy *= -0.5; me.netBy = H }
-    const maxLen = L * 1.25, dx = me.netBx - ax, dy = me.netBy - ay, dist = Math.hypot(dx, dy) || 0.001
-    if (dist > maxLen) {   // reel in smoothly (no snap), keep the swing
-      const reel = Math.min(dist - maxLen, 30 * s)
-      me.netBx -= (dx / dist) * reel; me.netBy -= (dy / dist) * reel
+    const maxLen = L * 1.3, dx = me.netBx - ax, dy = me.netBy - ay, dist = Math.hypot(dx, dy) || 0.001
+    if (dist > maxLen) {   // clamp to the rope length; bleed only HALF the outward velocity so the swing keeps building
+      me.netBx = ax + (dx / dist) * maxLen; me.netBy = ay + (dy / dist) * maxLen
       const rvx = dx / dist, rvy = dy / dist, radial = me.netVx * rvx + me.netVy * rvy
-      if (radial > 0) { me.netVx -= radial * rvx; me.netVy -= radial * rvy }
+      if (radial > 0) { me.netVx -= radial * rvx * 0.5; me.netVy -= radial * rvy * 0.5 }
     }
     me.netSpread = NET_R * s
     netCatch(NET_R * s)                                   // held net still grabs on contact
@@ -1077,19 +1089,20 @@
   function releaseNet() {
     if (!me.netActive) return
     const s = view.scale, nowP = performance.now()
-    let vx = me.netVx, vy = me.netVy, m = Math.hypot(vx, vy)
+    // fling by the bundle's real on-screen velocity (whipping the cursor = strong throw)
+    let vx = me.netScreenVx || 0, vy = me.netScreenVy || 0, m = Math.hypot(vx, vy)
     if (m < 2) { vx = 0; vy = -6 * s; m = 6 * s }        // gentle default toss if barely moving
-    const dx = vx / m, dy = vy / m, flingT = m * NET_FLING
+    const dx = vx / m, dy = vy / m, flingT = m * NET_FLING, lethal = m >= NET_KILL_SPEED * s   // hard throw → dies on landing
     for (const it of me.netCaught) {
       const o = it.obj
-      if (it.kind === 'human') {   // thrown in the swing direction (arc), lands → WASD resumes
+      if (it.kind === 'human') {   // thrown in the swing direction (arc), lands → WASD resumes (or dies if hard)
         me.humanNetted = false; me.humanX = me.netBx; me.humanY = me.netBy - 2 * s
-        me.humanTossVx = dx * flingT * 0.6; me.humanVY = dy * flingT * 0.6; me.humanGround = false; continue
+        me.humanTossVx = dx * flingT * 0.85; me.humanVY = dy * flingT * 0.85 - 3 * s; me.humanGround = false; me.humanTossKill = lethal; continue   // slight upward loft
       }
       o.x = me.netBx; o.y = me.netBy; o.born = nowP
       if (it.kind === 'missile') { const sp = Math.max(flingT, MISSILE_SPEED * BOOST_MULT * 0.6); o.vx = dx * sp; o.vy = dy * sp; o.boost = true; projectiles.push(o) }
       else if (it.kind === 'ant') {   // thrown as a parabola in the swing direction (see stepAnts toss)
-        const sp = Math.max(flingT, 6 * s); o.tvx = dx * sp; o.tvy = dy * sp; o.tossed = true; o.onGround = false; it.arr.push(o)
+        const sp = Math.max(flingT * 1.2, 8 * s); o.tvx = dx * sp; o.tvy = dy * sp - 3 * s; o.tossed = true; o.onGround = false; o.tossKill = lethal; it.arr.push(o)   // slight upward loft
       }
       else { const sp = Math.max(flingT, 6 * s); o.vx = dx * sp; o.vy = dy * sp; it.arr.push(o) }
     }
@@ -1188,6 +1201,7 @@
     me.humanActive = true
     me.humanX = cursor.x; me.humanY = antGroundY(cursor.x) - 1
     me.humanVX = 0; me.humanVY = 0; me.humanFace = 1; me.humanGround = true
+    me.humanTossVx = 0; me.humanTossKill = false; me.humanNetted = false
     me.humanHp = HUMAN_HP; me.humanHitCd = 0; me.humanWeapon = null; me.humanAtkCd = 0; me.charging = false; me.charge = 0
     humanKeys.clear()
     if (inputSource.humanControl) inputSource.humanControl(true)   // ask main to forward WASD
@@ -1407,7 +1421,7 @@
     let moving = false
     if (humanKeys.has('a')) { me.humanX -= HUMAN_SPEED * hs; me.humanFace = -1; moving = true }
     if (humanKeys.has('d')) { me.humanX += HUMAN_SPEED * hs; me.humanFace = 1; moving = true }
-    if (me.humanTossVx) { me.humanX += me.humanTossVx; me.humanTossVx *= 0.9; if (Math.abs(me.humanTossVx) < 0.3) me.humanTossVx = 0 }   // net-fling horizontal
+    if (me.humanTossVx) { me.humanX += me.humanTossVx; me.humanTossVx *= 0.99; if (Math.abs(me.humanTossVx) < 0.2) me.humanTossVx = 0 }   // net-fling horizontal (persists → real arc)
     const floor = antGroundY(me.humanX) - 1
     if (bhPull) {                                       // sucked in: pull + your input combine; no gravity/floor
       if (humanKeys.has('w')) me.humanY -= HUMAN_SPEED * hs
@@ -1419,8 +1433,8 @@
       me.humanGround = false
       me.humanVY += HUMAN_GRAV * hs; me.humanY += me.humanVY
       if (humanKeys.has('s')) me.humanY += 5 * hs                           // fast-fall
-      if (me.humanVY >= 0) { const segY = platformFloorAt(me.humanX, me.humanY, prevY); if (segY != null) { me.humanY = segY; me.humanVY = 0; me.humanGround = true; me.humanTossVx = 0 } }
-      if (me.humanY >= floor) { me.humanY = floor; me.humanVY = 0; me.humanGround = true; me.humanTossVx = 0 }
+      if (me.humanVY >= 0) { const segY = platformFloorAt(me.humanX, me.humanY, prevY); if (segY != null) { me.humanY = segY; me.humanVY = 0; me.humanGround = true; me.humanTossVx = 0; if (me.humanTossKill) { me.humanTossKill = false; humanTakeDmg(99, now); return } } }
+      if (me.humanY >= floor) { me.humanY = floor; me.humanVY = 0; me.humanGround = true; me.humanTossVx = 0; if (me.humanTossKill) { me.humanTossKill = false; humanTakeDmg(99, now); return } }
     }
     me.humanX = Math.max(12 * hs, Math.min(W - 12 * hs, me.humanX))
     if (humanKeys.has('e')) me.humanFace = cursor.x >= me.humanX ? 1 : -1   // face the cursor while guarding
@@ -2304,10 +2318,13 @@
         drawAnt(a, now, false, myCol); continue
       }
       if (a.tossed) {   // thrown out of a net → parabolic flight, then resume crawling on landing
-        a.tvy += 0.5; a.x += a.tvx; a.y += a.tvy; a.tvx *= 0.985; a.step += 0.5
+        a.tvy += 0.34; a.x += a.tvx; a.y += a.tvy; a.tvx *= 0.998; a.step += 0.5   // low gravity + little air drag = long arc
         if (a.x < 8) { a.x = 8; a.tvx = Math.abs(a.tvx) } if (a.x > W - 8) { a.x = W - 8; a.tvx = -Math.abs(a.tvx) }
         const g2 = antGroundY(a.x)
-        if (a.tvy >= 0 && a.y >= g2) { a.y = g2; a.vy = 0; a.tossed = false; a.onGround = true }
+        if (a.tvy >= 0 && a.y >= g2) {
+          a.y = g2; a.vy = 0; a.tossed = false; a.onGround = true
+          if (a.tossKill) { a.tossKill = false; antTakeDmg(a, 99); continue }   // thrown hard → splat on impact
+        }
         drawAnt(a, now, false, myCol); continue
       }
       const gy = antGroundY(a.x)   // dug-surface height at this ant's x
