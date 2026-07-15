@@ -43,7 +43,7 @@
       ? `접속 인원: ${s.count || 0} / ${max}명`
       : `접속 인원: — / ${max}명 (오프라인)`
     // platform tool: offline → anyone; online → host only. Hide only when connected & not host.
-    const ht = $('host-tools'); if (ht) ht.classList.toggle('hidden', !!s.connected && !s.isHost)
+    const ht = $('host-tools'); if (ht) ht.classList.toggle('hidden', !s.isDev)   // platform tool = developer-only
     // (achievements moved out of settings → dedicated 🏆 button under the shop button in the overlay)
     ready = true
   })
@@ -71,6 +71,7 @@
     api.toOverlay({ t: 'connect', url, room })
   }
   $('platform-mode').onclick = () => api.toOverlay({ t: 'platform-mode' })
+  { const pc = $('platform-clear'); if (pc) pc.onclick = () => api.toOverlay({ t: 'platform-clear' }) }
 
   btnDisconnect.onclick = () => api.toOverlay({ t: 'disconnect' })
   $('btn-monitor').onclick = () => api.toOverlay({ t: 'next-monitor' })

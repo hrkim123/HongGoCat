@@ -87,7 +87,7 @@
   // (taps) as currency. One-time purchase → permanently owned (localStorage). Host owns all.
   const PRICES = { shield: 10000, gatling: 10000, blackhole: 10000, ant: 10000, human: 10000, adogen: 10000, lightning: 10000, net: 10000 }   // all unlocks 10k
   // per-summon cost: even after unlocking, these charge the counter EACH time you summon them
-  const USE_COST = { gatling: 500, human: 500, blackhole: 1000 }
+  const USE_COST = { blackhole: 1000 }   // human/gatling are free now; only blackhole costs to summon
   const SHOP_ITEMS = ['shield', 'gatling', 'ant', 'human', 'blackhole', 'lightning', 'net']
   const SLOT_CHOICES = ['none', 'missile', 'shield', 'gatling', 'ant', 'human', 'blackhole', 'lightning', 'net']
   let owned = new Set()
@@ -183,6 +183,30 @@
     const bar = document.getElementById('hud-bar'); if (!bar) return
     const f = document.createElement('div'); f.className = 'pen-float'; f.textContent = '+1'
     bar.appendChild(f); setTimeout(() => f.remove(), 650)
+  }
+  function showCreditPop(n) {   // big gold coin-gain flourish (e.g. destroying an opponent → +500)
+    const bar = document.getElementById('hud-bar'); if (!bar) return
+    const f = document.createElement('div'); f.className = 'credit-pop'; f.textContent = `＋${n.toLocaleString()} 🪙`
+    bar.appendChild(f); setTimeout(() => f.remove(), 1400)
+    if (counterEl) { counterEl.classList.add('credit-flash'); setTimeout(() => counterEl.classList.remove('credit-flash'), 900) }
+  }
+  function showLossPop(n) {   // red coin-LOSS flourish (my summoned thing was destroyed → −count)
+    const bar = document.getElementById('hud-bar'); if (!bar) return
+    const f = document.createElement('div'); f.className = 'loss-pop'; f.textContent = `−${n.toLocaleString()} 🪙`
+    bar.appendChild(f); setTimeout(() => f.remove(), 1300)
+    if (counterEl) { counterEl.classList.add('loss-flash'); setTimeout(() => counterEl.classList.remove('loss-flash'), 800) }
+  }
+  const KILL_COUNT = { ant: 10, human: 200, gat: 300 }   // count reward for destroying each; owner loses the same
+  function rewardKill(kind, amt) {   // I destroyed a peer's ant/human/gatling → +count
+    const n = amt || KILL_COUNT[kind] || 0; if (!n) return
+    tapCount += n; counterDirty = true; renderCounter(); showCreditPop(n)
+  }
+  function loseCredits(n) { if (!n) return; tapCount = Math.max(0, tapCount - n); counterDirty = true; renderCounter(); showLossPop(n) }
+  function creditKill(kind, byId) {   // MY summoned entity was destroyed by a peer → I lose count; killer gains it
+    if (byId == null || !connected() || !net) return   // only a networked opponent's kill (not self/environmental) counts
+    const n = KILL_COUNT[kind] || 0
+    loseCredits(n)
+    net.send(JSON.stringify({ t: 'kill', kind, by: byId, amt: n }))
   }
   renderCounter()
   setInterval(() => { if (counterDirty) { localStorage.setItem('taps', String(tapCount)); counterDirty = false } }, 1000)
@@ -427,7 +451,7 @@
     return null
   }
   function damagePlatform(pl, dmg) {
-    if (connected() && !isHost) { if (net) net.send(JSON.stringify({ t: 'plat-hit', pid: pl.id, dmg })); return }   // host is authoritative
+    if (connected() && !isDev) { if (net) net.send(JSON.stringify({ t: 'plat-hit', pid: pl.id, dmg })); return }   // the DEV (drawer) is authoritative
     pl.hp -= dmg
     if (pl.hp <= 0) { const i = platforms.indexOf(pl); if (i >= 0) platforms.splice(i, 1); platHpDirty.delete(pl.id); platformsDirty = true }   // removed → full list
     else platHpDirty.add(pl.id)   // just HP → tiny delta (no geometry resend)
@@ -472,12 +496,17 @@
       ctx.restore()
     }
   }
-  function platformAllowed() { return !connected() || isHost }   // offline: anyone · online: host only
+  function platformAllowed() { return isDev }   // developer-only tool
   function togglePlatformMode() {
-    if (!platformAllowed()) { showToast('🖌️ 접속 중엔 서버 호스트만 그릴 수 있어요'); return }
+    if (!platformAllowed()) { showToast('🖌️ 플랫폼 그리기는 개발자 전용입니다'); return }
     platformMode = !platformMode; curStroke = null
     showToast(platformMode ? '🖌️ 플랫폼 그리기 ON — 왼쪽 클릭 드래그로 그리기' : '플랫폼 그리기 OFF')
     sendHotzone()
+  }
+  function clearPlatforms() {   // dev: wipe all platforms (synced to peers)
+    if (!isDev) return
+    platforms.length = 0; curStroke = null; platHpDirty.clear(); platformsDirty = true
+    showToast('🗑️ 플랫폼 전체 삭제')
   }
 
   let net = null, sendBudget = 0, budgetRefill = performance.now()
@@ -523,7 +552,7 @@
       }
       else if (msg.t === 'roster') {
         roomCount = msg.peers.length   // includes me
-        if (isHost && platforms.length) platformsDirty = true   // re-send platforms so late joiners see them
+        if (isDev && platforms.length) platformsDirty = true   // re-send platforms so late joiners see them
         const seen = new Set()
         for (const p of msg.peers) {
           if (p.id === me.netId) continue
@@ -544,23 +573,23 @@
       else if (msg.t === 'throw') { const src = targetOf(msg.id); launch('me', src ? { from: src } : {}) }
       else if (msg.t === 'missiles') { mergeRemote(remoteMissiles, msg.id, msg.list, 'nx', 'ny') }
       else if (msg.t === 'hit') {
-        if (msg.target === me.netId) { me.hitUntil = performance.now() + 1000 + Math.min((msg.power || 1) - 1, 5) * 200; if (msg.shock) me.shockUntil = performance.now() + 650; damageMyCat(msg.power || 1) }
+        if (msg.target === me.netId) { me.hitUntil = performance.now() + 1000 + Math.min((msg.power || 1) - 1, 5) * 200; if (msg.shock) me.shockUntil = performance.now() + 650; damageMyCat(msg.power || 1, msg.id) }
         else { const tp = peers.get(msg.target); if (tp) { tp.hitUntil = performance.now() + 800 + Math.min((msg.power || 1) - 1, 5) * 100; if (msg.shock) tp.shockUntil = performance.now() + 650; const c = peerCatCenter(tp); if (c) addEffect(c.x, c.y, Math.min(msg.power || 1, 3)) } }   // 3rd-party peers see the hit too
       }
       else if (msg.t === 'bolt') { const bx = (msg.nx || 0) * canvas.clientWidth, H2 = canvas.clientHeight; spawnBolt(bx, (msg.nyTop || 0) * H2, msg.nyBot != null ? msg.nyBot * H2 : boltGroundY(bx), msg.level || 1, false) }
-      else if (msg.t === 'platforms') {   // host's authoritative list → replace mine (peers only)
-        if (!isHost) { platforms.length = 0; for (const it of (msg.list || [])) platforms.push({ id: it.id, hp: it.hp, pts: strokeFromFlat(it.p || []) }); platformsAreRemote = true }
+      else if (msg.t === 'platforms') {   // the dev's authoritative list → replace mine (non-devs)
+        if (!isDev) { platforms.length = 0; for (const it of (msg.list || [])) platforms.push({ id: it.id, hp: it.hp, pts: strokeFromFlat(it.p || []) }); platformsAreRemote = true }
       }
-      else if (msg.t === 'platdraw') { if (!isHost) remoteDrawStroke = (msg.p && msg.p.length) ? { hp: PLAT_HP, pts: strokeFromFlat(msg.p) } : null }
-      else if (msg.t === 'plathp') { if (!isHost && Array.isArray(msg.ups)) for (const u of msg.ups) { const pl = platforms.find((p) => p.id === u.id); if (pl) pl.hp = u.hp } }
-      else if (msg.t === 'plat-hit') { if (isHost) { const pl = platforms.find((p) => p.id === msg.pid); if (pl) damagePlatform(pl, msg.dmg || 1) } }
+      else if (msg.t === 'platdraw') { if (!isDev) remoteDrawStroke = (msg.p && msg.p.length) ? { hp: PLAT_HP, pts: strokeFromFlat(msg.p) } : null }
+      else if (msg.t === 'plathp') { if (!isDev && Array.isArray(msg.ups)) for (const u of msg.ups) { const pl = platforms.find((p) => p.id === u.id); if (pl) pl.hp = u.hp } }
+      else if (msg.t === 'plat-hit') { if (isDev) { const pl = platforms.find((p) => p.id === msg.pid); if (pl) damagePlatform(pl, msg.dmg || 1) } }
       else if (msg.t === 'shield') {
         if (msg.ttl > 0) remoteShields.set(msg.id, { until: performance.now() + msg.ttl, angle: msg.angle || 0, hp: msg.hp != null ? msg.hp : SHIELD_HP, max: msg.max || SHIELD_HP })
         else { if (msg.broke) remoteBreaks.push(msg.id); remoteShields.delete(msg.id) }
       }
       else if (msg.t === 'shield-hit') { if (msg.target === me.netId) hitMyShield(msg.power || 1) }
       else if (msg.t === 'ants') { mergeRemote(remoteAnts, msg.id, msg.list, 'nx', 'nx') }
-      else if (msg.t === 'ant-hit') { if (msg.target === me.netId) { const a = ants.find((x) => x.id === msg.ant); if (a) antTakeDmg(a, msg.dmg || 1) } }
+      else if (msg.t === 'ant-hit') { if (msg.target === me.netId) { const a = ants.find((x) => x.id === msg.ant); if (a && !a.dead) { antTakeDmg(a, msg.dmg || 1); if (a.dead) creditKill('ant', msg.id) } } }
       else if (msg.t === 'blackhole') {
         if (msg.ttl > 0) remoteBlackholes.set(msg.id, { nx: msg.nx, ny: msg.ny, until: performance.now() + msg.ttl })
         else remoteBlackholes.delete(msg.id)
@@ -573,7 +602,12 @@
       }
       else if (msg.t === 'gbullets') { mergeRemote(remoteGBullets, msg.id, msg.list, 'nx', 'ny') }
       else if (msg.t === 'gat-hit') { if (msg.target === me.netId) damageMyGatling(msg.dmg || 1, msg.id) }
-      else if (msg.t === 'kill') { if (msg.by === me.netId) { if (msg.kind === 'gat') addGatKill(); else if (msg.kind === 'human') addHumanKill() } }
+      else if (msg.t === 'kill') {
+        if (msg.by === me.netId) {
+          if (msg.kind === 'cat') rewardCatDestroy()
+          else { rewardKill(msg.kind, msg.amt); if (msg.kind === 'gat') addGatKill(); else if (msg.kind === 'human') addHumanKill() }
+        }
+      }
       else if (msg.t === 'human') {
         if (msg.active) remoteHumans.set(msg.id, { nx: msg.nx, ny: msg.ny, hp: msg.hp, weapon: msg.weapon || '', face: msg.face || 1 })
         else remoteHumans.delete(msg.id)
@@ -581,6 +615,16 @@
       else if (msg.t === 'net') {
         if (msg.active) remoteNets.set(msg.id, { ph: msg.ph, ax: msg.ax, ay: msg.ay, bx: msg.bx, by: msg.by, sp: msg.sp, items: msg.items || [], n: msg.n || 0, ts: performance.now() })
         else remoteNets.delete(msg.id)
+      }
+      else if (msg.t === 'capture') {   // a peer's net grabbed one of MY collidables → remove it here
+        if (msg.target === me.netId) {
+          let arr = null, key = 'id'
+          if (msg.kind === 'missile') { arr = projectiles; key = 'mid' }
+          else if (msg.kind === 'gbullet') arr = gbullets
+          else if (msg.kind === 'ant') arr = ants
+          else arr = hbullets   // adogen / wave / hbullet
+          if (arr) { const i = arr.findIndex((o) => o[key] === msg.eid); if (i >= 0) arr.splice(i, 1) }
+        }
       }
       else if (msg.t === 'hbullets') { mergeRemote(remoteHbullets, msg.id, msg.list, 'nx', 'ny') }
       else if (msg.t === 'error' && msg.reason === 'room_full') { setStatus('방이 가득 찼어요'); ws.close() }
@@ -636,7 +680,7 @@
       room: localStorage.getItem('room') || '',
       connected: connected(), status, editing,
       count: connected() ? roomCount : 0, max: roomMax,
-      antKills, antGoal: ANT_KILL_GOAL, isHost, bhAvailable: bhAvailable(),
+      antKills, antGoal: ANT_KILL_GOAL, isHost, isDev, bhAvailable: bhAvailable(),
       catHits, catHitGoal: CAT_HIT_GOAL, catHitReward: CAT_HIT_REWARD, catHitRewarded,
       destroys: destroyCount, destroyGoal: DESTROY_GOAL, destroyReward: DESTROY_REWARD, destroyRewarded, hp: me.hp,
       ownedHats: [...ownedHats]
@@ -676,6 +720,7 @@
       }
     }
     else if (msg.t === 'platform-mode') { togglePlatformMode() }
+    else if (msg.t === 'platform-clear') { clearPlatforms() }
     else if (msg.t === 'human-key') {
       if (msg.down) { if (!humanKeys.has(msg.key)) { humanKeys.add(msg.key); if (msg.key === 'q' && me.humanActive) humanAttack() } }   // Q = attack (aims at cursor)
       else { humanKeys.delete(msg.key); if (msg.key === 'q' && me.humanActive) humanRelease() }
@@ -862,7 +907,7 @@
     const r = Math.round(255 - t * 100), g = Math.round(238 - t * 175), b = Math.round(150 + t * 105)
     return `rgba(${r},${g},${b},${a == null ? 1 : a})`
   }
-  function boltGroundY(x) { const tb = taskbarRect(); return tb ? tb.top : (canvas.clientHeight - 4) }
+  function boltGroundY(x) { const tb = taskbarRect(); return tb ? tb.top + carveDepthAt(x) : (canvas.clientHeight - 4) }   // strike the DUG floor (into pits / through holes), not the original surface
   function lightningPress() {
     if (!weaponUsable('lightning')) { showToast('🛒 ⚡ 낙뢰은(는) 상점에서 먼저 구매하세요'); return }
     if (performance.now() < (me.lightCd || 0)) return                     // 0.5s cooldown between strikes
@@ -1043,6 +1088,24 @@
     grab(gbullets, () => 'gbullet')
     grab(ants, () => 'ant')
     if (me.humanActive && !me.humanNetted && Math.hypot(me.humanX - me.netBx, me.humanY - me.netBy) < radius) { me.humanNetted = true; me.netCaught.push({ kind: 'human', obj: me }) }
+    // MULTIPLAYER: also trap OTHER players' collidables — remove them from the owner (t:'capture') and
+    // keep a local copy in the net so I can fling it as my own.
+    if (connected()) {
+      const W = canvas.clientWidth, H = canvas.clientHeight, nowP = performance.now(), cap = () => me.netCaught.length >= NET_CAP
+      const steal = (pid, id, kind, x, y, obj, arr) => { if (net) net.send(JSON.stringify({ t: 'capture', target: pid, kind, eid: id })); me.netCaught.push({ kind, obj, arr }); spawnSpark(x, y) }
+      for (const [pid, rec] of remoteMissiles) { if (nowP - rec.ts > 500) continue
+        for (const [id, it] of rec.items) { if (cap()) break; const x = it.sx * W, y = it.sy * H
+          if (Math.hypot(x - me.netBx, y - me.netBy) < radius) { rec.items.delete(id); steal(pid, id, 'missile', x, y, { homing: true, power: it.power || 1, mid: nextMid++, x, y, vx: 0, vy: 0, born: nowP, life: MISSILE_LIFE }, projectiles) } } }
+      for (const [pid, rec] of remoteGBullets) { if (nowP - rec.ts > 500) continue
+        for (const [id, it] of rec.items) { if (cap()) break; const x = it.sx * W, y = it.sy * H
+          if (Math.hypot(x - me.netBx, y - me.netBy) < radius) { rec.items.delete(id); steal(pid, id, 'gbullet', x, y, { id: gbulletId++, x, y, vx: 0, vy: 0, born: nowP }, gbullets) } } }
+      for (const [pid, rec] of remoteHbullets) { if (nowP - rec.ts > 500) continue
+        for (const [id, it] of rec.items) { if (cap()) break; const x = it.sx * W, y = it.sy * H
+          if (Math.hypot(x - me.netBx, y - me.netBy) < radius) { rec.items.delete(id); const k = it.k === 2 ? 'adogen' : (it.k === 1 ? 'wave' : 'hbullet'); steal(pid, id, k, x, y, { x, y, vx: 0, vy: 0, born: nowP, life: 1500, adogen: it.k === 2, wave: it.k === 1, hp: 1, hp0: 1, waveR: (it.r || 0.01) * W }, hbullets) } } }
+      for (const [pid, rec] of remoteAnts) { if (nowP - rec.ts > 800) continue
+        for (const [id, a] of rec.items) { if (cap()) break; if (a.dead) continue; const sp = remoteAntScreenPos(pid, a); if (!sp) continue
+          if (Math.hypot(sp.x - me.netBx, sp.y - me.netBy) < radius) { rec.items.delete(id); steal(pid, id, 'ant', sp.x, sp.y, { id: nextAntId++, x: sp.x, y: sp.y, hp: ANT_HP, dir: 1, onGround: false, vy: 0, dead: false, step: 0, atkCd: 0, wanderUntil: 0 }, ants) } } }
+    }
   }
   function stepNet(now) {
     if (!me.netActive) return
@@ -1201,7 +1264,7 @@
     me.humanActive = true
     me.humanX = cursor.x; me.humanY = antGroundY(cursor.x) - 1
     me.humanVX = 0; me.humanVY = 0; me.humanFace = 1; me.humanGround = true
-    me.humanTossVx = 0; me.humanTossKill = false; me.humanNetted = false
+    me.humanTossVx = 0; me.humanTossKill = false; me.humanNetted = false; me.humanFalling = false
     me.humanHp = HUMAN_HP; me.humanHitCd = 0; me.humanWeapon = null; me.humanAtkCd = 0; me.charging = false; me.charge = 0
     humanKeys.clear()
     if (inputSource.humanControl) inputSource.humanControl(true)   // ask main to forward WASD
@@ -1217,7 +1280,7 @@
     spawnBlood(me.humanX, me.humanY - 15 * hs, 4)
     if (me.humanHp <= 0) {
       addEffect(me.humanX, me.humanY - 12 * hs, 1); spawnBlood(me.humanX, me.humanY - 15 * hs, 18); addBloodStain(me.humanX, me.humanY - 2 * hs, 16 * view.scale); removeHuman()
-      if (byId != null && connected() && net) net.send(JSON.stringify({ t: 'kill', kind: 'human', by: byId }))   // credit the killer
+      creditKill('human', byId)   // killer +200, I lose 200
     }
   }
   // left-click punch: short melee in the facing direction; kills ants (dmg 1)
@@ -1409,6 +1472,11 @@
     if (!me.humanActive) return
     if (me.humanNetted) { drawHuman(now, false); return }   // caught in a net → held at the bundle (stepNet positions it)
     const s = view.scale, hs = view.scale * HUMAN_SCALE, W = canvas.clientWidth
+    if (me.humanFalling) {   // fell into a dug-through hole → drop straight down, remove once fully off-screen
+      me.humanFallVy = (me.humanFallVy || 1) + 0.6 * hs; me.humanY += me.humanFallVy; drawHuman(now, false)
+      if (me.humanY > canvas.clientHeight + 50 * s) removeHuman()
+      return
+    }
     // black hole pull (faster) — but the human can STILL move (WASD) to fight it, like a missile/bullet
     let bhPull = null
     for (const b of activeBlackholes(now)) {
@@ -1437,6 +1505,7 @@
       if (me.humanY >= floor) { me.humanY = floor; me.humanVY = 0; me.humanGround = true; me.humanTossVx = 0; if (me.humanTossKill) { me.humanTossKill = false; humanTakeDmg(99, now); return } }
     }
     me.humanX = Math.max(12 * hs, Math.min(W - 12 * hs, me.humanX))
+    if (me.humanGround && taskbarHoleAt(me.humanX)) { me.humanFalling = true; me.humanFallVy = 2; me.humanFallStart = now; spawnFallFx(me.humanX, me.humanY); return }   // standing over a hole → fall in
     if (humanKeys.has('e')) me.humanFace = cursor.x >= me.humanX ? 1 : -1   // face the cursor while guarding
     // collide with ENEMY weapons (human is local, so only remote threats reach it). 250ms i-frames.
     if (now >= (me.humanHitCd || 0)) {
@@ -1470,12 +1539,12 @@
       const cx = me.humanX, cy = me.humanY - 15 * hs, r = 20 * hs
       for (let i = projectiles.length - 1; i >= 0; i--) {
         const pr = projectiles[i]
-        if (pr.human) continue                                   // skip the human's own bazooka shot
+        if (pr.human || now < (pr.pierceCd || 0)) continue        // skip the human's own bazooka shot / just-pierced
         if (Math.hypot(cx - pr.x, cy - pr.y) < r + (pr.power ? pr.power * 3 : 0)) {
-          const dmg = pr.power || 1
-          addEffect(pr.x, pr.y, dmg); spawnSpark(pr.x, pr.y); projectiles.splice(i, 1)
-          humanTakeDmg(dmg, now); if (!me.humanActive) return
-          break
+          const hp0 = me.humanHp || 0
+          addEffect(pr.x, pr.y, 1); spawnSpark(pr.x, pr.y)
+          if ((pr.power || 1) > hp0) { humanTakeDmg(hp0 || 1, now); pr.power -= hp0; pr.pierceCd = now + 140; if (!me.humanActive) return }   // punch through, shrink, keep flying
+          else { humanTakeDmg(pr.power || 1, now); projectiles.splice(i, 1); if (!me.humanActive) return; break }
         }
       }
     }
@@ -1703,12 +1772,12 @@
     if (cat.id === 'me') damageMyCat(power || 1)
     else if (connected()) net.send(JSON.stringify({ t: 'hit', target: cat.id, power, shock: shock ? 1 : 0 }))
   }
-  function damageMyCat(dmg) {
-    if (!(dmg > 0) || me.hp <= 0) return
+  function damageMyCat(dmg, byId) {
+    if (!(dmg > 0) || me.hp <= 0) return   // already at 0 → no re-trigger until healed (resetCatHp)
     me.hp = Math.max(0, me.hp - dmg); localStorage.setItem('catHp', String(me.hp))
-    if (me.hp === 0) onCatDestroyed()
+    if (me.hp === 0) onCatDestroyed(byId)
   }
-  function onCatDestroyed() {   // desk fully wrecked; count toward the achievement (reset in the shop)
+  function onCatDestroyed(byId) {   // desk fully wrecked; count toward the achievement (reset in the shop)
     destroyCount++; localStorage.setItem('destroys', String(destroyCount))
     const c = catPos[0]; if (c) { addEffect(c.x, c.y, 4); spawnDebris(c.x, c.y, 20, '#6a5a4a') }
     showToast('💥 완전 파괴! 상점에서 🩹 체력 리셋')
@@ -1717,7 +1786,14 @@
       tapCount += DESTROY_REWARD; counterDirty = true; renderCounter()
       showToast(`🏆 완전 파괴 ${DESTROY_GOAL}회 — 🪙${DESTROY_REWARD.toLocaleString()} 지급!`)
     }
+    // credit the attacker who landed the final blow (once per destroy, since we're now at HP 0)
+    if (byId != null && connected() && net) net.send(JSON.stringify({ t: 'kill', kind: 'cat', by: byId }))
     renderAchv(); pushState()
+  }
+  const CAT_KILL_REWARD = 500
+  function rewardCatDestroy() {   // I destroyed an opponent's character → +500 with a coin-gain flourish
+    tapCount += CAT_KILL_REWARD; counterDirty = true; renderCounter()
+    showCreditPop(CAT_KILL_REWARD)
   }
   function resetCatHp() { me.hp = CAT_HP; localStorage.setItem('catHp', String(CAT_HP)) }
   function addGatKill() {   // I destroyed an enemy's gatling
@@ -1750,7 +1826,7 @@
     me.gatHp -= (dmg || 1)
     if (me.gatHp <= 0) {
       spawnGatDestroy(me.gatX, me.gatY); setGat(false); me.gatCdUntil = performance.now() + GAT_CD
-      if (byId != null && connected() && net) net.send(JSON.stringify({ t: 'kill', kind: 'gat', by: byId }))   // credit the killer
+      creditKill('gat', byId)   // killer +300, I lose 300
     }
   }
   function spawnSpark(x, y) {
@@ -1775,7 +1851,7 @@
   }
   function hitRemoteGatling(x, y) {          // returns the peer gatling at (x,y), for bullets/missiles
     const W = canvas.clientWidth, H = canvas.clientHeight
-    for (const [pid, g] of remoteGatlings) { if (Math.hypot(x - g.nx * W, y - g.ny * H) < GAT_HIT_R * view.scale) return { pid } }
+    for (const [pid, g] of remoteGatlings) { if (Math.hypot(x - g.nx * W, y - g.ny * H) < GAT_HIT_R * view.scale) return { pid, hp: g.hp || GAT_HP } }
     return null
   }
   function hitRemoteGBullet(x, y) {          // any peer bullet near (x,y)?
@@ -1918,7 +1994,9 @@
     const W = canvas.clientWidth, H = canvas.clientHeight
     for (const [pid, rec] of [...remoteGBullets]) {
       if (now - rec.ts > 400) { remoteGBullets.delete(pid); continue }
+      const extrap = now - rec.ts < 130
       for (const it of rec.items.values()) {
+        if (extrap) { it.nx += it.vx || 0; it.ny += it.vy || 0 }   // dead-reckon fast bullets
         it.sx += (it.nx - it.sx) * 0.5; it.sy += (it.ny - it.sy) * 0.5
         ctx.save(); ctx.fillStyle = '#fff1b0'; ctx.beginPath(); ctx.arc(it.sx * W, it.sy * H, 3.6 * view.scale, 0, Math.PI * 2); ctx.fill(); ctx.restore()
       }
@@ -1947,7 +2025,9 @@
     const W = canvas.clientWidth, H = canvas.clientHeight, s = view.scale
     for (const [pid, rec] of [...remoteHbullets]) {
       if (now - rec.ts > 400) { remoteHbullets.delete(pid); continue }
+      const extrap = now - rec.ts < 130
       for (const it of rec.items.values()) {
+        if (extrap) { it.nx += it.vx || 0; it.ny += it.vy || 0 }   // dead-reckon 검기/총알
         const dx = it.nx - it.sx, dy = it.ny - it.sy
         it.sx += dx * SMOOTH; it.sy += dy * SMOOTH
         const x = it.sx * W, y = it.sy * H, r = Math.max(4 * s, (it.r || 0.004) * W), ang = Math.atan2(dy, dx)
@@ -2136,6 +2216,11 @@
     const s = Math.round(x / CARVE_SEG)
     return (s >= 0 && s < carve.length) ? carve[s] : 0
   }
+  // a hole dug clean through the taskbar at x → things standing here fall in
+  function taskbarHoleAt(x) { const tb = taskbarRect(); return !!tb && carveDepthAt(x) >= tb.h * 0.88 }
+  function spawnFallFx(x, y) {   // "fell into the pit" — a little dark dust dropping DOWN into the hole (no blast)
+    for (let k = 0; k < 8; k++) { const sx = (Math.random() - 0.5) * 14; debris.push({ x: x + sx, y, vx: sx * 0.05, vy: 1.5 + Math.random() * 2.5, born: performance.now(), life: 450 + Math.random() * 250, sz: 1.6 + Math.random() * 2, color: k % 2 ? '#2a2a32' : '#4a4e5a' }) }
+  }
   // the "solid surface" y at x = taskbar top + how deep it's been dug there
   function taskbarSurfaceY(x) { const tb = taskbarRect(); return tb ? tb.top + carveDepthAt(x) : canvas.clientHeight }
   // carve-aware: a missile reaches the DUG floor (not the flat top) before it detonates
@@ -2165,7 +2250,7 @@
     ensureCarve()
     // crater size scales with `power`: a missile (power≥1) gouges wide+deep, a gatling bullet
     // (power≈0.12) barely dents. `power` is what gets broadcast, so peers carve the same size.
-    const ci = Math.round(x / CARVE_SEG), rad = Math.min(42, Math.max(1, Math.round(power * 8))), maxD = tb.h * 0.72
+    const ci = Math.round(x / CARVE_SEG), rad = Math.min(42, Math.max(1, Math.round(power * 8))), maxD = tb.h + 14   // dig past the bottom edge (no leftover line)
     for (let s = ci - rad; s <= ci + rad; s++) {
       if (s < 0 || s >= carve.length) continue
       const f = 1 - Math.abs(s - ci) / (rad + 1)
@@ -2306,6 +2391,12 @@
         else drawAntCorpse(a, now)
         continue
       }
+      if (a.falling) {   // fell into a dug-through hole → drop straight down, remove once fully off-screen
+        a.fallVy = (a.fallVy || 1) + 0.55; a.y += a.fallVy; a.step += 0.5
+        drawAnt(a, now, false, myCol)
+        if (a.y - 14 > canvas.clientHeight) ants.splice(i, 1)   // gone below the screen
+        continue
+      }
       // black hole pull overrides falling + AI; reaching the core dust-consumes the ant (whole-screen)
       let hole = null, hbest = Infinity
       for (const b of activeBlackholes(now)) { const dd = Math.hypot(b.x - a.x, b.y - a.y); if (dd < hbest) { hbest = dd; hole = b } }
@@ -2350,7 +2441,8 @@
         a.wanderUntil = now + 700 + Math.random() * 1400; if (Math.random() < 0.35) a.dir *= -1
       }
       if (moving) { a.x += a.dir * 0.9; if (a.x < 8) { a.x = 8; a.dir = 1 } if (a.x > W - 8) { a.x = W - 8; a.dir = -1 } a.step += 0.35 }
-      a.y = gy
+      if (taskbarHoleAt(a.x)) { a.falling = true; a.fallVy = 1; a.fallStart = now; spawnFallFx(a.x, a.y) }   // over a hole → start falling from the surface
+      else a.y = gy
       drawAnt(a, now, !moving, myCol)
     }
   }
@@ -2542,9 +2634,11 @@
     const W = canvas.clientWidth, H = canvas.clientHeight
     for (const [pid, rec] of [...remoteMissiles]) {
       if (now - rec.ts > 500) { remoteMissiles.delete(pid); continue }
+      const extrap = now - rec.ts < 130   // dead-reckon only right after an update (avoids runaway on hiccups)
       for (const it of rec.items.values()) {
+        if (extrap) { it.nx += it.vx || 0; it.ny += it.vy || 0 }   // move the estimate at the missile's own velocity
         const px = it.sx, py = it.sy
-        it.sx += (it.nx - it.sx) * SMOOTH; it.sy += (it.ny - it.sy) * SMOOTH   // glide toward latest
+        it.sx += (it.nx - it.sx) * SMOOTH; it.sy += (it.ny - it.sy) * SMOOTH
         const mvx = (it.sx - px) * W, mvy = (it.sy - py) * H
         if (mvx * mvx + mvy * mvy > 0.25) it.ang = Math.atan2(mvy, mvx)          // face travel direction
         drawMissile(it.sx * W, it.sy * H, it.ang, now, it.power || 1)
@@ -2642,14 +2736,30 @@
           else if (connected()) net.send(JSON.stringify({ t: 'shield-hit', target: blk.id, power: p.power }))
           projectiles.splice(i, 1); continue
         }
-        // missile hits an enemy gatling turret → damage it, then blast
-        const rgm = hitRemoteGatling(p.x, p.y)
-        if (rgm) { if (connected()) net.send(JSON.stringify({ t: 'gat-hit', target: rgm.pid, dmg: p.power })); explode(p.x, p.y, p.power); projectiles.splice(i, 1); continue }
+        // UNIFIED COLLISION for HP targets (gatling/ant): mutual attrition. The target loses the
+        // missile's power; the missile loses the target's HP. If power > HP the target dies and the
+        // missile PUNCHES THROUGH with reduced power (shrinks); otherwise the missile detonates.
+        const pierceReady = now >= (p.pierceCd || 0)
+        const rgm = pierceReady ? hitRemoteGatling(p.x, p.y) : null
+        if (rgm) {
+          if (connected()) net.send(JSON.stringify({ t: 'gat-hit', target: rgm.pid, dmg: p.power }))
+          addEffect(p.x, p.y, 1); spawnSpark(p.x, p.y)
+          if (p.power > rgm.hp) { p.power -= rgm.hp; p.pierceCd = now + 140 }   // punch through, shrink
+          else { explode(p.x, p.y, p.power); projectiles.splice(i, 1); continue }
+        }
         // a drawn platform is solid: detonate on it and chip its HP
         const pl = hitPlatform(p.x, p.y)
         if (pl) { damagePlatform(pl, p.power); explode(p.x, p.y, p.power); projectiles.splice(i, 1); continue }
-        // detonate on contact with an ant, cat, peer missile, peer gatling bullet, OR taskbar
-        if (missileHitsAnt(p.x, p.y) || hitTestCats(p.x, p.y) || hitRemoteMissile(p.x, p.y, p.power) || hitRemoteGBullet(p.x, p.y) || inTaskbar(p.x, p.y)) {
+        const ah = pierceReady ? missileHitsAnt(p.x, p.y) : null   // ant HP = 1
+        if (ah) {
+          if (ah.local) { antTakeDmg(ah.ant, 99); if (ah.ant.dead) addAntKill() }
+          else if (connected()) net.send(JSON.stringify({ t: 'ant-hit', target: ah.pid, ant: ah.id, dmg: 99 }))
+          addEffect(p.x, p.y, 1)
+          if (p.power > 1) { p.power -= 1; p.pierceCd = now + 90 }   // punch through the ant, shrink
+          else { explode(p.x, p.y, p.power); projectiles.splice(i, 1); continue }
+        }
+        // cat (SOLID — always detonates), peer missile, peer gatling bullet, OR taskbar
+        if (hitTestCats(p.x, p.y) || hitRemoteMissile(p.x, p.y, p.power) || hitRemoteGBullet(p.x, p.y) || inTaskbar(p.x, p.y)) {
           explode(p.x, p.y, p.power)
           projectiles.splice(i, 1); continue
         }
@@ -2692,7 +2802,7 @@
       // target on every screen regardless of resolution/aspect
       net.send(JSON.stringify({
         t: 'missiles',
-        list: mine.map((m) => ({ id: m.mid, nx: +(m.x / NW).toFixed(4), ny: +(m.y / NH).toFixed(4), power: m.power }))
+        list: mine.map((m) => ({ id: m.mid, nx: +(m.x / NW).toFixed(4), ny: +(m.y / NH).toFixed(4), vx: +(m.vx / NW).toFixed(5), vy: +(m.vy / NH).toFixed(5), power: m.power }))
       }))
     } else if (sentMissiles) { net.send(JSON.stringify({ t: 'missiles', list: [] })); sentMissiles = false }
 
@@ -2718,7 +2828,7 @@
     } else if (sentGat) { net.send(JSON.stringify({ t: 'gatling', active: 0 })); sentGat = false }
     if (gbullets.length) {
       sentGB = true
-      net.send(JSON.stringify({ t: 'gbullets', list: gbullets.slice(-40).map((p) => ({ id: p.id, nx: +(p.x / NW).toFixed(4), ny: +(p.y / NH).toFixed(4) })) }))
+      net.send(JSON.stringify({ t: 'gbullets', list: gbullets.slice(-40).map((p) => ({ id: p.id, nx: +(p.x / NW).toFixed(4), ny: +(p.y / NH).toFixed(4), vx: +(p.vx / NW).toFixed(5), vy: +(p.vy / NH).toFixed(5) })) }))
     } else if (sentGB) { net.send(JSON.stringify({ t: 'gbullets', list: [] })); sentGB = false }
 
     if (me.humanActive) {   // human is local-authoritative but now VISIBLE to peers
@@ -2727,7 +2837,7 @@
     } else if (sentHuman) { net.send(JSON.stringify({ t: 'human', active: 0 })); sentHuman = false }
     if (hbullets.length) {
       sentHB = true
-      net.send(JSON.stringify({ t: 'hbullets', list: hbullets.slice(-30).map((p) => { if (!p.id) p.id = hbId++; return { id: p.id, nx: +(p.x / NW).toFixed(4), ny: +(p.y / NH).toFixed(4), k: p.adogen ? 2 : (p.wave ? 1 : 0), r: +((p.waveR ? (p.waveR * (p.hp0 ? p.hp / p.hp0 : 1)) : 3 * view.scale) / NW).toFixed(4) } }) }))
+      net.send(JSON.stringify({ t: 'hbullets', list: hbullets.slice(-30).map((p) => { if (!p.id) p.id = hbId++; return { id: p.id, nx: +(p.x / NW).toFixed(4), ny: +(p.y / NH).toFixed(4), vx: +(p.vx / NW).toFixed(5), vy: +(p.vy / NH).toFixed(5), k: p.adogen ? 2 : (p.wave ? 1 : 0), r: +((p.waveR ? (p.waveR * (p.hp0 ? p.hp / p.hp0 : 1)) : 3 * view.scale) / NW).toFixed(4) } }) }))
     } else if (sentHB) { net.send(JSON.stringify({ t: 'hbullets', list: [] })); sentHB = false }
     if (me.netActive) {
       sentNet = true
@@ -2735,8 +2845,8 @@
       net.send(JSON.stringify({ t: 'net', active: 1, ph: me.netPhase === 'cast' ? 1 : 0, ax: +(anX / NW).toFixed(4), ay: +(anY / NH).toFixed(4), bx: +(me.netBx / NW).toFixed(4), by: +(me.netBy / NH).toFixed(4), sp: +((me.netSpread || NET_R * view.scale) / NW).toFixed(4), items: me.netCaught.slice(0, 12).map((c) => c.kind), n: me.netCaught.length }))
     } else if (sentNet) { net.send(JSON.stringify({ t: 'net', active: 0 })); sentNet = false }
 
-    // HOST: broadcast the authoritative platform list (on change) + the live stroke (throttled)
-    if (isHost) {
+    // DEV (platform authority): broadcast the platform list (on change) + the live stroke (throttled)
+    if (isDev) {
       if (platformsDirty) { net.send(JSON.stringify({ t: 'platforms', list: serializePlatforms() })); platformsDirty = false; platHpDirty.clear() }
       else if (platHpDirty.size) {   // HP-only change → send a tiny delta instead of the whole geometry
         const ups = []; for (const id of platHpDirty) { const pl = platforms.find((p) => p.id === id); if (pl) ups.push({ id, hp: pl.hp }) }

@@ -104,11 +104,13 @@ wss.on('connection', (ws, req) => {
     } else if (msg.t === 'gat-hit') {
       broadcast(joinedRoom, { t: 'gat-hit', id, target: msg.target, dmg: msg.dmg }, id)
     } else if (msg.t === 'kill') {
-      broadcast(joinedRoom, { t: 'kill', id, kind: msg.kind, by: msg.by }, id)   // credit a gatling/human destroy to the killer
+      broadcast(joinedRoom, { t: 'kill', id, kind: msg.kind, by: msg.by, amt: msg.amt }, id)   // credit a destroy to the killer
     } else if (msg.t === 'human') {
       broadcast(joinedRoom, { t: 'human', id, active: msg.active, nx: msg.nx, ny: msg.ny, hp: msg.hp, weapon: msg.weapon, face: msg.face }, id)
     } else if (msg.t === 'net') {
       broadcast(joinedRoom, { t: 'net', id, active: msg.active, ph: msg.ph, ax: msg.ax, ay: msg.ay, bx: msg.bx, by: msg.by, sp: msg.sp, items: Array.isArray(msg.items) ? msg.items.slice(0, 12) : [], n: msg.n }, id)
+    } else if (msg.t === 'capture') {
+      broadcast(joinedRoom, { t: 'capture', id, target: msg.target, kind: msg.kind, eid: msg.eid }, id)   // net stole a peer's collidable
     } else if (msg.t === 'hbullets' && Array.isArray(msg.list)) {
       broadcast(joinedRoom, { t: 'hbullets', id, list: msg.list.slice(0, 30) }, id)
     } else if (msg.t === 'bolt') {

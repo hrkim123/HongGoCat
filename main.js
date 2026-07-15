@@ -40,7 +40,7 @@ function initAutoUpdate() {
       dialog.showMessageBox({ type: 'error', buttons: ['확인'], noLink: true, title: 'HongGoCat 업데이트', message: '업데이트 확인에 실패했습니다.', detail: (e && e.message) || '네트워크 상태를 확인해 주세요.' }).catch(() => {})
     }
   })
-  autoUpdater.on('update-available', (info) => { manualCheck = false; promptUpdate(info && info.version) })
+  autoUpdater.on('update-available', (info) => { const wasManual = manualCheck; manualCheck = false; promptUpdate(info && info.version, wasManual) })
   autoUpdater.on('update-not-available', () => {
     if (manualCheck) {
       manualCheck = false
@@ -53,9 +53,10 @@ function initAutoUpdate() {
   })
 
   // Ask the user whether to update; on "예" download it (update-downloaded then relaunches).
-  function promptUpdate(version) {
+  function promptUpdate(version, force) {
     const v = version ? `v${version}` : '새 버전'
-    if (downloading || promptedVersion === version) return
+    if (downloading) return
+    if (!force && promptedVersion === version) return   // auto-checks dedupe; a MANUAL "업데이트 확인" always re-prompts
     promptedVersion = version
     dialog.showMessageBox({
       type: 'info',
@@ -72,12 +73,20 @@ function initAutoUpdate() {
   // Manual "업데이트 확인" from settings: check now; update-available → ask-first prompt,
   // update-not-available → "최신 버전입니다" popup, error → failure popup.
   updater.checkManual = function () {
-    if (downloading) return
+    if (downloading) { dialog.showMessageBox({ type: 'info', buttons: ['확인'], noLink: true, title: 'HongGoCat 업데이트', message: '업데이트를 이미 받는 중입니다.' }).catch(() => {}); return }
     manualCheck = true
-    try { autoUpdater.checkForUpdates() } catch (e) {
+    Promise.resolve(autoUpdater.checkForUpdates()).then((r) => {
+      // fallback: if a cached result meant no event fired, still give feedback from the promise
+      if (!manualCheck) return
       manualCheck = false
-      dialog.showMessageBox({ type: 'error', buttons: ['확인'], noLink: true, title: 'HongGoCat 업데이트', message: '업데이트 확인에 실패했습니다.', detail: e.message }).catch(() => {})
-    }
+      const info = r && r.updateInfo, v = info && info.version
+      if (v && v !== app.getVersion()) promptUpdate(v, true)
+      else dialog.showMessageBox({ type: 'info', buttons: ['확인'], noLink: true, title: 'HongGoCat 업데이트', message: '최신 버전입니다.', detail: `현재 v${app.getVersion()}을(를) 사용 중입니다.` }).catch(() => {})
+    }).catch((e) => {
+      if (!manualCheck) return
+      manualCheck = false
+      dialog.showMessageBox({ type: 'error', buttons: ['확인'], noLink: true, title: 'HongGoCat 업데이트', message: '업데이트 확인에 실패했습니다.', detail: (e && e.message) || '네트워크 상태를 확인해 주세요.' }).catch(() => {})
+    })
   }
 
   try { autoUpdater.checkForUpdates() } catch (e) { console.error('[bongo] update check failed:', e.message) }
@@ -314,12 +323,11 @@ app.whenReady().then(() => {
     const keysDown = new Set()
     const isCtrl = () => keysDown.has(UiohookKey.Ctrl) || keysDown.has(UiohookKey.CtrlRight)
     const isAlt = () => keysDown.has(UiohookKey.Alt) || keysDown.has(UiohookKey.AltRight)
-    // Ctrl+Alt+1/2/3 → fire weapon in slot 1/2/3. We only OBSERVE keys (can't block them), so
-    // the combo must not collide with OS shortcuts: Ctrl+number = browser tabs, Ctrl+Shift+
-    // number = Explorer/desktop icon-view size. Ctrl+Alt+number isn't a standard shortcut.
-    // uiohook keycodes are physical → the number key matches regardless of any shifted symbol.
-    const SLOT_KEYS = { [UiohookKey['1']]: 1, [UiohookKey['2']]: 2, [UiohookKey['3']]: 3 }
-    const slotHeld = new Set()   // number keys whose Ctrl+Alt combo press we forwarded (for hold-to-charge weapons)
+    // Alt+Z/X/C → fire weapon in slot 1/2/3. Easy one-hand reach (Alt thumb + Z/X/C finger) for
+    // small hands, unlike the wide Ctrl+Alt+number. We only OBSERVE keys (can't block), so this must
+    // not collide with OS/browser shortcuts: Alt+letter isn't a standard shortcut (only observed).
+    const SLOT_KEYS = { [UiohookKey.Z]: 1, [UiohookKey.X]: 2, [UiohookKey.C]: 3 }
+    const slotHeld = new Set()   // slot keys whose Alt combo press we forwarded (for hold-to-charge weapons)
     // WASD forwarded to the overlay ONLY while a controllable human is active (privacy: we don't
     // leak key identity otherwise). The renderer toggles this via the 'human-control' ipc below.
     const MOVE_KEYS = { [UiohookKey.W]: 'w', [UiohookKey.A]: 'a', [UiohookKey.S]: 's', [UiohookKey.D]: 'd', [UiohookKey.E]: 'e', [UiohookKey.Q]: 'q' }
@@ -328,7 +336,7 @@ app.whenReady().then(() => {
       if (keysDown.has(e.keycode)) return
       keysDown.add(e.keycode)
       sendInput('key')
-      if (SLOT_KEYS[e.keycode] && isCtrl() && isAlt()) {
+      if (SLOT_KEYS[e.keycode] && isAlt() && !isCtrl()) {   // Alt (not AltGr) + Z/X/C
         slotHeld.add(e.keycode)
         if (win && !win.isDestroyed()) win.webContents.send('command', { t: 'fire-slot', slot: SLOT_KEYS[e.keycode], down: true })
       }
