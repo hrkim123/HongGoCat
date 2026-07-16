@@ -442,6 +442,12 @@
   // Compares the last-seen version (localStorage) to the current app version; lists every changelog
   // entry between them (first run just shows the current version). Add newest versions at the TOP.
   const CHANGELOG = {
+    '0.6.3': [
+      '멀티 일관성 대폭 개선 — 투사체 파괴/폭발이 모든 사람 화면에서 동일하게 보임',
+      '미사일·총알 등 투사체 상호 소멸이 확정적으로 처리(한쪽만 감지해도 양쪽 소멸)',
+      '메카·인간폼 색상이 내 고양이 털색을 따라감',
+      '상대 흐리게 더 투명하게',
+    ],
     '0.6.2': [
       '업데이트 노트 팝업 추가 (지금 이 창!)',
     ],
@@ -603,7 +609,7 @@
   }
   // 👁 dim opponents — PER-PEER: each opponent gets a small 👁 button by their head; clicking it
   // fades THAT player's character + weapons on my screen only. (No button on my own cat.)
-  const DIM_A = 0.28
+  const DIM_A = 0.15
   const dimmedPeers = new Set()          // peer ids I've chosen to fade
   let peerDimBtns = []                   // per-frame [{ pid, x, y, r }] hit targets (also fed to the hotzone)
   function peerAlpha(pid) { return dimmedPeers.has(pid) ? DIM_A : 1 }
@@ -681,6 +687,12 @@
   let roomCount = 0, roomMax = 12   // players in the current room + room capacity (from server)
   function setStatus(text) { status = text; pushState() }
   function connected() { return !!(net && net.readyState === WebSocket.OPEN) }
+  // When the OWNER destroys one of its projectiles, tell everyone so peers remove the copy AND show
+  // the SAME explosion at the SAME spot immediately (no inferring removal from a silent position list).
+  function bcBoom(chan, id, x, y, power) {
+    if (id == null || !connected() || !net) return
+    net.send(JSON.stringify({ t: 'boom', chan, eid: id, nx: +(x / canvas.clientWidth).toFixed(4), ny: +(y / canvas.clientHeight).toFixed(4), pw: power || 1 }))
+  }
 
   function profileMsg() {
     return { name: me.name, animal: me.animal, skin: me.skin, pattern: me.pattern, hat: me.hat, shape: shapeStr(me.shape) }
@@ -805,12 +817,19 @@
       else if (msg.t === 'col-dmg') {   // unified: an opponent's collidable damaged me → apply attrition here
         if (msg.target === me.netId) {
           const dmg = msg.dmg || 1, eid = msg.eid
-          const dec = (arr, key) => { const idx = arr.findIndex((o) => o[key] === eid); if (idx < 0) return; const o = arr[idx]; if (o.power != null) o.power -= dmg; else if (o.hp != null) o.hp -= dmg; else { arr.splice(idx, 1); return }; if ((o.power != null ? o.power : o.hp) <= 0) { if (o.x != null) addEffect(o.x, o.y, 1); arr.splice(idx, 1) } }
-          if (msg.kind === 'missile') dec(projectiles, 'mid')
-          else if (msg.kind === 'gbullet') { const j = gbullets.findIndex((o) => o.id === eid); if (j >= 0) gbullets.splice(j, 1) }
-          else if (msg.kind === 'hbullet') dec(hbullets, 'id')
-          else if (msg.kind === 'mshell') { if (mechaShells.some((o) => o.id === eid)) dec(mechaShells, 'id'); else if (energyShots.some((o) => o.id === eid)) dec(energyShots, 'id'); else dec(interceptors, 'id') }
+          // owner applies attrition to ITS OWN projectile; if it dies, broadcast a boom so everyone agrees
+          const dec = (arr, key, chan) => { const idx = arr.findIndex((o) => o[key] === eid); if (idx < 0) return; const o = arr[idx]; if (o.power != null) o.power -= dmg; else if (o.hp != null) o.hp -= dmg; else { bcBoom(chan, o[key], o.x, o.y, 1); arr.splice(idx, 1); return }; if ((o.power != null ? o.power : o.hp) <= 0) { if (o.x != null) addEffect(o.x, o.y, 1); bcBoom(chan, o[key], o.x, o.y, o.power || o.hp || 1); arr.splice(idx, 1) } }
+          if (msg.kind === 'missile') dec(projectiles, 'mid', 'missile')
+          else if (msg.kind === 'gbullet') { const j = gbullets.findIndex((o) => o.id === eid); if (j >= 0) { const o = gbullets[j]; bcBoom('gbullet', o.id, o.x, o.y, 1); gbullets.splice(j, 1) } }
+          else if (msg.kind === 'hbullet') dec(hbullets, 'id', 'hbullet')
+          else if (msg.kind === 'mshell') { if (mechaShells.some((o) => o.id === eid)) dec(mechaShells, 'id', 'mshell'); else if (energyShots.some((o) => o.id === eid)) dec(energyShots, 'id', 'mshell'); else dec(interceptors, 'id', 'mshell') }
         }
+      }
+      else if (msg.t === 'boom') {   // owner destroyed a projectile → drop the copy + show the identical blast
+        const W = canvas.clientWidth, H = canvas.clientHeight
+        const map = { missile: remoteMissiles, gbullet: remoteGBullets, hbullet: remoteHbullets, mshell: remoteMShells }[msg.chan]
+        if (map) { const rec = map.get(msg.id); if (rec && rec.items) rec.items.delete(msg.eid) }
+        addEffect(msg.nx * W, msg.ny * H, msg.pw || 1); spawnSpark(msg.nx * W, msg.ny * H)
       }
       else if (msg.t === 'hbullets') { mergeRemote(remoteHbullets, msg.id, msg.list, 'nx', 'ny') }
       else if (msg.t === 'error' && msg.reason === 'room_full') { setStatus('방이 가득 찼어요'); ws.close() }
@@ -2058,7 +2077,8 @@
     const s = mechaScale(), x = me.mechaX, y = me.mechaY, f = me.mechaFace || 1
     const t = Math.max(0, Math.min(1, me.mechaForm || 0))
     const L = (a, b) => a + (b - a) * t
-    const metal = '#8a90a0', dark = '#4a4e5a', hi = '#c9cfdb', outline = 'rgba(10,12,18,0.6)', gm = '#7f8aa3', accent = '#d94b46'
+    const tint = antColor(me.skin || 'default')   // metal tinted toward the owner's cat color
+    const metal = mixHex('#8a90a0', tint, 0.5), dark = mixHex('#4a4e5a', tint, 0.4), hi = mixHex('#c9cfdb', tint, 0.45), gm = mixHex('#7f8aa3', tint, 0.5), outline = 'rgba(10,12,18,0.6)', accent = '#d94b46'
     const aAnt = Math.max(0, Math.min(1, 1 - (t - 0.25) * 2.4))   // ant parts fade out 0.25→0.66
     const aGun = Math.max(0, Math.min(1, (t - 0.3) * 2.4))         // gundam parts fade in 0.3→0.72
     const bob = me.mechaThrust ? Math.sin(now / 90) * 2 * s : 0
@@ -2182,7 +2202,7 @@
       if (!land) { const rmc = hitRemoteMecha(p.x, p.y); if (rmc) { if (connected()) net.send(JSON.stringify({ t: 'mecha-hit', target: rmc.pid, dmg: MSHELL_DMG })); land = true } }
       if (!land) { const rhu = hitRemoteHuman(p.x, p.y); if (rhu) { if (connected()) net.send(JSON.stringify({ t: 'human-hit', target: rhu.pid, dmg: MSHELL_DMG, hx: +(p.x / W).toFixed(4), hy: +(p.y / H).toFixed(4) })); land = true } }
       if (!land && inTaskbar(p.x, p.y)) { carveTaskbar(p.x, 1.0); land = true }   // crater ≈ 5 merged missiles
-      if (land) { mechaShellImpact(p); mechaShells.splice(i, 1); continue }
+      if (land) { mechaShellImpact(p); bcBoom('mshell', p.id, p.x, p.y, 3); mechaShells.splice(i, 1); continue }
       drawMechaShell(p)
     }
   }
@@ -2190,13 +2210,14 @@
     const W = canvas.clientWidth, H = canvas.clientHeight
     for (const [pid, m] of remoteMechas) {
       ctx.globalAlpha = peerAlpha(pid)
-      const sv = { x: me.mechaX, y: me.mechaY, f: me.mechaFace, hp: me.mechaHp, on: me.mechaShieldOn, sh: me.mechaShieldHp, ch: me.mechaCharging, cg: me.mechaCharge, form: me.mechaForm, thr: me.mechaThrust, dep: me.mechaShieldDeploy, sX: me.mechaShieldX, sY: me.mechaShieldY, sA: me.mechaShieldAng, active: me.mechaActive }
+      const sv = { x: me.mechaX, y: me.mechaY, f: me.mechaFace, hp: me.mechaHp, on: me.mechaShieldOn, sh: me.mechaShieldHp, ch: me.mechaCharging, cg: me.mechaCharge, form: me.mechaForm, thr: me.mechaThrust, dep: me.mechaShieldDeploy, sX: me.mechaShieldX, sY: me.mechaShieldY, sA: me.mechaShieldAng, skin: me.skin, active: me.mechaActive }
+      const peer = peers.get(pid); me.skin = (peer && peer.skin) || 'default'   // color the mecha with the owner's cat color
       me.mechaX = m.nx * W; me.mechaY = m.ny * H; me.mechaFace = m.face || 1; me.mechaHp = m.hp
       me.mechaShieldHp = (m.shield || 0) * MSHIELD_HP
       me.mechaForm = m.form || 0; me.mechaThrust = !!m.thr; me.mechaCharging = !!m.ch; me.mechaCharge = m.chg || 0
       me.mechaShieldDeploy = m.sdep || 0; me.mechaShieldX = (m.snx != null ? m.snx : m.nx) * W; me.mechaShieldY = (m.sny != null ? m.sny : m.ny) * H; me.mechaShieldAng = m.sang || 0; me.mechaActive = true
       drawMecha(now, false)
-      me.mechaX = sv.x; me.mechaY = sv.y; me.mechaFace = sv.f; me.mechaHp = sv.hp; me.mechaShieldOn = sv.on; me.mechaShieldHp = sv.sh; me.mechaCharging = sv.ch; me.mechaCharge = sv.cg; me.mechaForm = sv.form; me.mechaThrust = sv.thr; me.mechaShieldDeploy = sv.dep; me.mechaShieldX = sv.sX; me.mechaShieldY = sv.sY; me.mechaShieldAng = sv.sA; me.mechaActive = sv.active
+      me.mechaX = sv.x; me.mechaY = sv.y; me.mechaFace = sv.f; me.mechaHp = sv.hp; me.mechaShieldOn = sv.on; me.mechaShieldHp = sv.sh; me.mechaCharging = sv.ch; me.mechaCharge = sv.cg; me.mechaForm = sv.form; me.mechaThrust = sv.thr; me.mechaShieldDeploy = sv.dep; me.mechaShieldX = sv.sX; me.mechaShieldY = sv.sY; me.mechaShieldAng = sv.sA; me.skin = sv.skin; me.mechaActive = sv.active
     }
   }
   function drawRemoteMShells(now) {
@@ -2241,10 +2262,10 @@
       if (now - p.born > p.life) { energyShots.splice(i, 1); continue }
       p.x += p.vx; p.y += p.vy
       if (p.x < -60 || p.x > W + 60 || p.y < -60 || p.y > H + 60) { energyShots.splice(i, 1); continue }
-      if (safeDomeBlocks(p.x, p.y)) { addEffect(p.x, p.y, 2); spawnSpark(p.x, p.y); energyShots.splice(i, 1); continue }   // peace-mode dome stops it
+      if (safeDomeBlocks(p.x, p.y)) { addEffect(p.x, p.y, 2); spawnSpark(p.x, p.y); bcBoom('mshell', p.id, p.x, p.y, 2); energyShots.splice(i, 1); continue }   // peace-mode dome stops it
       // solid cats stop it (like a missile)
       let gone = false
-      for (let ci = 0; ci < catPos.length; ci++) { const cat = allRef[ci]; if (!cat) continue; const cc = catPos[ci]; if (Math.abs(cc.x - p.x) < 52 * view.scale && Math.abs(cc.y - p.y) < 62 * view.scale) { if (!catShieldCovers(cat, cc, p.x, p.y, now)) applyCatHit(cat, p.power, now); addEffect(p.x, p.y, 2); spawnSpark(p.x, p.y); energyShots.splice(i, 1); gone = true; break } }
+      for (let ci = 0; ci < catPos.length; ci++) { const cat = allRef[ci]; if (!cat) continue; const cc = catPos[ci]; if (Math.abs(cc.x - p.x) < 52 * view.scale && Math.abs(cc.y - p.y) < 62 * view.scale) { if (!catShieldCovers(cat, cc, p.x, p.y, now)) applyCatHit(cat, p.power, now); addEffect(p.x, p.y, 2); spawnSpark(p.x, p.y); bcBoom('mshell', p.id, p.x, p.y, 2); energyShots.splice(i, 1); gone = true; break } }
       if (gone) continue
       // punch-through vs ants / gatling / enemy missiles (power depletes by target HP; gated so it doesn't multi-hit)
       if (now >= (p.pierceCd || 0)) {
@@ -2276,7 +2297,7 @@
       }
       if (consumed) continue
       // taskbar: carve a crater sized by the remaining power, then the shot spends itself
-      if (inTaskbar(p.x, p.y)) { carveTaskbar(p.x, Math.min(1.3, p.power * 0.13)); addEffect(p.x, p.y, 2); spawnSpark(p.x, p.y); energyShots.splice(i, 1); continue }
+      if (inTaskbar(p.x, p.y)) { carveTaskbar(p.x, Math.min(1.3, p.power * 0.13)); addEffect(p.x, p.y, 2); spawnSpark(p.x, p.y); bcBoom('mshell', p.id, p.x, p.y, 2); energyShots.splice(i, 1); continue }
       drawEnergyShot(p, now)
     }
   }
@@ -2681,7 +2702,7 @@
       for (let mi = projectiles.length - 1; mi >= 0; mi--) { const m = projectiles[mi]; if (!m.homing) continue; if (Math.hypot(p.x - m.x, p.y - m.y) < 14 * view.scale + (m.power || 1) * 2) { explode(m.x, m.y, m.power); projectiles.splice(mi, 1); hitOwnMissile = true; break } }
       if (hitOwnMissile) { spawnSpark(p.x, p.y); gbullets.splice(i, 1); continue }
       // enemy bullets / missiles → mutual destruction (each side destroys its own on overlap)
-      if (hitRemoteGBullet(p.x, p.y) || hitRemoteMissile(p.x, p.y, GAT_DMG)) { spawnSpark(p.x, p.y); gbullets.splice(i, 1); continue }
+      if (hitRemoteGBullet(p.x, p.y) || hitRemoteMissile(p.x, p.y, GAT_DMG)) { spawnSpark(p.x, p.y); bcBoom('gbullet', p.id, p.x, p.y, 1); gbullets.splice(i, 1); continue }
       // enemy gatling turret → damage it
       const rg = hitRemoteGatling(p.x, p.y)
       if (rg) { if (connected()) net.send(JSON.stringify({ t: 'gat-hit', target: rg.pid, dmg: GAT_DMG })); spawnSpark(p.x, p.y); gbullets.splice(i, 1); continue }
@@ -3129,6 +3150,13 @@
   // per-player ant color — tied to the owner's fur skin so each player's ants are distinct
   const ANT_COLORS = { default: '#5b5b66', cream: '#caa96a', gray: '#7b8290', brown: '#7a4a2a', black: '#26262e', orange: '#e0862a', pink: '#e06a95', mint: '#2fa98c', lavender: '#8f6ad6' }
   function antColor(skin) { return ANT_COLORS[skin] || ANT_COLORS.default }
+  function mixHex(a, b, t) {   // blend two #rrggbb hex colors (t=0→a, 1→b)
+    const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16)
+    const r = Math.round((pa >> 16) + (((pb >> 16) - (pa >> 16)) * t))
+    const g = Math.round(((pa >> 8) & 255) + ((((pb >> 8) & 255) - ((pa >> 8) & 255)) * t))
+    const bl = Math.round((pa & 255) + (((pb & 255) - (pa & 255)) * t))
+    return '#' + ((1 << 24) | (r << 16) | (g << 8) | bl).toString(16).slice(1)
+  }
   let nextAntId = 1
   // Ants stand ON the taskbar's top boundary line (feet on the line, body above it) — not
   // sunk inside the bar. Falls back to the screen bottom if there's no detectable taskbar.
@@ -3457,9 +3485,9 @@
     const W = canvas.clientWidth, H = canvas.clientHeight, now = performance.now()
     for (const [pid, rec] of remoteMissiles) {
       if (now - rec.ts > 500) continue
-      for (const it of rec.items.values()) {
+      for (const [id, it] of rec.items) {
         const sx = it.sx * W, sy = it.sy * H
-        if (Math.hypot(x - sx, y - sy) < 16 + (power + (it.power || 1)) * 2) return { x: sx, y: sy, power: it.power || 1, pid }
+        if (Math.hypot(x - sx, y - sy) < 16 + (power + (it.power || 1)) * 2) return { x: sx, y: sy, power: it.power || 1, pid, id }
       }
     }
     return null
@@ -3581,7 +3609,7 @@
           if (connected()) net.send(JSON.stringify({ t: 'gat-hit', target: rgm.pid, dmg: p.power }))
           addEffect(p.x, p.y, 1); spawnSpark(p.x, p.y)
           if (p.power > rgm.hp) { p.power -= rgm.hp; p.pierceCd = now + 140 }   // punch through, shrink
-          else { explode(p.x, p.y, p.power); projectiles.splice(i, 1); continue }
+          else { explode(p.x, p.y, p.power); bcBoom('missile', p.mid, p.x, p.y, p.power); projectiles.splice(i, 1); continue }
         }
         // an enemy ant mecha (ant/human form): same HP-based punch-through rule (HP 25 → usually detonates)
         const rmc = pierceReady ? hitRemoteMecha(p.x, p.y) : null
@@ -3589,7 +3617,7 @@
           if (connected()) net.send(JSON.stringify({ t: 'mecha-hit', target: rmc.pid, dmg: p.power }))
           addEffect(p.x, p.y, 1); spawnSpark(p.x, p.y)
           if (p.power > rmc.hp) { p.power -= rmc.hp; p.pierceCd = now + 140 }   // punch through, shrink
-          else { explode(p.x, p.y, p.power); projectiles.splice(i, 1); continue }
+          else { explode(p.x, p.y, p.power); bcBoom('missile', p.mid, p.x, p.y, p.power); projectiles.splice(i, 1); continue }
         }
         // an enemy human summon: same rule (HP 5). Its cursor shield can block (checked on the owner's side).
         const rhu = pierceReady ? hitRemoteHuman(p.x, p.y) : null
@@ -3597,30 +3625,32 @@
           if (connected()) net.send(JSON.stringify({ t: 'human-hit', target: rhu.pid, dmg: p.power, hx: +(p.x / canvas.clientWidth).toFixed(4), hy: +(p.y / canvas.clientHeight).toFixed(4) }))
           addEffect(p.x, p.y, 1); spawnSpark(p.x, p.y)
           if (p.power > rhu.hp) { p.power -= rhu.hp; p.pierceCd = now + 140 }   // punch through, shrink
-          else { explode(p.x, p.y, p.power); projectiles.splice(i, 1); continue }
+          else { explode(p.x, p.y, p.power); bcBoom('missile', p.mid, p.x, p.y, p.power); projectiles.splice(i, 1); continue }
         }
         // a drawn platform is solid: detonate on it and chip its HP
         const pl = hitPlatform(p.x, p.y)
-        if (pl) { damagePlatform(pl, p.power); explode(p.x, p.y, p.power); projectiles.splice(i, 1); continue }
+        if (pl) { damagePlatform(pl, p.power); explode(p.x, p.y, p.power); bcBoom('missile', p.mid, p.x, p.y, p.power); projectiles.splice(i, 1); continue }
         const ah = pierceReady ? missileHitsAnt(p.x, p.y) : null   // ant HP = 1
         if (ah) {
           if (ah.local) { antTakeDmg(ah.ant, 99); if (ah.ant.dead) addAntKill() }
           else if (connected()) net.send(JSON.stringify({ t: 'ant-hit', target: ah.pid, ant: ah.id, dmg: 99 }))
           addEffect(p.x, p.y, 1)
           if (p.power > 1) { p.power -= 1; p.pierceCd = now + 90 }   // punch through the ant, shrink
-          else { explode(p.x, p.y, p.power); projectiles.splice(i, 1); continue }
+          else { explode(p.x, p.y, p.power); bcBoom('missile', p.mid, p.x, p.y, p.power); projectiles.splice(i, 1); continue }
         }
         // missile vs an enemy missile → mutual attrition (bigger punches through, shrinks; both die if equal).
         // Symmetric on both machines: each keeps its missile only if its power exceeds the other's.
         const rmm = pierceReady ? hitRemoteMissile(p.x, p.y, p.power) : null
         if (rmm) {
+          // damage THEIR missile authoritatively (owner resolves + broadcasts) → both sides agree
+          if (connected()) net.send(JSON.stringify({ t: 'col-dmg', target: rmm.pid, kind: 'missile', eid: rmm.id, dmg: p.power }))
           addEffect(p.x, p.y, 1); spawnSpark(p.x, p.y)
           if (p.power > (rmm.power || 1)) { p.power -= (rmm.power || 1); p.pierceCd = now + 120 }   // punch through, shrink
-          else { explode(p.x, p.y, p.power); projectiles.splice(i, 1); continue }
+          else { explode(p.x, p.y, p.power); bcBoom('missile', p.mid, p.x, p.y, p.power); projectiles.splice(i, 1); continue }
         }
         // cat (SOLID — always detonates), peer gatling bullet, OR taskbar
         if (hitTestCats(p.x, p.y) || hitRemoteGBullet(p.x, p.y) || inTaskbar(p.x, p.y)) {
-          explode(p.x, p.y, p.power)
+          explode(p.x, p.y, p.power); bcBoom('missile', p.mid, p.x, p.y, p.power)
           projectiles.splice(i, 1); continue
         }
         drawMissile(p.x, p.y, Math.atan2(p.vy, p.vx), now, p.power, p.boost)
