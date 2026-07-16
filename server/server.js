@@ -125,6 +125,8 @@ wss.on('connection', (ws, req) => {
       broadcast(joinedRoom, { t: 'col-dmg', id, target: msg.target, kind: msg.kind, eid: msg.eid, dmg: msg.dmg }, id)   // interceptor/collidable damaged a peer's projectile
     } else if (msg.t === 'boom') {
       broadcast(joinedRoom, { t: 'boom', id, chan: msg.chan, eid: msg.eid, nx: msg.nx, ny: msg.ny, pw: msg.pw }, id)   // a projectile was destroyed — everyone shows the same blast
+    } else if (msg.t === 'littleboy') {
+      broadcast(joinedRoom, { t: 'littleboy', id, nx: msg.nx, ny: msg.ny }, id)   // two nukes fused into a Little Boy at (nx,ny)
     } else if (msg.t === 'healall') {
       broadcast(joinedRoom, { t: 'healall', id }, id)   // dev restored everyone's cat HP
     } else if (msg.t === 'peace') {

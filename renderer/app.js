@@ -442,6 +442,14 @@
   // Compares the last-seen version (localStorage) to the current app version; lists every changelog
   // entry between them (first run just shows the current version). Add newest versions at the TOP.
   const CHANGELOG = {
+    '0.6.4': [
+      '☢ 핵미사일 2개가 부딪히면 리틀보이 폭탄으로 합쳐져 땅에 떨어짐 (데미지 30, 폭발 범위 3배)',
+      '캐릭터 체력 10초당 1 자연회복',
+      '블랙홀이 메카 포탄·에너지포·요격 미사일까지 빨아들임',
+      '모든 투사체 피격 연출이 상대 화면에도 동일하게 보이도록',
+      '메카 재합체 시 떨어지던 버그 수정 · 이제 커서 위치에서 합체',
+      '개미가 공중의 대상은 못 물도록 수정 · 빠른 미사일이 플랫폼 통과하던 버그 수정',
+    ],
     '0.6.3': [
       '멀티 일관성 대폭 개선 — 투사체 파괴/폭발이 모든 사람 화면에서 동일하게 보임',
       '미사일·총알 등 투사체 상호 소멸이 확정적으로 처리(한쪽만 감지해도 양쪽 소멸)',
@@ -509,6 +517,14 @@
   function hitPlatform(x, y) {
     const th = 6 * view.scale
     for (const pl of platforms) { const p = pl.pts; for (let i = 1; i < p.length; i++) if (distToSeg(x, y, p[i - 1], p[i]) < th) return pl }
+    return null
+  }
+  // swept check so a FAST projectile can't tunnel through a thin platform between frames:
+  // sample the path prev→cur every ~5px and return the first platform hit (with its point)
+  function platformSweep(x0, y0, x1, y1) {
+    const dx = x1 - x0, dy = y1 - y0, dist = Math.hypot(dx, dy)
+    const steps = Math.max(1, Math.ceil(dist / (5 * view.scale)))
+    for (let k = 1; k <= steps; k++) { const t = k / steps, hx = x0 + dx * t, hy = y0 + dy * t; const pl = hitPlatform(hx, hy); if (pl) return { pl, hx, hy } }
     return null
   }
   function damagePlatform(pl, dmg) {
@@ -831,6 +847,7 @@
         if (map) { const rec = map.get(msg.id); if (rec && rec.items) rec.items.delete(msg.eid) }
         addEffect(msg.nx * W, msg.ny * H, msg.pw || 1); spawnSpark(msg.nx * W, msg.ny * H)
       }
+      else if (msg.t === 'littleboy') { spawnLittleBoy(msg.nx * canvas.clientWidth, msg.ny * canvas.clientHeight, false) }   // peer's authoritative fused bomb — visual only
       else if (msg.t === 'hbullets') { mergeRemote(remoteHbullets, msg.id, msg.list, 'nx', 'ny') }
       else if (msg.t === 'error' && msg.reason === 'room_full') { setStatus('방이 가득 찼어요'); ws.close() }
     }
@@ -1661,7 +1678,7 @@
       const bh = blackholePull(p, now); if (bh) { spawnDustToHole(p.x, p.y, bh); hbullets.splice(i, 1); continue }
       p.x += p.vx; p.y += p.vy
       if (p.x < -20 || p.x > W + 20 || p.y < -20 || p.y > H + 20) { hbullets.splice(i, 1); continue }
-      if (inTaskbar(p.x, p.y)) { carveTaskbar(p.x, p.adogen ? p.hp * 0.32 : (p.wave ? p.hp * 0.05 : 0.1)); spawnSpark(p.x, p.y); hbullets.splice(i, 1); continue }   // 아도겐: dig scales with size (~40% of before); 검기: ~3× its old dent
+      if (inTaskbar(p.x, p.y)) { carveTaskbar(p.x, p.adogen ? p.hp * 0.32 : (p.wave ? p.hp * 0.05 : 0.1)); spawnSpark(p.x, p.y); bcBoom('hbullet', p.id, p.x, p.y, 1); hbullets.splice(i, 1); continue }   // 아도겐: dig scales with size (~40% of before); 검기: ~3× its old dent
       const energy = p.wave || p.adogen, waveR = p.waveR || 16 * s
       const hpFrac = energy && p.hp0 ? p.hp / p.hp0 : 1
       const effR = energy ? waveR * (0.45 + 0.55 * hpFrac) : waveR   // charged blast shrinks as its HP is chipped away
@@ -1684,13 +1701,13 @@
           hit = true; catHit = true; if (!energy) break
         }
       }
-      if (energy && catHit) { addEffect(p.x, p.y, 1); spawnSpark(p.x, p.y); hbullets.splice(i, 1); continue }   // character = solid: deliver DMG (via applyCatHit) then vanish
+      if (energy && catHit) { addEffect(p.x, p.y, 1); spawnSpark(p.x, p.y); bcBoom('hbullet', p.id, p.x, p.y, 2); hbullets.splice(i, 1); continue }   // character = solid: deliver DMG (via applyCatHit) then vanish
       if (energy) {   // enemy projectiles chip the blast's HP by THEIR damage (missile = its power)
         const rm = hitRemoteMissile(p.x, p.y, dmg)
-        if (rm) { if (deplete(rm.power || 1)) { hbullets.splice(i, 1); continue } }
-        else if (hitRemoteGBullet(p.x, p.y)) { if (deplete(1)) { hbullets.splice(i, 1); continue } }
+        if (rm) { if (connected()) net.send(JSON.stringify({ t: 'col-dmg', target: rm.pid, kind: 'missile', eid: rm.id, dmg })); if (deplete(rm.power || 1)) { bcBoom('hbullet', p.id, p.x, p.y, 2); hbullets.splice(i, 1); continue } }
+        else if (hitRemoteGBullet(p.x, p.y)) { if (deplete(1)) { bcBoom('hbullet', p.id, p.x, p.y, 2); hbullets.splice(i, 1); continue } }
       }
-      if (hit && !energy) { addEffect(p.x, p.y, 1); spawnSpark(p.x, p.y); hbullets.splice(i, 1); continue }   // explode like a missile on contact
+      if (hit && !energy) { addEffect(p.x, p.y, 1); spawnSpark(p.x, p.y); bcBoom('hbullet', p.id, p.x, p.y, 1); hbullets.splice(i, 1); continue }   // explode like a missile on contact
       ctx.save(); ctx.lineCap = 'round'
       if (p.adogen) {   // 아도겐 — glowing ki ball (shrinks with HP)
         const grd = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, effR)
@@ -1909,6 +1926,8 @@
   const energyShots = []            // { x, y, vx, vy, hp, power, born, life }
   const interceptors = []           // { x, y, vx, vy, born, life }
   const mechaShells = []            // { x, y, vx, vy, hp, born, life }
+  const littleBoys = []             // ☢ two 10-merged nukes fuse into a falling Little Boy bomb { x, y, vy, damaging }
+  const LITTLEBOY_DMG = 30          // + blast radius = 3× a nuke
   const remoteMechas = new Map()    // peerId -> { nx, ny, hp, face, shield, form }
   const remoteMShells = new Map()   // peerId -> { items: Map, ts }  (all mecha projectiles, keyed by kind)
   let antKeysSent = false           // whether main is currently forwarding WASD/Q/E for the mecha
@@ -1918,7 +1937,7 @@
     const alive = ants.filter((a) => !a.dead && !a.falling)
     if (alive.length < 10 || antMax() < 10 || me.mechaActive || me.mechaMerging) return
     if (me.humanActive) removeHuman(); if (me.gatActive) setGat(false)   // exclusive with human/gatling
-    const cx = alive.reduce((s, a) => s + a.x, 0) / alive.length
+    const cx = Math.max(16 * mechaScale(), Math.min(canvas.clientWidth - 16 * mechaScale(), cursor.x))   // merge AT the cursor (player picks solid ground)
     me.mergeSnap = alive.map((a) => ({ x0: a.x, y0: a.y, step: Math.random() * 10 }))
     ants.length = 0
     me.mechaMerging = true; me.mechaMergeStart = performance.now(); me.mechaMergeX = cx; me.mechaMergeY = mechaGroundY(cx)
@@ -1926,7 +1945,7 @@
   }
   function spawnMecha(cx, cy) {   // called when the merge animation completes
     me.mechaMerging = false; me.mechaActive = true
-    me.mechaX = cx; me.mechaY = cy; me.mechaVY = 0; me.mechaFace = 1; me.mechaGround = true
+    me.mechaX = cx; me.mechaY = cy; me.mechaVY = 0; me.mechaFace = 1; me.mechaGround = true; me.mechaFalling = false   // clear stale falling state from a previous mecha
     me.mechaHp = MECHA_HP; me.mechaHitCd = 0; me.mechaForm = 0
     me.mechaShieldHp = MSHIELD_HP; me.mechaShieldOn = false; me.mechaShieldBrokenUntil = 0
     me.mechaCharging = false; me.mechaCharge = 0
@@ -2187,13 +2206,14 @@
     for (let i = mechaShells.length - 1; i >= 0; i--) {
       const p = mechaShells[i]
       if (now - p.born > p.life) { mechaShells.splice(i, 1); continue }
+      { const bh = blackholePull(p, now); if (bh) { spawnDustToHole(p.x, p.y, bh); mechaShells.splice(i, 1); continue } }   // black hole sucks it in
       p.vy += MSHELL_GRAV * s; p.x += p.vx; p.y += p.vy
       if (p.x < -30 || p.x > W + 30 || p.y > H + 30) { mechaShells.splice(i, 1); continue }
       const rm = hitRemoteMissile(p.x, p.y, MSHELL_DMG)   // collidable vs missiles (mutual)
-      if (rm) { p.hp -= (rm.power || 1); mechaShellImpact(p); if (p.hp <= 0) { mechaShells.splice(i, 1); continue } }
+      if (rm) { if (connected()) net.send(JSON.stringify({ t: 'col-dmg', target: rm.pid, kind: 'missile', eid: rm.id, dmg: MSHELL_DMG })); p.hp -= (rm.power || 1); mechaShellImpact(p); if (p.hp <= 0) { bcBoom('mshell', p.id, p.x, p.y, 3); mechaShells.splice(i, 1); continue } }
       let hitP = false
-      for (let j = projectiles.length - 1; j >= 0; j--) { const pr = projectiles[j]; if (Math.hypot(pr.x - p.x, pr.y - p.y) < 14 * s) { p.hp -= (pr.power || 1); explode(pr.x, pr.y, pr.power || 1); projectiles.splice(j, 1); hitP = true; break } }
-      if (hitP) { mechaShellImpact(p); if (p.hp <= 0) { mechaShells.splice(i, 1); continue } }
+      for (let j = projectiles.length - 1; j >= 0; j--) { const pr = projectiles[j]; if (Math.hypot(pr.x - p.x, pr.y - p.y) < 14 * s) { p.hp -= (pr.power || 1); explode(pr.x, pr.y, pr.power || 1); bcBoom('missile', pr.mid, pr.x, pr.y, pr.power || 1); projectiles.splice(j, 1); hitP = true; break } }
+      if (hitP) { mechaShellImpact(p); if (p.hp <= 0) { bcBoom('mshell', p.id, p.x, p.y, 3); mechaShells.splice(i, 1); continue } }
       if (safeDomeBlocks(p.x, p.y)) { mechaShellImpact(p); mechaShells.splice(i, 1); continue }   // peace-mode dome stops it
       let land = false
       for (let ci = 0; ci < catPos.length; ci++) { const cat = allRef[ci]; if (!cat) continue; const cc = catPos[ci]; if (Math.abs(cc.x - p.x) < 52 * view.scale && Math.abs(cc.y - p.y) < 62 * view.scale) { if (!catShieldCovers(cat, cc, p.x, p.y, now)) applyCatHit(cat, MSHELL_DMG, now); land = true; break } }
@@ -2260,6 +2280,7 @@
     for (let i = energyShots.length - 1; i >= 0; i--) {
       const p = energyShots[i]
       if (now - p.born > p.life) { energyShots.splice(i, 1); continue }
+      { const bh = blackholePull(p, now); if (bh) { spawnDustToHole(p.x, p.y, bh); energyShots.splice(i, 1); continue } }   // black hole sucks it in
       p.x += p.vx; p.y += p.vy
       if (p.x < -60 || p.x > W + 60 || p.y < -60 || p.y > H + 60) { energyShots.splice(i, 1); continue }
       if (safeDomeBlocks(p.x, p.y)) { addEffect(p.x, p.y, 2); spawnSpark(p.x, p.y); bcBoom('mshell', p.id, p.x, p.y, 2); energyShots.splice(i, 1); continue }   // peace-mode dome stops it
@@ -2272,16 +2293,16 @@
         const ah = missileHitsAnt(p.x, p.y)
         if (ah) {
           if (ah.local) { antTakeDmg(ah.ant, p.power); if (ah.ant.dead) addAntKill() } else if (connected()) net.send(JSON.stringify({ t: 'ant-hit', target: ah.pid, ant: ah.id, dmg: p.power }))
-          spawnSpark(p.x, p.y); p.pierceCd = now + 90; if (p.power > 1) p.power -= 1; else { addEffect(p.x, p.y, 1); energyShots.splice(i, 1); continue }
+          spawnSpark(p.x, p.y); p.pierceCd = now + 90; if (p.power > 1) p.power -= 1; else { addEffect(p.x, p.y, 1); bcBoom('mshell', p.id, p.x, p.y, 2); energyShots.splice(i, 1); continue }
         }
         const rg = hitRemoteGatling(p.x, p.y)
-        if (rg) { if (connected()) net.send(JSON.stringify({ t: 'gat-hit', target: rg.pid, dmg: p.power })); addEffect(p.x, p.y, 1); p.pierceCd = now + 120; if (p.power > (rg.hp || 1)) p.power -= (rg.hp || 1); else { energyShots.splice(i, 1); continue } }
+        if (rg) { if (connected()) net.send(JSON.stringify({ t: 'gat-hit', target: rg.pid, dmg: p.power })); addEffect(p.x, p.y, 1); p.pierceCd = now + 120; if (p.power > (rg.hp || 1)) p.power -= (rg.hp || 1); else { bcBoom('mshell', p.id, p.x, p.y, 2); energyShots.splice(i, 1); continue } }
         const rmc = hitRemoteMecha(p.x, p.y)
-        if (rmc) { if (connected()) net.send(JSON.stringify({ t: 'mecha-hit', target: rmc.pid, dmg: p.power })); addEffect(p.x, p.y, 1); p.pierceCd = now + 130; if (p.power > (rmc.hp || 1)) p.power -= (rmc.hp || 1); else { energyShots.splice(i, 1); continue } }
+        if (rmc) { if (connected()) net.send(JSON.stringify({ t: 'mecha-hit', target: rmc.pid, dmg: p.power })); addEffect(p.x, p.y, 1); p.pierceCd = now + 130; if (p.power > (rmc.hp || 1)) p.power -= (rmc.hp || 1); else { bcBoom('mshell', p.id, p.x, p.y, 2); energyShots.splice(i, 1); continue } }
         const rhu = hitRemoteHuman(p.x, p.y)
-        if (rhu) { if (connected()) net.send(JSON.stringify({ t: 'human-hit', target: rhu.pid, dmg: p.power, hx: +(p.x / W).toFixed(4), hy: +(p.y / H).toFixed(4) })); addEffect(p.x, p.y, 1); p.pierceCd = now + 130; if (p.power > (rhu.hp || 1)) p.power -= (rhu.hp || 1); else { energyShots.splice(i, 1); continue } }
+        if (rhu) { if (connected()) net.send(JSON.stringify({ t: 'human-hit', target: rhu.pid, dmg: p.power, hx: +(p.x / W).toFixed(4), hy: +(p.y / H).toFixed(4) })); addEffect(p.x, p.y, 1); p.pierceCd = now + 130; if (p.power > (rhu.hp || 1)) p.power -= (rhu.hp || 1); else { bcBoom('mshell', p.id, p.x, p.y, 2); energyShots.splice(i, 1); continue } }
         const rm = hitRemoteMissile(p.x, p.y, p.power)
-        if (rm) { addEffect(p.x, p.y, 1); spawnSpark(p.x, p.y); p.pierceCd = now + 100; if (p.power > (rm.power || 1)) p.power -= (rm.power || 1); else { energyShots.splice(i, 1); continue } }
+        if (rm) { if (connected()) net.send(JSON.stringify({ t: 'col-dmg', target: rm.pid, kind: 'missile', eid: rm.id, dmg: p.power })); addEffect(p.x, p.y, 1); spawnSpark(p.x, p.y); p.pierceCd = now + 100; if (p.power > (rm.power || 1)) p.power -= (rm.power || 1); else { bcBoom('mshell', p.id, p.x, p.y, 2); energyShots.splice(i, 1); continue } }
       }
       // vs local missiles (collidable, same punch-through rule as the ant shell)
       let consumed = false
@@ -2289,8 +2310,8 @@
         for (let j = projectiles.length - 1; j >= 0; j--) {
           const pr = projectiles[j]
           if (Math.hypot(pr.x - p.x, pr.y - p.y) < 14 * view.scale) {
-            const pw = pr.power || 1; explode(pr.x, pr.y, pw); projectiles.splice(j, 1); addEffect(p.x, p.y, 1); p.pierceCd = now + 90
-            if (p.power > pw) p.power -= pw; else { energyShots.splice(i, 1); consumed = true }
+            const pw = pr.power || 1; explode(pr.x, pr.y, pw); bcBoom('missile', pr.mid, pr.x, pr.y, pw); projectiles.splice(j, 1); addEffect(p.x, p.y, 1); p.pierceCd = now + 90
+            if (p.power > pw) p.power -= pw; else { bcBoom('mshell', p.id, p.x, p.y, 2); energyShots.splice(i, 1); consumed = true }
             break
           }
         }
@@ -2335,11 +2356,12 @@
     for (let i = interceptors.length - 1; i >= 0; i--) {
       const p = interceptors[i]
       if (now - p.born > p.life) { interceptors.splice(i, 1); continue }
+      { const bh = blackholePull(p, now); if (bh) { spawnDustToHole(p.x, p.y, bh); interceptors.splice(i, 1); continue } }   // black hole sucks it in
       const tg = nearestInterceptTarget(p.x, p.y)
       if (tg) {
         const dx = tg.x - p.x, dy = tg.y - p.y, d = Math.hypot(dx, dy) || 1
         p.vx += ((dx / d) * p.spd - p.vx) * 0.22; p.vy += ((dy / d) * p.spd - p.vy) * 0.22
-        if (d < 15 * s) { tg.hit(); addEffect(p.x, p.y, 1); spawnSpark(p.x, p.y); interceptors.splice(i, 1); continue }
+        if (d < 15 * s) { tg.hit(); addEffect(p.x, p.y, 1); spawnSpark(p.x, p.y); bcBoom('mshell', p.id, p.x, p.y, 1); interceptors.splice(i, 1); continue }
       } else { p.vy += (-p.spd - p.vy) * 0.04; p.vx *= 0.96 }   // no target → climb and fade
       p.x += p.vx; p.y += p.vy
       if (p.x < -40 || p.x > W + 40 || p.y < -80) { interceptors.splice(i, 1); continue }
@@ -2834,7 +2856,7 @@
   }
   function nearestEnemyGatling(x) {
     let best = null, bd = Infinity, W = canvas.clientWidth
-    for (const [pid, g] of remoteGatlings) { const d = Math.abs(g.nx * W - x); if (d < bd) { bd = d; best = { pid, x: g.nx * W } } }
+    for (const [pid, g] of remoteGatlings) { const d = Math.abs(g.nx * W - x); if (d < bd) { bd = d; best = { pid, x: g.nx * W, y: g.ny * canvas.clientHeight } } }
     return best
   }
 
@@ -3289,12 +3311,12 @@
       const eAnt = nearestEnemyAnt(a.x), eGat = nearestEnemyGatling(a.x)
       let tgt = null
       const dAnt = eAnt ? Math.abs(eAnt.s.x - a.x) : Infinity, dGat = eGat ? Math.abs(eGat.x - a.x) : Infinity
-      if (dAnt <= dGat && eAnt) tgt = { x: eAnt.s.x, msg: { t: 'ant-hit', target: eAnt.pid, ant: eAnt.s.id, dmg: 1 } }
-      else if (eGat) tgt = { x: eGat.x, msg: { t: 'gat-hit', target: eGat.pid, dmg: 1 } }
+      if (dAnt <= dGat && eAnt) tgt = { x: eAnt.s.x, y: eAnt.s.y, msg: { t: 'ant-hit', target: eAnt.pid, ant: eAnt.s.id, dmg: 1 } }
+      else if (eGat) tgt = { x: eGat.x, y: eGat.y, msg: { t: 'gat-hit', target: eGat.pid, dmg: 1 } }
       let moving = true
       if (tgt) {                                // march toward the nearest enemy
         a.dir = tgt.x >= a.x ? 1 : -1
-        if (Math.abs(tgt.x - a.x) <= 22) {      // melee range (ants are ~2x now)
+        if (Math.abs(tgt.x - a.x) <= 22 && Math.abs((tgt.y != null ? tgt.y : a.y) - a.y) <= 42 * view.scale) {   // melee range: must be at ~ground level too (can't bite an airborne target)
           moving = false
           if (now >= a.atkCd) { a.atkCd = now + 600; a.atkFlash = now + 220; spawnBlood(tgt.x, a.y - 4 * view.scale, 5); if (connected()) net.send(JSON.stringify(tgt.msg)) }   // bite: lunge + red burst at the target
         }
@@ -3553,6 +3575,62 @@
     }
   }
 
+  // ☢ Little Boy: two 10-merged nukes fusing. To stay identical on every screen, the LOWER-netId
+  // player is authoritative — it spawns the bomb, broadcasts its spot, and is the only one that
+  // applies blast damage (via relays); everyone else just renders the same falling bomb + blast.
+  function triggerLittleBoy(x, y, otherPid) {
+    for (let k = 0; k < 16; k++) spawnSpark(x + (Math.random() - 0.5) * 52 * view.scale, y + (Math.random() - 0.5) * 52 * view.scale)   // fusion flash
+    addEffect(x, y, 4)
+    const spawner = !connected() || otherPid == null || (me.netId != null && me.netId < otherPid)
+    if (spawner) {
+      spawnLittleBoy(x, y, true)
+      if (connected() && net) net.send(JSON.stringify({ t: 'littleboy', nx: +(x / canvas.clientWidth).toFixed(4), ny: +(y / canvas.clientHeight).toFixed(4) }))
+    }
+    // the higher-netId client waits for the 'littleboy' broadcast to spawn its (visual) bomb at the same spot
+  }
+  function spawnLittleBoy(x, y, damaging) { littleBoys.push({ x, y, vy: -2 * view.scale, damaging, born: performance.now() }) }
+  function stepLittleBoys(now) {
+    for (let i = littleBoys.length - 1; i >= 0; i--) {
+      const b = littleBoys[i]
+      b.vy += 0.62 * view.scale; b.y += b.vy
+      const ground = antGroundY(b.x)
+      if (b.y >= ground) { b.y = ground; detonateLittleBoy(b); littleBoys.splice(i, 1); continue }
+      drawLittleBoy(b, now)
+    }
+  }
+  function detonateLittleBoy(b) {
+    const x = b.x, y = b.y, R = blastRadius(10) * 3
+    addEffect(x, y, 16); addEffect(x, y - 20 * view.scale, 12)   // huge double flash
+    for (let k = 0; k < 44; k++) spawnDebris(x + (Math.random() - 0.5) * R, y, 1, k % 2 ? '#6a5a4a' : '#3a3a42')
+    if (inTaskbar(x, y)) carveTaskbar(x, 2.2)   // massive crater
+    if (b.damaging) nukeBlast(x, y, LITTLEBOY_DMG, R)
+  }
+  // AoE damage to EVERY collidable (except the caster's own? no — a nuke hits all) within R. Only the
+  // authoritative (damaging) bomb runs this; local entities damaged directly, remote via relays.
+  function nukeBlast(x, y, dmg, R) {
+    const now = performance.now(), W = canvas.clientWidth, H = canvas.clientHeight
+    for (const a of ants) if (!a.dead && Math.hypot(x - a.x, y - a.y) <= R) { antTakeDmg(a, dmg); if (a.dead) addAntKill() }
+    for (const [pid, rec] of remoteAnts) { if (now - rec.ts > 800) continue; for (const a of rec.items.values()) { if (a.dead) continue; const s = remoteAntScreenPos(pid, a); if (s && Math.hypot(x - s.x, y - s.y) <= R && connected()) net.send(JSON.stringify({ t: 'ant-hit', target: pid, ant: a.id, dmg })) } }
+    for (let i = 0; i < catPos.length; i++) { const cat = allRef[i], c = catPos[i]; if (!cat || !c) continue; if (Math.hypot(x - c.x, y - c.y) > R + 30 * view.scale) continue; if (catShieldCovers(cat, c, x, y, now)) continue; applyCatHit(cat, dmg, now); if (cat.id !== 'me') addCatHit() }
+    if (me.gatActive && Math.hypot(x - me.gatX, y - me.gatY) <= R) damageMyGatling(dmg)
+    for (const [pid, g] of remoteGatlings) if (Math.hypot(x - g.nx * W, y - g.ny * H) <= R && connected()) net.send(JSON.stringify({ t: 'gat-hit', target: pid, dmg }))
+    if (me.mechaActive && Math.hypot(x - me.mechaX, y - (me.mechaY - 20 * mechaScale())) <= R) mechaTakeDmg(dmg, now)
+    for (const [pid, m] of remoteMechas) if (Math.hypot(x - m.nx * W, y - m.ny * H) <= R && connected()) net.send(JSON.stringify({ t: 'mecha-hit', target: pid, dmg }))
+    if (me.humanActive && Math.hypot(x - me.humanX, y - me.humanY) <= R) humanTakeDmg(dmg, now)
+    for (const [pid, h] of remoteHumans) if (Math.hypot(x - h.nx * W, y - h.ny * H) <= R && connected()) net.send(JSON.stringify({ t: 'human-hit', target: pid, dmg, hx: +(x / W).toFixed(4), hy: +(y / H).toFixed(4) }))
+  }
+  function drawLittleBoy(b, now) {   // classic Little Boy bomb, falling nose-down
+    const s = view.scale * 2.2, x = b.x, y = b.y
+    ctx.save(); ctx.translate(x, y); ctx.lineJoin = 'round'
+    ctx.fillStyle = '#6b7043'   // olive body
+    ctx.beginPath(); ctx.roundRect(-4 * s, -18 * s, 8 * s, 26 * s, 3 * s); ctx.fill()
+    ctx.fillStyle = '#565b34'; ctx.beginPath(); ctx.moveTo(-4 * s, 6 * s); ctx.quadraticCurveTo(0, 14 * s, 4 * s, 6 * s); ctx.closePath(); ctx.fill()   // rounded nose (bottom)
+    ctx.strokeStyle = 'rgba(20,22,14,0.5)'; ctx.lineWidth = 0.8 * s; ctx.beginPath(); ctx.moveTo(-4 * s, -6 * s); ctx.lineTo(4 * s, -6 * s); ctx.moveTo(-4 * s, 0); ctx.lineTo(4 * s, 0); ctx.stroke()   // banding
+    ctx.fillStyle = '#4a4e2c'   // 4 box tail fins (top)
+    for (const sx of [-1, 1]) { ctx.beginPath(); ctx.moveTo(sx * 4 * s, -18 * s); ctx.lineTo(sx * 8 * s, -22 * s); ctx.lineTo(sx * 8 * s, -14 * s); ctx.lineTo(sx * 4 * s, -12 * s); ctx.closePath(); ctx.fill() }
+    ctx.fillStyle = '#3a3d24'; ctx.fillRect(-1.2 * s, -22 * s, 2.4 * s, 8 * s)
+    ctx.restore()
+  }
   function mergeMissiles() {
     for (let i = 0; i < projectiles.length; i++) {
       const a = projectiles[i]; if (!a.homing) continue
@@ -3584,6 +3662,7 @@
         // a black hole (mine or a peer's) pulls the missile in; reaching the core consumes it
         const bh = blackholePull(p, now)
         if (bh) { spawnDustToHole(p.x, p.y, bh); projectiles.splice(i, 1); continue }
+        const px0 = p.x, py0 = p.y   // pre-move position for swept collision (fast missiles must not tunnel)
         p.x += p.vx; p.y += p.vy
         // left the overlay (e.g. a boosted missile flying off-screen) → drop it now so it
         // stops counting toward the active-missile limit and you can fire again immediately
@@ -3627,9 +3706,9 @@
           if (p.power > rhu.hp) { p.power -= rhu.hp; p.pierceCd = now + 140 }   // punch through, shrink
           else { explode(p.x, p.y, p.power); bcBoom('missile', p.mid, p.x, p.y, p.power); projectiles.splice(i, 1); continue }
         }
-        // a drawn platform is solid: detonate on it and chip its HP
-        const pl = hitPlatform(p.x, p.y)
-        if (pl) { damagePlatform(pl, p.power); explode(p.x, p.y, p.power); bcBoom('missile', p.mid, p.x, p.y, p.power); projectiles.splice(i, 1); continue }
+        // a drawn platform is solid: detonate on it and chip its HP (swept so fast missiles can't tunnel)
+        const psw = platformSweep(px0, py0, p.x, p.y)
+        if (psw) { damagePlatform(psw.pl, p.power); explode(psw.hx, psw.hy, p.power); bcBoom('missile', p.mid, psw.hx, psw.hy, p.power); projectiles.splice(i, 1); continue }
         const ah = pierceReady ? missileHitsAnt(p.x, p.y) : null   // ant HP = 1
         if (ah) {
           if (ah.local) { antTakeDmg(ah.ant, 99); if (ah.ant.dead) addAntKill() }
@@ -3644,6 +3723,10 @@
         if (rmm) {
           // damage THEIR missile authoritatively (owner resolves + broadcasts) → both sides agree
           if (connected()) net.send(JSON.stringify({ t: 'col-dmg', target: rmm.pid, kind: 'missile', eid: rmm.id, dmg: p.power }))
+          if (p.power >= 10 && (rmm.power || 1) >= 10) {   // ☢ NUKE + NUKE → fuse into a falling Little Boy
+            triggerLittleBoy((p.x + rmm.x) / 2, (p.y + rmm.y) / 2, rmm.pid)
+            bcBoom('missile', p.mid, p.x, p.y, p.power); projectiles.splice(i, 1); continue
+          }
           addEffect(p.x, p.y, 1); spawnSpark(p.x, p.y)
           if (p.power > (rmm.power || 1)) { p.power -= (rmm.power || 1); p.pierceCd = now + 120 }   // punch through, shrink
           else { explode(p.x, p.y, p.power); bcBoom('missile', p.mid, p.x, p.y, p.power); projectiles.splice(i, 1); continue }
@@ -3889,7 +3972,7 @@
   // Main decides click-through by polling the real cursor against this "hotzone".
   // We just report the widget rect (+ force flag while chatting/editing).
   let chatOpenFlag = false, dragging = null
-  let lastHzSend = 0
+  let lastHzSend = 0, catRegenAt = 0
   function sendHotzone() {
     if (wx == null) return
     const extra = peerDimBtns.map((b) => ({ x: b.x - b.r - 2, y: b.y - b.r - 2, w: (b.r + 2) * 2, h: (b.r + 2) * 2 }))
@@ -3965,6 +4048,7 @@
     const all = [me, ...peers.values()]
     allRef = all
     me.away = (now - (me.lastInput || now)) > IDLE_MS   // 5-min 자리비움
+    if (me.hp > 0 && me.hp < CAT_HP && now - (catRegenAt || 0) > 10000) { catRegenAt = now; me.hp = Math.min(CAT_HP, me.hp + 1); localStorage.setItem('catHp', String(me.hp)) }   // +1 HP / 10s natural regen
     // forward WASD/Q/E to the overlay when 10 ants can merge OR the mecha is active
     const wantAntKeys = me.mechaActive || me.mechaMerging || (antMax() >= 10 && ants.filter((a) => !a.dead && !a.falling).length >= 10)
     if (wantAntKeys !== antKeysSent) { antKeysSent = wantAntKeys; if (inputSource.antMechaControl) inputSource.antMechaControl(wantAntKeys) }
@@ -4034,6 +4118,7 @@
     stepMechaShells(now)
     stepEnergyShots(now)
     stepInterceptors(now)
+    stepLittleBoys(now)
     ctx.save(); drawRemoteHumans(now); ctx.restore()
     ctx.save(); drawRemoteMechas(now); ctx.restore()
     ctx.save(); drawRemoteMShells(now); ctx.restore()
