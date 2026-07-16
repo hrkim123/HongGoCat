@@ -404,6 +404,7 @@ app.whenReady().then(() => {
   }
 })
 
+ipcMain.on('get-version', (e) => { try { e.returnValue = app.getVersion() } catch { e.returnValue = '' } })
 ipcMain.on('human-control', (_e, active) => { humanActive = !!active })
 ipcMain.on('gatling-control', (_e, active) => { gatlingActive = !!active })
 ipcMain.on('antmecha-control', (_e, active) => { antMechaActive = !!active })

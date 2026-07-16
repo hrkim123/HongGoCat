@@ -253,3 +253,33 @@ html, body {
 }
 .handle:active { cursor: grabbing; background: rgba(108, 140, 255, 0.6); }
 .handle.hidden { display: none; }
+
+/* 🎉 update-notes popup (once after updating) */
+#update-notes {
+  position: fixed; inset: 0; z-index: 50;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+}
+#update-notes.hidden { display: none; }
+#un-card {
+  width: 380px; max-height: 80vh; overflow-y: auto;
+  background: #23232c; border: 1px solid #3a3a48; border-radius: 14px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5); color: #e8eaf0;
+  padding: 18px 20px;
+}
+#un-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
+#un-title { font-size: 16px; font-weight: 700; }
+#un-ver { font-size: 12px; color: #9aa0b4; }
+#un-body { display: flex; flex-direction: column; gap: 14px; }
+.un-ver-block > .un-ver-tag {
+  display: inline-block; font-size: 11px; font-weight: 700; color: #cfe0ff;
+  background: #2f3b5c; padding: 3px 9px; border-radius: 6px; margin-bottom: 6px;
+}
+.un-ver-block ul { margin: 0; padding-left: 18px; }
+.un-ver-block li { font-size: 13px; line-height: 1.7; color: #dfe2ea; }
+#un-close {
+  margin-top: 16px; width: 100%; padding: 9px 0;
+  background: #3a5bd0; color: #fff; border: none; border-radius: 8px;
+  font-size: 13px; font-weight: 600; cursor: pointer;
+}
+#un-close:hover { background: #4a6ae0; }

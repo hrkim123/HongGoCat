@@ -438,6 +438,51 @@
   window.addEventListener('mousemove', (e) => { if (achvDrag) { achvPos = { x: e.clientX - achvDrag.dx, y: e.clientY - achvDrag.dy }; positionAchv() } })
   window.addEventListener('mouseup', () => { achvDrag = null })
 
+  // ---------- 🎉 update-notes popup (shows once after updating to a new version) ----------
+  // Compares the last-seen version (localStorage) to the current app version; lists every changelog
+  // entry between them (first run just shows the current version). Add newest versions at the TOP.
+  const CHANGELOG = {
+    '0.6.2': [
+      '업데이트 노트 팝업 추가 (지금 이 창!)',
+    ],
+    '0.6.1': [
+      '메카·인간 소환체가 상대 투사체와 제대로 충돌 + HP 관통 규칙 통합',
+      '요격 미사일: 화면 전체 유도 + 모든 투사체 요격, 크기 30%↑',
+      '평화 모드 돔이 날아오는 탄을 막음',
+      '메카/인간폼 쉴드 조작 원복 (E 홀드 · 커서 방향)',
+      '그물이 메카가 쏘는 포탄·에너지포도 잡음',
+      '멀티 끊김(스무딩) 개선 · 메카가 파인 지형 반영',
+    ],
+    '0.6.0': [
+      '개미 메카 & 인간형(건담) 변신 — 에너지포·요격 미사일·판넬 쉴드',
+      '평화 모드(무적 돔) · 개발자 전체 무기 잠금 · 상대별 흐리게',
+      '육각(벌집) 쉴드 디자인 · 메카 처치 업적(15,000)',
+      '플랫폼 체력 30 · 개미 대포 쿨타임 · 프리셋 겹침 방지',
+    ],
+  }
+  const unEl = document.getElementById('update-notes'), unBody = document.getElementById('un-body'), unVer = document.getElementById('un-ver'), unClose = document.getElementById('un-close')
+  let updateNotesOpen = false
+  function verCmp(a, b) { const pa = String(a).split('.').map(Number), pb = String(b).split('.').map(Number); for (let i = 0; i < 3; i++) { const d = (pa[i] || 0) - (pb[i] || 0); if (d) return d } return 0 }
+  function showUpdateNotes() {
+    const cur = String(inputSource.appVersion || '').trim()
+    if (!cur || !unEl) return
+    const last = localStorage.getItem('lastVersion')
+    if (last === cur) return   // already seen this version
+    const vers = Object.keys(CHANGELOG).filter((v) => verCmp(v, cur) <= 0 && (last ? verCmp(v, last) > 0 : true)).sort((a, b) => verCmp(b, a))   // first run: show recent history
+    localStorage.setItem('lastVersion', cur)   // record even if there's no note, so it won't nag
+    if (!vers.length) return
+    unVer.textContent = 'v' + cur
+    unBody.innerHTML = ''
+    for (const v of vers) {
+      const block = document.createElement('div'); block.className = 'un-ver-block'
+      block.innerHTML = `<span class="un-ver-tag">v${v}</span><ul>${CHANGELOG[v].map((s) => `<li>${s}</li>`).join('')}</ul>`
+      unBody.appendChild(block)
+    }
+    updateNotesOpen = true; unEl.classList.remove('hidden'); sendHotzone()
+  }
+  if (unClose) unClose.onclick = () => { updateNotesOpen = false; if (unEl) unEl.classList.add('hidden'); sendHotzone() }
+  setTimeout(showUpdateNotes, 1200)   // after the widget is placed so the popup is clickable
+
   // ---------- 🖌️ HOST platform tool: brush strokes that become floor (HP 30) ----------
   // Multiplayer: the HOST is authoritative. It broadcasts the platform list (t:'platforms') and the
   // live stroke (t:'platdraw'); peers render + collide against them, and report hits via t:'plat-hit'.
@@ -3818,7 +3863,7 @@
   function sendHotzone() {
     if (wx == null) return
     const extra = peerDimBtns.map((b) => ({ x: b.x - b.r - 2, y: b.y - b.r - 2, w: (b.r + 2) * 2, h: (b.r + 2) * 2 }))
-    inputSource.setHotzone({ rect: { x: wx, y: wy, w: cellPxW, h: cellPxH + BAR_SPACE }, extra, force: chatOpenFlag || editing || shopOpenFlag || achvOpenFlag || platformMode || me.netAiming || me.netActive })
+    inputSource.setHotzone({ rect: { x: wx, y: wy, w: cellPxW, h: cellPxH + BAR_SPACE }, extra, force: chatOpenFlag || editing || shopOpenFlag || achvOpenFlag || platformMode || me.netAiming || me.netActive || updateNotesOpen })
   }
 
   // cursor for missile homing + dragging comes from main's poll (window-relative)
