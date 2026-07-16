@@ -709,6 +709,17 @@
       }
       else if (msg.t === 'gbullets') { mergeRemote(remoteGBullets, msg.id, msg.list, 'nx', 'ny') }
       else if (msg.t === 'gat-hit') { if (msg.target === me.netId) damageMyGatling(msg.dmg || 1, msg.id) }
+      else if (msg.t === 'mecha-hit') { if (msg.target === me.netId && me.mechaActive) mechaTakeDmg(msg.dmg || 1, performance.now(), msg.id) }
+      else if (msg.t === 'human-hit') {
+        if (msg.target === me.netId && me.humanActive) {
+          const nowP = performance.now(), hs = view.scale * HUMAN_SCALE
+          const scx = me.humanX, scy = me.humanY - 34 * hs * 0.7, shieldAng = Math.atan2(cursor.y - scy, cursor.x - scx)
+          const hx = (msg.hx || 0) * canvas.clientWidth, hy = (msg.hy || 0) * canvas.clientHeight
+          const blocked = humanKeys.has('e') && angDiff(Math.atan2(hy - scy, hx - scx), shieldAng) <= SHIELD_SPAN / 2   // cursor shield on the hit side
+          if (blocked) { me.humanHitCd = nowP + 150; spawnSpark(scx + Math.cos(shieldAng) * 30 * hs, scy + Math.sin(shieldAng) * 30 * hs) }
+          else humanTakeDmg(msg.dmg || 1, nowP, msg.id)
+        }
+      }
       else if (msg.t === 'kill') {
         if (msg.by === me.netId) {
           if (msg.kind === 'cat') rewardCatDestroy()
@@ -725,18 +736,35 @@
       }
       else if (msg.t === 'mshells') { mergeRemote(remoteMShells, msg.id, msg.list, 'nx', 'ny') }
       else if (msg.t === 'net') {
-        if (msg.active) remoteNets.set(msg.id, { ph: msg.ph, ax: msg.ax, ay: msg.ay, bx: msg.bx, by: msg.by, sp: msg.sp, items: msg.items || [], n: msg.n || 0, ts: performance.now() })
-        else remoteNets.delete(msg.id)
+        if (msg.active) {
+          const r = remoteNets.get(msg.id) || {}
+          r.ph = msg.ph; r.ax = msg.ax; r.ay = msg.ay; r.bx = msg.bx; r.by = msg.by; r.sp = msg.sp; r.items = msg.items || []; r.n = msg.n || 0; r.ts = performance.now()
+          if (r.sbx == null) { r.sbx = msg.bx; r.sby = msg.by; r.sax = msg.ax; r.say = msg.ay }   // seed smoothed positions
+          remoteNets.set(msg.id, r)
+        } else remoteNets.delete(msg.id)
       }
       else if (msg.t === 'healall') { resetCatHp(); showToast('🩹 개발자가 전체 체력을 회복했습니다'); pushState() }
       else if (msg.t === 'capture') {   // a peer's net grabbed one of MY collidables → remove it here
         if (msg.target === me.netId) {
-          let arr = null, key = 'id'
-          if (msg.kind === 'missile') { arr = projectiles; key = 'mid' }
-          else if (msg.kind === 'gbullet') arr = gbullets
-          else if (msg.kind === 'ant') arr = ants
-          else arr = hbullets   // adogen / wave / hbullet
-          if (arr) { const i = arr.findIndex((o) => o[key] === msg.eid); if (i >= 0) arr.splice(i, 1) }
+          if (msg.kind === 'mshell') { for (const arr of [mechaShells, energyShots, interceptors]) { const i = arr.findIndex((o) => o.id === msg.eid); if (i >= 0) { arr.splice(i, 1); break } } }
+          else {
+            let arr = null, key = 'id'
+            if (msg.kind === 'missile') { arr = projectiles; key = 'mid' }
+            else if (msg.kind === 'gbullet') arr = gbullets
+            else if (msg.kind === 'ant') arr = ants
+            else arr = hbullets   // adogen / wave / hbullet
+            if (arr) { const i = arr.findIndex((o) => o[key] === msg.eid); if (i >= 0) arr.splice(i, 1) }
+          }
+        }
+      }
+      else if (msg.t === 'col-dmg') {   // unified: an opponent's collidable damaged me → apply attrition here
+        if (msg.target === me.netId) {
+          const dmg = msg.dmg || 1, eid = msg.eid
+          const dec = (arr, key) => { const idx = arr.findIndex((o) => o[key] === eid); if (idx < 0) return; const o = arr[idx]; if (o.power != null) o.power -= dmg; else if (o.hp != null) o.hp -= dmg; else { arr.splice(idx, 1); return }; if ((o.power != null ? o.power : o.hp) <= 0) { if (o.x != null) addEffect(o.x, o.y, 1); arr.splice(idx, 1) } }
+          if (msg.kind === 'missile') dec(projectiles, 'mid')
+          else if (msg.kind === 'gbullet') { const j = gbullets.findIndex((o) => o.id === eid); if (j >= 0) gbullets.splice(j, 1) }
+          else if (msg.kind === 'hbullet') dec(hbullets, 'id')
+          else if (msg.kind === 'mshell') { if (mechaShells.some((o) => o.id === eid)) dec(mechaShells, 'id'); else if (energyShots.some((o) => o.id === eid)) dec(energyShots, 'id'); else dec(interceptors, 'id') }
         }
       }
       else if (msg.t === 'hbullets') { mergeRemote(remoteHbullets, msg.id, msg.list, 'nx', 'ny') }
@@ -856,7 +884,6 @@
             else if (me.mechaActive) { me.mechaCharging = true; me.mechaChargeStart = performance.now(); me.mechaCharge = 0 }   // mecha cannon / energy charge
             else if (!me.gatActive && antMax() >= 10 && ants.filter((a) => !a.dead && !a.falling).length >= 10) mergeAntsToMecha()   // 10 ants → merge
           } else if (msg.key === 'r' && !weaponsLocked() && me.mechaActive && (me.mechaForm || 0) >= 0.5 && !me.mechaTransforming) fireInterceptors(performance.now())   // human-form R: interceptors
-          else if (msg.key === 'e' && me.mechaActive && !me.humanActive) toggleMechaShield()   // mecha: E places/retracts the shield (toggle)
         }
       } else {
         humanKeys.delete(msg.key)
@@ -1226,6 +1253,8 @@
     grab(projectiles, () => 'missile')
     grab(hbullets, (o) => o.adogen ? 'adogen' : (o.wave ? 'wave' : 'hbullet'))
     grab(gbullets, () => 'gbullet')
+    grab(mechaShells, () => 'mshell')   // 개미 대포 shells (a summon's PROJECTILE — catchable; the mecha itself is not)
+    grab(energyShots, () => 'energy')   // 에너지포
     grab(ants, () => 'ant')
     if (me.humanActive && !me.humanNetted && Math.hypot(me.humanX - me.netBx, me.humanY - me.netBy) < radius) { me.humanNetted = true; me.netCaught.push({ kind: 'human', obj: me }) }
     // MULTIPLAYER: also trap OTHER players' collidables — remove them from the owner (t:'capture') and
@@ -1245,6 +1274,9 @@
       for (const [pid, rec] of remoteAnts) { if (nowP - rec.ts > 800) continue
         for (const [id, a] of rec.items) { if (cap()) break; if (a.dead) continue; const sp = remoteAntScreenPos(pid, a); if (!sp) continue
           if (Math.hypot(sp.x - me.netBx, sp.y - me.netBy) < radius) { rec.items.delete(id); steal(pid, id, 'ant', sp.x, sp.y, { id: nextAntId++, x: sp.x, y: sp.y, hp: ANT_HP, dir: 1, onGround: false, vy: 0, dead: false, step: 0, atkCd: 0, wanderUntil: 0 }, ants) } } }
+      for (const [pid, rec] of remoteMShells) { if (nowP - rec.ts > 500) continue   // enemy mecha's shells / energy (the mecha itself is never caught)
+        for (const [id, it] of rec.items) { if (cap()) break; const x = it.sx * W, y = it.sy * H
+          if (Math.hypot(x - me.netBx, y - me.netBy) < radius) { rec.items.delete(id); steal(pid, id, 'mshell', x, y, { x, y, vx: 0, vy: 0, hp: it.pw || 5, born: nowP, life: 6000 }, mechaShells) } } }
     }
   }
   function stepNet(now) {
@@ -1385,7 +1417,9 @@
     for (const [pid, r] of [...remoteNets]) {
       if (now - r.ts > 500) { remoteNets.delete(pid); continue }
       ctx.globalAlpha = peerAlpha(pid)
-      const bx = r.bx * W, by = r.by * H, ax = r.ax * W, ay = r.ay * H, R = Math.max(6 * s, (r.sp || 0.03) * W)
+      r.sbx += (r.bx - r.sbx) * 0.35; r.sby += (r.by - r.sby) * 0.35   // interpolate between 20Hz updates (no extra bandwidth)
+      r.sax += (r.ax - r.sax) * 0.35; r.say += (r.ay - r.say) * 0.35
+      const bx = r.sbx * W, by = r.sby * H, ax = r.sax * W, ay = r.say * H, R = Math.max(6 * s, (r.sp || 0.03) * W)
       ctx.save(); ctx.lineCap = 'round'
       ctx.strokeStyle = 'rgba(210,222,236,0.85)'; ctx.lineWidth = 2 * s; ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke()
       drawNetMesh(bx, by, R, s)
@@ -1650,23 +1684,13 @@
     me.humanX = Math.max(12 * hs, Math.min(W - 12 * hs, me.humanX))
     if (me.humanGround && taskbarHoleAt(me.humanX)) { me.humanFalling = true; me.humanFallVy = 2; me.humanFallStart = now; spawnFallFx(me.humanX, me.humanY); return }   // standing over a hole → fall in
     if (humanKeys.has('e')) me.humanFace = cursor.x >= me.humanX ? 1 : -1   // face the cursor while guarding
-    // collide with ENEMY weapons (human is local, so only remote threats reach it). 250ms i-frames.
+    // melee: enemy ANTS touching the human (missiles/bullets/shells collide attacker-side → human-hit). 250ms i-frames.
     if (now >= (me.humanHitCd || 0)) {
       const cx = me.humanX, cy = me.humanY - 15 * hs, r = 20 * hs
       let tx = null, ty = null, byPid = null
-      const rm = hitRemoteMissile(cx, cy, 1); if (rm) { tx = rm.x; ty = rm.y; byPid = rm.pid }
-      if (tx == null) {   // remote gatling bullets (position so the barrier can face them)
-        for (const [pid, rec] of remoteGBullets) {
-          if (now - rec.ts > 400) continue
-          for (const it of rec.items.values()) { const bx = it.sx * W, by = it.sy * canvas.clientHeight; if (Math.hypot(cx - bx, cy - by) < 12 * hs) { tx = bx; ty = by; byPid = pid; break } }
-          if (tx != null) break
-        }
-      }
-      if (tx == null) {   // remote ants
-        for (const [pid, rec] of remoteAnts) {
-          for (const a of rec.items.values()) { if (a.dead) continue; const sp = remoteAntScreenPos(pid, a); if (sp && Math.hypot(cx - sp.x, cy - sp.y) < r) { tx = sp.x; ty = sp.y; byPid = pid; break } }
-          if (tx != null) break
-        }
+      for (const [pid, rec] of remoteAnts) {
+        for (const a of rec.items.values()) { if (a.dead) continue; const sp = remoteAntScreenPos(pid, a); if (sp && Math.hypot(cx - sp.x, cy - sp.y) < r) { tx = sp.x; ty = sp.y; byPid = pid; break } }
+        if (tx != null) break
       }
       if (tx != null) {
         // barrier (cursor-facing, above the human) blocks threats coming from within its arc
@@ -1833,7 +1857,7 @@
     const cx = alive.reduce((s, a) => s + a.x, 0) / alive.length
     me.mergeSnap = alive.map((a) => ({ x0: a.x, y0: a.y, step: Math.random() * 10 }))
     ants.length = 0
-    me.mechaMerging = true; me.mechaMergeStart = performance.now(); me.mechaMergeX = cx; me.mechaMergeY = mechaGroundY()
+    me.mechaMerging = true; me.mechaMergeStart = performance.now(); me.mechaMergeX = cx; me.mechaMergeY = mechaGroundY(cx)
     showToast('🐜✨ 개미들이 뭉치는 중...')
   }
   function spawnMecha(cx, cy) {   // called when the merge animation completes
@@ -1881,14 +1905,10 @@
   function mechaTakeDmg(dmg, now, byId) {
     if (!me.mechaActive || now < (me.mechaHitCd || 0)) return
     const s = mechaScale()
-    // the placed shield only protects the mech while it's near/inside it (hide behind the dome)
-    const sdx = me.mechaX - (me.mechaShieldX != null ? me.mechaShieldX : me.mechaX)
-    const sdy = me.mechaY - (me.mechaShieldY != null ? me.mechaShieldY : me.mechaY)
-    const protR = ((me.mechaForm || 0) >= 0.5 ? 52 : 56) * s
-    if (me.mechaShieldOn && me.mechaShieldHp > 0 && me.mechaShieldDeploy > 0.6 && Math.hypot(sdx, sdy) <= protR) {
+    if (me.mechaShieldOn && me.mechaShieldHp > 0) {   // shield (dome/funnel) absorbs while it's up
       me.mechaShieldHp -= dmg; me.mechaHitCd = now + 150
       spawnSpark(me.mechaX + (Math.random() - 0.5) * 40 * s, me.mechaY - 22 * s + (Math.random() - 0.5) * 30 * s)
-      if (me.mechaShieldHp <= 0) { me.mechaShieldHp = 0; me.mechaShieldOn = false; me.mechaShieldWant = false; me.mechaShieldBrokenUntil = now + MSHIELD_BREAK_MS; mechaShieldShatter() }
+      if (me.mechaShieldHp <= 0) { me.mechaShieldHp = 0; me.mechaShieldOn = false; me.mechaShieldBrokenUntil = now + MSHIELD_BREAK_MS; mechaShieldShatter() }
       return
     }
     me.mechaHp -= dmg; me.mechaHitCd = now + 250
@@ -1928,12 +1948,12 @@
       const t = Math.min(1, (now - me.mechaTransformStart) / TRANSFORM_MS)
       me.mechaForm = me.mechaTransformFrom + (me.mechaTransformTo - me.mechaTransformFrom) * t
       if (now - (me.mechaTransformSpark || 0) > 55) { me.mechaTransformSpark = now; for (let k = 0; k < 4; k++) spawnSpark(me.mechaX + (Math.random() - 0.5) * 46 * s, me.mechaY - 24 * s + (Math.random() - 0.5) * 46 * s) }
-      const floorT = mechaGroundY(); me.mechaVY = (me.mechaVY || 0) + MECHA_GRAV * s; me.mechaY = Math.min(floorT, me.mechaY + me.mechaVY); if (me.mechaY >= floorT) { me.mechaY = floorT; me.mechaVY = 0; me.mechaGround = true }
+      const floorT = mechaGroundY(me.mechaX); me.mechaVY = (me.mechaVY || 0) + MECHA_GRAV * s; me.mechaY = Math.min(floorT, me.mechaY + me.mechaVY); if (me.mechaY >= floorT) { me.mechaY = floorT; me.mechaVY = 0; me.mechaGround = true }
       if (t >= 1) { me.mechaForm = me.mechaTransformTo; me.mechaTransforming = false; me.mechaBoost = false }
       drawMecha(now, false); return
     }
     const human = (me.mechaForm || 0) >= 0.5
-    const floor = mechaGroundY()
+    const floor = mechaGroundY(me.mechaX)
     let moving = false
     if (human) {
       // ---- Iron-Man booster flight: W(ground)=jump, W(air again)=booster ON, hold W=thrust up, A/D=strafe, S=fast descend ----
@@ -1968,20 +1988,20 @@
     }
     me.mechaX = Math.max(16 * s, Math.min(W - 16 * s, me.mechaX))
     if (me.mechaGround && mechaOverHole(me.mechaX)) { me.mechaFalling = true; me.mechaFallVy = 2; spawnFallFx(me.mechaX, me.mechaY); return }
-    // shield (E): ant=dome, human=cursor plate; shared HP / break / regen
+    // shield (E held): ant=dome around the mecha, human=funnels toward the cursor; follows the mecha
     if (me.mechaShieldBrokenUntil && now >= me.mechaShieldBrokenUntil && me.mechaShieldHp <= 0) { me.mechaShieldHp = MSHIELD_HP; me.mechaShieldBrokenUntil = 0 }
     const canShield = me.mechaShieldHp > 0 && now >= (me.mechaShieldBrokenUntil || 0)
-    me.mechaShieldOn = canShield && !!me.mechaShieldWant   // E toggles the placed shield (no longer hold-to-keep)
+    me.mechaShieldOn = canShield && humanKeys.has('e')   // held while E is down
+    if (me.mechaShieldOn) { me.mechaShieldAng = Math.atan2(cursor.y - (me.mechaY - 38 * s), cursor.x - me.mechaX); if (human) me.mechaFace = cursor.x >= me.mechaX ? 1 : -1 }   // funnels/plate track the cursor
     if (!me.mechaShieldOn && canShield && me.mechaShieldHp < MSHIELD_HP) me.mechaShieldHp = Math.min(MSHIELD_HP, me.mechaShieldHp + MSHIELD_REGEN)
     me.mechaShieldDeploy = (me.mechaShieldDeploy || 0) + ((me.mechaShieldOn ? 1 : 0) - (me.mechaShieldDeploy || 0)) * 0.18   // deploy/retract animation
     // cannon/energy charge (Q held); face the cursor while charging
     if (me.mechaCharging) { me.mechaFace = cursor.x >= me.mechaX ? 1 : -1; const chMs = human ? ECANNON_MS : MECHA_CHARGE_MS; if (humanKeys.has('q')) me.mechaCharge = Math.min(1, (now - me.mechaChargeStart) / chMs); else { me.mechaCharging = false; me.mechaCharge = 0 } }
-    // take damage from remote threats — the shield blocks (dome omni; plate absorbs while up)
+    // melee: enemy ANTS touching the mecha (missiles/bullets/shells now collide attacker-side → mecha-hit)
     if (now >= (me.mechaHitCd || 0)) {
       const cx = me.mechaX, cy = me.mechaY - 20 * s, r = 26 * s
       let byPid = null, hitit = false
-      const rm = hitRemoteMissile(cx, cy, 1); if (rm) { hitit = true; byPid = rm.pid }
-      if (!hitit) for (const [pid, rec] of remoteAnts) { for (const a of rec.items.values()) { if (a.dead) continue; const sp = remoteAntScreenPos(pid, a); if (sp && Math.hypot(cx - sp.x, cy - sp.y) < r) { hitit = true; byPid = pid; break } } if (hitit) break }
+      for (const [pid, rec] of remoteAnts) { for (const a of rec.items.values()) { if (a.dead) continue; const sp = remoteAntScreenPos(pid, a); if (sp && Math.hypot(cx - sp.x, cy - sp.y) < r) { hitit = true; byPid = pid; break } } if (hitit) break }
       if (hitit) mechaTakeDmg(1, now, byPid)
     }
     drawMecha(now, moving && me.mechaGround)
@@ -2109,10 +2129,13 @@
       let hitP = false
       for (let j = projectiles.length - 1; j >= 0; j--) { const pr = projectiles[j]; if (Math.hypot(pr.x - p.x, pr.y - p.y) < 14 * s) { p.hp -= (pr.power || 1); explode(pr.x, pr.y, pr.power || 1); projectiles.splice(j, 1); hitP = true; break } }
       if (hitP) { mechaShellImpact(p); if (p.hp <= 0) { mechaShells.splice(i, 1); continue } }
+      if (safeDomeBlocks(p.x, p.y)) { mechaShellImpact(p); mechaShells.splice(i, 1); continue }   // peace-mode dome stops it
       let land = false
       for (let ci = 0; ci < catPos.length; ci++) { const cat = allRef[ci]; if (!cat) continue; const cc = catPos[ci]; if (Math.abs(cc.x - p.x) < 52 * view.scale && Math.abs(cc.y - p.y) < 62 * view.scale) { if (!catShieldCovers(cat, cc, p.x, p.y, now)) applyCatHit(cat, MSHELL_DMG, now); land = true; break } }
       if (!land) { const ah = missileHitsAnt(p.x, p.y); if (ah) { if (ah.local) { antTakeDmg(ah.ant, MSHELL_DMG); if (ah.ant.dead) addAntKill() } else if (connected()) net.send(JSON.stringify({ t: 'ant-hit', target: ah.pid, ant: ah.id, dmg: MSHELL_DMG })); land = true } }
       if (!land) { const rg = hitRemoteGatling(p.x, p.y); if (rg) { if (connected()) net.send(JSON.stringify({ t: 'gat-hit', target: rg.pid, dmg: MSHELL_DMG })); land = true } }
+      if (!land) { const rmc = hitRemoteMecha(p.x, p.y); if (rmc) { if (connected()) net.send(JSON.stringify({ t: 'mecha-hit', target: rmc.pid, dmg: MSHELL_DMG })); land = true } }
+      if (!land) { const rhu = hitRemoteHuman(p.x, p.y); if (rhu) { if (connected()) net.send(JSON.stringify({ t: 'human-hit', target: rhu.pid, dmg: MSHELL_DMG, hx: +(p.x / W).toFixed(4), hy: +(p.y / H).toFixed(4) })); land = true } }
       if (!land && inTaskbar(p.x, p.y)) { carveTaskbar(p.x, 1.0); land = true }   // crater ≈ 5 merged missiles
       if (land) { mechaShellImpact(p); mechaShells.splice(i, 1); continue }
       drawMechaShell(p)
@@ -2173,6 +2196,7 @@
       if (now - p.born > p.life) { energyShots.splice(i, 1); continue }
       p.x += p.vx; p.y += p.vy
       if (p.x < -60 || p.x > W + 60 || p.y < -60 || p.y > H + 60) { energyShots.splice(i, 1); continue }
+      if (safeDomeBlocks(p.x, p.y)) { addEffect(p.x, p.y, 2); spawnSpark(p.x, p.y); energyShots.splice(i, 1); continue }   // peace-mode dome stops it
       // solid cats stop it (like a missile)
       let gone = false
       for (let ci = 0; ci < catPos.length; ci++) { const cat = allRef[ci]; if (!cat) continue; const cc = catPos[ci]; if (Math.abs(cc.x - p.x) < 52 * view.scale && Math.abs(cc.y - p.y) < 62 * view.scale) { if (!catShieldCovers(cat, cc, p.x, p.y, now)) applyCatHit(cat, p.power, now); addEffect(p.x, p.y, 2); spawnSpark(p.x, p.y); energyShots.splice(i, 1); gone = true; break } }
@@ -2186,6 +2210,10 @@
         }
         const rg = hitRemoteGatling(p.x, p.y)
         if (rg) { if (connected()) net.send(JSON.stringify({ t: 'gat-hit', target: rg.pid, dmg: p.power })); addEffect(p.x, p.y, 1); p.pierceCd = now + 120; if (p.power > (rg.hp || 1)) p.power -= (rg.hp || 1); else { energyShots.splice(i, 1); continue } }
+        const rmc = hitRemoteMecha(p.x, p.y)
+        if (rmc) { if (connected()) net.send(JSON.stringify({ t: 'mecha-hit', target: rmc.pid, dmg: p.power })); addEffect(p.x, p.y, 1); p.pierceCd = now + 130; if (p.power > (rmc.hp || 1)) p.power -= (rmc.hp || 1); else { energyShots.splice(i, 1); continue } }
+        const rhu = hitRemoteHuman(p.x, p.y)
+        if (rhu) { if (connected()) net.send(JSON.stringify({ t: 'human-hit', target: rhu.pid, dmg: p.power, hx: +(p.x / W).toFixed(4), hy: +(p.y / H).toFixed(4) })); addEffect(p.x, p.y, 1); p.pierceCd = now + 130; if (p.power > (rhu.hp || 1)) p.power -= (rhu.hp || 1); else { energyShots.splice(i, 1); continue } }
         const rm = hitRemoteMissile(p.x, p.y, p.power)
         if (rm) { addEffect(p.x, p.y, 1); spawnSpark(p.x, p.y); p.pierceCd = now + 100; if (p.power > (rm.power || 1)) p.power -= (rm.power || 1); else { energyShots.splice(i, 1); continue } }
       }
@@ -2217,15 +2245,23 @@
     }
     showToast('🚀 요격 미사일 10발!')
   }
-  function nearestInterceptTarget(x, y) {   // any collidable (mine OR enemy's) except characters, within homing range
-    let best = null, bd = 280 * view.scale
+  // Homes onto ANY fired projectile across the WHOLE overlay (mine or an opponent's): missiles,
+  // gatling bullets, adogen/waves, ant-cannon shells, energy pods — everything but characters.
+  // Enemy collidables are damaged via a unified `col-dmg` relay so both sides vanish correctly.
+  function nearestInterceptTarget(x, y) {
+    let best = null, bd = Infinity   // whole-screen homing
     const consider = (tx, ty, hit) => { const d = Math.hypot(tx - x, ty - y); if (d < bd) { bd = d; best = { x: tx, y: ty, hit } } }
-    for (const pr of projectiles) consider(pr.x, pr.y, () => { const j = projectiles.indexOf(pr); if (j >= 0) { addEffect(pr.x, pr.y, 1); projectiles.splice(j, 1) } })
-    for (const a of ants) if (!a.dead && !a.falling) consider(a.x, a.y, () => antTakeDmg(a, INT_DMG))
     const now = performance.now(), W = canvas.clientWidth, H = canvas.clientHeight
+    const cd = (pid, kind, eid) => { if (connected()) net.send(JSON.stringify({ t: 'col-dmg', target: pid, kind, eid, dmg: INT_DMG })) }
+    for (const pr of projectiles) consider(pr.x, pr.y, () => { const j = projectiles.indexOf(pr); if (j >= 0) { addEffect(pr.x, pr.y, 1); if ((pr.power || 1) > INT_DMG) pr.power -= INT_DMG; else projectiles.splice(j, 1) } })
+    for (const a of ants) if (!a.dead && !a.falling) consider(a.x, a.y, () => antTakeDmg(a, INT_DMG))
     for (const [pid, rec] of remoteAnts) { if (now - rec.ts > 800) continue; for (const a of rec.items.values()) { if (a.dead) continue; const sp = remoteAntScreenPos(pid, a); if (sp) consider(sp.x, sp.y, () => { if (connected()) net.send(JSON.stringify({ t: 'ant-hit', target: pid, ant: a.id, dmg: INT_DMG })) }) } }
     for (const [pid, g] of remoteGatlings) consider(g.nx * W, g.ny * H, () => { if (connected()) net.send(JSON.stringify({ t: 'gat-hit', target: pid, dmg: INT_DMG })) })
-    for (const [pid, rec] of remoteMissiles) { if (now - rec.ts > 500) continue; for (const it of rec.items.values()) consider(it.sx * W, it.sy * H, () => {}) }
+    for (const [pid, m] of remoteMechas) consider(m.nx * W, m.ny * H - 26 * mechaScale(), () => { if (connected()) net.send(JSON.stringify({ t: 'mecha-hit', target: pid, dmg: INT_DMG })) })
+    for (const [pid, rec] of remoteMissiles) { if (now - rec.ts > 500) continue; for (const it of rec.items.values()) consider(it.sx * W, it.sy * H, () => cd(pid, 'missile', it.id)) }
+    for (const [pid, rec] of remoteGBullets) { if (now - rec.ts > 400) continue; for (const it of rec.items.values()) consider(it.sx * W, it.sy * H, () => cd(pid, 'gbullet', it.id)) }
+    for (const [pid, rec] of remoteHbullets) { if (now - rec.ts > 400) continue; for (const it of rec.items.values()) consider(it.sx * W, it.sy * H, () => cd(pid, 'hbullet', it.id)) }
+    for (const [pid, rec] of remoteMShells) { if (now - rec.ts > 400) continue; for (const it of rec.items.values()) consider(it.sx * W, it.sy * H, () => cd(pid, 'mshell', it.id)) }
     return best
   }
   function stepInterceptors(now) {
@@ -2245,43 +2281,30 @@
     }
   }
   function drawInterceptor(p) {
-    const s = view.scale, ang = Math.atan2(p.vy, p.vx)
+    const s = view.scale * 1.3, ang = Math.atan2(p.vy, p.vx)   // 30% larger
     ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(ang)
     ctx.fillStyle = 'rgba(255,170,60,0.9)'; ctx.beginPath(); ctx.ellipse(-7 * s, 0, 5 * s, 2 * s, 0, 0, Math.PI * 2); ctx.fill()   // thruster flame
     ctx.fillStyle = '#dfe4ee'; ctx.beginPath(); ctx.roundRect(-4 * s, -1.7 * s, 9 * s, 3.4 * s, 1.5 * s); ctx.fill()
     ctx.fillStyle = '#c0403a'; ctx.beginPath(); ctx.moveTo(6 * s, 0); ctx.lineTo(2.5 * s, -1.8 * s); ctx.lineTo(2.5 * s, 1.8 * s); ctx.closePath(); ctx.fill()   // nose cone
     ctx.restore()
   }
-  function toggleMechaShield() {   // E: PLACE the shield at a fixed world spot / retract it (toggle)
-    const now = performance.now()
-    if (!me.mechaShieldWant) {
-      if (me.mechaShieldHp > 0 && now >= (me.mechaShieldBrokenUntil || 0)) {
-        me.mechaShieldWant = true
-        me.mechaShieldX = me.mechaX; me.mechaShieldY = me.mechaY   // stays here even if the mech walks away
-        me.mechaShieldAng = Math.atan2(cursor.y - (me.mechaY - 38 * mechaScale()), cursor.x - me.mechaX)   // human-form deploy direction
-      } else showToast('🛡 쉴드 재생 중')
-    } else me.mechaShieldWant = false
-  }
-  // The shield lives at a FIXED world position once placed (drawn in absolute screen coords, after the
-  // mech body). Ant form = honeycomb hemisphere dome; human form = 2 funnel plates that fly from the
-  // mech's back to the placed spot, merge, and spread a wider force field. E again → they fly home.
+  // Shield FOLLOWS the mecha and is held while E is down (release → retracts). Ant form = honeycomb
+  // hemisphere dome around the mecha; human form = 2 funnel plates that deploy toward the cursor,
+  // merge, and spread a wider force field. Drawn in absolute coords after the body.
   function drawMechaShield(now) {
     const form = me.mechaForm || 0, dep = me.mechaShieldDeploy || 0, s = mechaScale()
     const hp01 = Math.max(0, Math.min(1, (me.mechaShieldHp || 0) / MSHIELD_HP))
     if (form < 0.5) {
-      if (dep <= 0.02) return   // ant: nothing when retracted
-      const px = me.mechaShieldX != null ? me.mechaShieldX : me.mechaX
-      const py = me.mechaShieldY != null ? me.mechaShieldY : me.mechaY
+      if (dep <= 0.02) return   // ant: nothing when off
       ctx.save(); ctx.globalAlpha *= Math.min(1, dep * 1.3)
-      drawHexDome(px, py, (30 + 22 * dep) * s, hp01, now, true)   // grows as it deploys
+      drawHexDome(me.mechaX, me.mechaY, (30 + 22 * dep) * s, hp01, now, true)   // dome around the mecha (follows it)
       ctx.restore()
       return
     }
-    // ---- human form: funnel plates + expanding force field ----
+    // ---- human form: funnel plates deploy toward the cursor from the mech's back ----
     const cx = me.mechaX, cy = me.mechaY, ang = me.mechaShieldAng != null ? me.mechaShieldAng : 0
-    const sx = me.mechaShieldX != null ? me.mechaShieldX : cx, sy = me.mechaShieldY != null ? me.mechaShieldY : cy
     const D = 28 * s, perp = ang + Math.PI / 2, gap = (14 - 6 * dep) * s   // plates converge (merge) when deployed
-    const depCx = sx + Math.cos(ang) * D, depCy = (sy - 38 * s) + Math.sin(ang) * D
+    const depCx = cx + Math.cos(ang) * D, depCy = (cy - 38 * s) + Math.sin(ang) * D
     if (dep > 0.12) {   // merged, wider force field at the placed spot
       ctx.save(); ctx.translate(depCx, depCy); ctx.rotate(ang)
       const R = (16 + dep * 22) * s, base = ctx.globalAlpha
@@ -2507,6 +2530,41 @@
     for (const [pid, g] of remoteGatlings) { if (Math.hypot(x - g.nx * W, y - g.ny * H) < GAT_HIT_R * view.scale) return { pid, hp: g.hp || GAT_HP } }
     return null
   }
+  // an enemy ant mecha (ant OR human form) at (x,y) — a collidable target with punch-through, HP 25.
+  // Its DEPLOYED shield (placed dome / funnel field) also counts as a barrier, so shots that hit the
+  // shield register too (and get absorbed by the owner's shield HP).
+  function hitRemoteMecha(x, y) {
+    const W = canvas.clientWidth, H = canvas.clientHeight, s = mechaScale()
+    for (const [pid, m] of remoteMechas) {
+      const mx = m.nx * W, my = m.ny * H - 26 * s
+      if (Math.abs(x - mx) < 24 * s && Math.abs(y - my) < 34 * s) return { pid, hp: m.hp || MECHA_HP }
+      if ((m.sdep || 0) > 0.6) {   // deployed shield barrier (follows the mecha)
+        const bx = m.nx * W, by = m.ny * H
+        if ((m.form || 0) < 0.5) { if (y <= by + 8 && Math.hypot(x - bx, y - by) < 52 * s) return { pid, hp: m.hp || MECHA_HP } }   // ant hemisphere dome
+        else { const dx = bx + Math.cos(m.sang || 0) * 28 * s, dy = (by - 38 * s) + Math.sin(m.sang || 0) * 28 * s; if (Math.hypot(x - dx, y - dy) < 30 * s) return { pid, hp: m.hp || MECHA_HP } }   // funnel field
+      }
+    }
+    return null
+  }
+  // an enemy human summon at (x,y) — a collidable target with punch-through, HP 5
+  function hitRemoteHuman(x, y) {
+    const W = canvas.clientWidth, H = canvas.clientHeight, s = view.scale * HUMAN_SCALE
+    for (const [pid, h] of remoteHumans) {
+      const hx = h.nx * W, hy = h.ny * H - 15 * s
+      if (Math.abs(x - hx) < 16 * s && Math.abs(y - hy) < 22 * s) return { pid, hp: h.hp || HUMAN_HP }
+    }
+    return null
+  }
+  // an enemy in PEACE MODE (invincible dome) — shots are stopped at the dome, never reaching the cat
+  function safeDomeBlocks(x, y) {
+    for (let i = 0; i < catPos.length; i++) {
+      const cat = allRef[i], c = catPos[i]
+      if (!cat || cat.id === 'me' || !cat.safe || !c) continue
+      const cyb = c.y + 30 * view.scale, r = 108 * view.scale
+      if (y <= cyb + 8 && Math.hypot(x - c.x, y - cyb) <= r) return c
+    }
+    return null
+  }
   function hitRemoteGBullet(x, y) {          // any peer bullet near (x,y)?
     const now = performance.now()
     for (const [, rec] of remoteGBullets) {
@@ -2582,6 +2640,12 @@
       // enemy gatling turret → damage it
       const rg = hitRemoteGatling(p.x, p.y)
       if (rg) { if (connected()) net.send(JSON.stringify({ t: 'gat-hit', target: rg.pid, dmg: GAT_DMG })); spawnSpark(p.x, p.y); gbullets.splice(i, 1); continue }
+      // enemy ant mecha → damage it (bullet consumed)
+      const rmcG = hitRemoteMecha(p.x, p.y)
+      if (rmcG) { if (connected()) net.send(JSON.stringify({ t: 'mecha-hit', target: rmcG.pid, dmg: GAT_DMG })); spawnSpark(p.x, p.y); gbullets.splice(i, 1); continue }
+      // enemy human summon → damage it (bullet consumed)
+      const rhuG = hitRemoteHuman(p.x, p.y)
+      if (rhuG) { if (connected()) net.send(JSON.stringify({ t: 'human-hit', target: rhuG.pid, dmg: GAT_DMG, hx: +(p.x / canvas.clientWidth).toFixed(4), hy: +(p.y / canvas.clientHeight).toFixed(4) })); spawnSpark(p.x, p.y); gbullets.splice(i, 1); continue }
       // a shield (mine or a peer's) absorbs the bullet
       const sblk = shieldBlocks(p, now)
       if (sblk) {
@@ -2589,6 +2653,7 @@
         else if (connected()) net.send(JSON.stringify({ t: 'shield-hit', target: sblk.id, power: GAT_DMG }))
         spawnSpark(p.x, p.y); gbullets.splice(i, 1); continue
       }
+      if (safeDomeBlocks(p.x, p.y)) { spawnSpark(p.x, p.y); gbullets.splice(i, 1); continue }   // peace-mode dome stops it
       // CHARACTER body → hit reaction (own cat included; respect the cat's shield)
       let hitCat = false
       for (let ci = 0; ci < catPos.length; ci++) {
@@ -2648,7 +2713,7 @@
     for (const [pid, rec] of [...remoteGBullets]) {
       if (now - rec.ts > 400) { remoteGBullets.delete(pid); continue }
       ctx.globalAlpha = peerAlpha(pid)
-      const extrap = now - rec.ts < 130
+      const extrap = now - rec.ts < 240
       for (const it of rec.items.values()) {
         if (extrap) { it.nx += it.vx || 0; it.ny += it.vy || 0 }   // dead-reckon fast bullets
         it.sx += (it.nx - it.sx) * 0.5; it.sy += (it.ny - it.sy) * 0.5
@@ -2681,7 +2746,7 @@
     for (const [pid, rec] of [...remoteHbullets]) {
       if (now - rec.ts > 400) { remoteHbullets.delete(pid); continue }
       ctx.globalAlpha = peerAlpha(pid)
-      const extrap = now - rec.ts < 130
+      const extrap = now - rec.ts < 240
       for (const it of rec.items.values()) {
         if (extrap) { it.nx += it.vx || 0; it.ny += it.vy || 0 }   // dead-reckon 검기/총알
         const dx = it.nx - it.sx, dy = it.ny - it.sy
@@ -3026,7 +3091,15 @@
   function antGroundY(x) { const tb = taskbarRect(); return (tb ? tb.top + carveDepthAt(x || 0) : canvas.clientHeight) - 5 * view.scale }
   // the big mecha stands on the taskbar SURFACE (bridges craters instead of sinking into them),
   // and only falls when a through-hole spans its whole footing — not on a single narrow blast pit.
-  function mechaGroundY() { const tb = taskbarRect(); return (tb ? tb.top : canvas.clientHeight) - 1 }
+  // the big mecha follows the DUG terrain — it rests on the shallowest point under its wide feet, so it
+  // sinks into wide craters (affected by digging) but bridges narrow blast pits (doesn't nose-dive into one).
+  function mechaGroundY(x) {
+    const tb = taskbarRect(); if (!tb) return canvas.clientHeight - 1
+    const cx = x != null ? x : me.mechaX, span = 14 * mechaScale()
+    let minCarve = Infinity
+    for (const dx of [-span, -span / 2, 0, span / 2, span]) minCarve = Math.min(minCarve, carveDepthAt(cx + dx))
+    return tb.top + minCarve - 1
+  }
   function mechaOverHole(x) {
     const tb = taskbarRect(); if (!tb) return false
     const span = 16 * mechaScale()
@@ -3351,7 +3424,7 @@
     for (const [pid, rec] of [...remoteMissiles]) {
       if (now - rec.ts > 500) { remoteMissiles.delete(pid); continue }
       ctx.globalAlpha = peerAlpha(pid)
-      const extrap = now - rec.ts < 130   // dead-reckon only right after an update (avoids runaway on hiccups)
+      const extrap = now - rec.ts < 240   // dead-reckon only right after an update (avoids runaway on hiccups)
       for (const it of rec.items.values()) {
         if (extrap) { it.nx += it.vx || 0; it.ny += it.vy || 0 }   // move the estimate at the missile's own velocity
         const px = it.sx, py = it.sy
@@ -3453,6 +3526,7 @@
           else if (connected()) net.send(JSON.stringify({ t: 'shield-hit', target: blk.id, power: p.power }))
           projectiles.splice(i, 1); continue
         }
+        if (safeDomeBlocks(p.x, p.y)) { addEffect(p.x, p.y, p.power); spawnSpark(p.x, p.y); projectiles.splice(i, 1); continue }   // peace-mode dome stops it
         // UNIFIED COLLISION for HP targets (gatling/ant): mutual attrition. The target loses the
         // missile's power; the missile loses the target's HP. If power > HP the target dies and the
         // missile PUNCHES THROUGH with reduced power (shrinks); otherwise the missile detonates.
@@ -3462,6 +3536,22 @@
           if (connected()) net.send(JSON.stringify({ t: 'gat-hit', target: rgm.pid, dmg: p.power }))
           addEffect(p.x, p.y, 1); spawnSpark(p.x, p.y)
           if (p.power > rgm.hp) { p.power -= rgm.hp; p.pierceCd = now + 140 }   // punch through, shrink
+          else { explode(p.x, p.y, p.power); projectiles.splice(i, 1); continue }
+        }
+        // an enemy ant mecha (ant/human form): same HP-based punch-through rule (HP 25 → usually detonates)
+        const rmc = pierceReady ? hitRemoteMecha(p.x, p.y) : null
+        if (rmc) {
+          if (connected()) net.send(JSON.stringify({ t: 'mecha-hit', target: rmc.pid, dmg: p.power }))
+          addEffect(p.x, p.y, 1); spawnSpark(p.x, p.y)
+          if (p.power > rmc.hp) { p.power -= rmc.hp; p.pierceCd = now + 140 }   // punch through, shrink
+          else { explode(p.x, p.y, p.power); projectiles.splice(i, 1); continue }
+        }
+        // an enemy human summon: same rule (HP 5). Its cursor shield can block (checked on the owner's side).
+        const rhu = pierceReady ? hitRemoteHuman(p.x, p.y) : null
+        if (rhu) {
+          if (connected()) net.send(JSON.stringify({ t: 'human-hit', target: rhu.pid, dmg: p.power, hx: +(p.x / canvas.clientWidth).toFixed(4), hy: +(p.y / canvas.clientHeight).toFixed(4) }))
+          addEffect(p.x, p.y, 1); spawnSpark(p.x, p.y)
+          if (p.power > rhu.hp) { p.power -= rhu.hp; p.pierceCd = now + 140 }   // punch through, shrink
           else { explode(p.x, p.y, p.power); projectiles.splice(i, 1); continue }
         }
         // a drawn platform is solid: detonate on it and chip its HP

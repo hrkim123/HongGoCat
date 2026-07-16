@@ -103,6 +103,10 @@ wss.on('connection', (ws, req) => {
       broadcast(joinedRoom, { t: 'gbullets', id, list: msg.list.slice(0, 40) }, id)
     } else if (msg.t === 'gat-hit') {
       broadcast(joinedRoom, { t: 'gat-hit', id, target: msg.target, dmg: msg.dmg }, id)
+    } else if (msg.t === 'mecha-hit') {
+      broadcast(joinedRoom, { t: 'mecha-hit', id, target: msg.target, dmg: msg.dmg }, id)
+    } else if (msg.t === 'human-hit') {
+      broadcast(joinedRoom, { t: 'human-hit', id, target: msg.target, dmg: msg.dmg, hx: msg.hx, hy: msg.hy }, id)
     } else if (msg.t === 'kill') {
       broadcast(joinedRoom, { t: 'kill', id, kind: msg.kind, by: msg.by, amt: msg.amt }, id)   // credit a destroy to the killer
     } else if (msg.t === 'human') {
@@ -117,6 +121,8 @@ wss.on('connection', (ws, req) => {
       broadcast(joinedRoom, { t: 'net', id, active: msg.active, ph: msg.ph, ax: msg.ax, ay: msg.ay, bx: msg.bx, by: msg.by, sp: msg.sp, items: Array.isArray(msg.items) ? msg.items.slice(0, 12) : [], n: msg.n }, id)
     } else if (msg.t === 'capture') {
       broadcast(joinedRoom, { t: 'capture', id, target: msg.target, kind: msg.kind, eid: msg.eid }, id)   // net stole a peer's collidable
+    } else if (msg.t === 'col-dmg') {
+      broadcast(joinedRoom, { t: 'col-dmg', id, target: msg.target, kind: msg.kind, eid: msg.eid, dmg: msg.dmg }, id)   // interceptor/collidable damaged a peer's projectile
     } else if (msg.t === 'healall') {
       broadcast(joinedRoom, { t: 'healall', id }, id)   // dev restored everyone's cat HP
     } else if (msg.t === 'peace') {
