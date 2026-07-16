@@ -70,7 +70,7 @@ wss.on('connection', (ws, req) => {
     if (!me) return
 
     if (msg.t === 'pos') {
-      broadcast(joinedRoom, { t: 'pos', id, nx: msg.nx, ny: msg.ny, taps: msg.taps, hp: msg.hp, away: msg.away }, id)
+      broadcast(joinedRoom, { t: 'pos', id, nx: msg.nx, ny: msg.ny, taps: msg.taps, hp: msg.hp, away: msg.away, safe: msg.safe }, id)
     } else if (msg.t === 'pulse' && (msg.kind === 'key' || msg.kind === 'mouse')) {
       broadcast(joinedRoom, { t: 'pulse', id, kind: msg.kind }, id)
     } else if (msg.t === 'throw') {
@@ -107,10 +107,20 @@ wss.on('connection', (ws, req) => {
       broadcast(joinedRoom, { t: 'kill', id, kind: msg.kind, by: msg.by, amt: msg.amt }, id)   // credit a destroy to the killer
     } else if (msg.t === 'human') {
       broadcast(joinedRoom, { t: 'human', id, active: msg.active, nx: msg.nx, ny: msg.ny, hp: msg.hp, weapon: msg.weapon, face: msg.face }, id)
+    } else if (msg.t === 'mecha') {
+      broadcast(joinedRoom, { t: 'mecha', id, active: msg.active, nx: msg.nx, ny: msg.ny, hp: msg.hp, face: msg.face, shield: msg.shield, form: msg.form, thr: msg.thr, ch: msg.ch, chg: msg.chg, sdep: msg.sdep, snx: msg.snx, sny: msg.sny, sang: msg.sang }, id)
+    } else if (msg.t === 'mecha-transform') {
+      broadcast(joinedRoom, { t: 'mecha-transform', id }, id)
+    } else if (msg.t === 'mshells' && Array.isArray(msg.list)) {
+      broadcast(joinedRoom, { t: 'mshells', id, list: msg.list.slice(0, 48) }, id)
     } else if (msg.t === 'net') {
       broadcast(joinedRoom, { t: 'net', id, active: msg.active, ph: msg.ph, ax: msg.ax, ay: msg.ay, bx: msg.bx, by: msg.by, sp: msg.sp, items: Array.isArray(msg.items) ? msg.items.slice(0, 12) : [], n: msg.n }, id)
     } else if (msg.t === 'capture') {
       broadcast(joinedRoom, { t: 'capture', id, target: msg.target, kind: msg.kind, eid: msg.eid }, id)   // net stole a peer's collidable
+    } else if (msg.t === 'healall') {
+      broadcast(joinedRoom, { t: 'healall', id }, id)   // dev restored everyone's cat HP
+    } else if (msg.t === 'peace') {
+      broadcast(joinedRoom, { t: 'peace', id, on: msg.on }, id)   // dev toggled peace mode (weapons locked for all)
     } else if (msg.t === 'hbullets' && Array.isArray(msg.list)) {
       broadcast(joinedRoom, { t: 'hbullets', id, list: msg.list.slice(0, 30) }, id)
     } else if (msg.t === 'bolt') {

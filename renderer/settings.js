@@ -4,13 +4,36 @@
   const $ = (id) => document.getElementById(id)
   const inName = $('in-name'), inSkin = $('in-skin'), inPattern = $('in-pattern'), inHat = $('in-hat')
   const inEar = $('in-ear'), inEye = $('in-eye'), inMouth = $('in-mouth'), inTail = $('in-tail')
-  const inEdit = $('in-edit'), inServer = $('in-server'), inRoom = $('in-room')
+  const inEdit = $('in-edit'), inServer = $('in-server'), inRoom = $('in-room'), inSafe = $('in-safe')
   const btnConnect = $('btn-connect'), btnDisconnect = $('btn-disconnect')
   const statusEl = $('status'), capacityEl = $('capacity')
 
   if (!api) { statusEl.textContent = '이 창은 홍고캣 앱에서 열어야 합니다'; return }
 
   let ready = false
+
+  // ---------- configurable slot hotkeys ----------
+  const kbMod = $('kb-mod'), kbKeys = [$('kb-key-0'), $('kb-key-1'), $('kb-key-2')], kbReset = $('kb-reset')
+  let kb = { mod: 'alt', keys: ['Z', 'X', 'C'] }
+  let kbCapturing = null
+  function keyName(code) {
+    if (/^Key[A-Z]$/.test(code)) return code.slice(3)
+    if (/^Digit[0-9]$/.test(code)) return code.slice(5)
+    if (/^F\d{1,2}$/.test(code)) return code
+    return null
+  }
+  function renderKb() { kbMod.value = kb.mod; kbKeys.forEach((b, i) => { if (kbCapturing !== i) b.textContent = kb.keys[i] || '?' }) }
+  function sendKb() { api.toOverlay({ t: 'keybinds', mod: kb.mod, keys: kb.keys }) }
+  kbMod.onchange = () => { kb.mod = kbMod.value; sendKb() }
+  kbKeys.forEach((b, i) => { b.onclick = () => { kbCapturing = i; b.textContent = '…'; b.classList.add('capturing') } })
+  window.addEventListener('keydown', (e) => {
+    if (kbCapturing == null) return
+    e.preventDefault(); e.stopPropagation()
+    const idx = kbCapturing, name = e.code === 'Escape' ? null : keyName(e.code)
+    if (name && !kb.keys.some((k, j) => k === name && j !== idx)) kb.keys[idx] = name   // ignore duplicates
+    kbCapturing = null; kbKeys[idx].classList.remove('capturing'); renderKb(); if (name) sendKb()
+  }, true)
+  kbReset.onclick = () => { kb = { mod: 'alt', keys: ['Z', 'X', 'C'] }; renderKb(); sendKb() }
 
   api.onState((s) => {
     // don't stomp fields the user is editing; only sync when values differ meaningfully
@@ -32,6 +55,7 @@
     if (document.activeElement !== inMouth) inMouth.value = sh.mouth || 'smile'
     if (document.activeElement !== inTail) inTail.value = sh.tail || 'curl'
     inEdit.checked = !!s.editing
+    if (inSafe && document.activeElement !== inSafe) inSafe.checked = !!s.safeMode
     if (document.activeElement !== inServer) inServer.value = s.server || 'ws://localhost:8787'
     if (document.activeElement !== inRoom) inRoom.value = s.room || ''
     statusEl.textContent = s.status || ''
@@ -45,6 +69,7 @@
     // platform tool: offline → anyone; online → host only. Hide only when connected & not host.
     const ht = $('host-tools'); if (ht) ht.classList.toggle('hidden', !s.isDev)   // platform tool = developer-only
     // (achievements moved out of settings → dedicated 🏆 button under the shop button in the overlay)
+    if (s.keybinds && kbCapturing == null) { kb = { mod: s.keybinds.mod || 'alt', keys: (s.keybinds.keys || ['Z', 'X', 'C']).slice(0, 3) }; renderKb() }
     ready = true
   })
 
@@ -63,6 +88,7 @@
   inMouth.addEventListener('change', sendProfile)
   inTail.addEventListener('change', sendProfile)
   inEdit.addEventListener('change', () => api.toOverlay({ t: 'edit', on: inEdit.checked }))
+  if (inSafe) inSafe.addEventListener('change', () => api.toOverlay({ t: 'safemode', on: inSafe.checked }))
 
   btnConnect.onclick = () => {
     sendProfile()
@@ -72,6 +98,7 @@
   }
   $('platform-mode').onclick = () => api.toOverlay({ t: 'platform-mode' })
   { const pc = $('platform-clear'); if (pc) pc.onclick = () => api.toOverlay({ t: 'platform-clear' }) }
+  { const ha = $('heal-all'); if (ha) ha.onclick = () => api.toOverlay({ t: 'heal-all' }) }
 
   btnDisconnect.onclick = () => api.toOverlay({ t: 'disconnect' })
   $('btn-monitor').onclick = () => api.toOverlay({ t: 'next-monitor' })

@@ -77,10 +77,13 @@
   let destroyRewarded = localStorage.getItem('destroyRewarded') === '1'
   // achievements: destroy an enemy's gatling / human 10 times → 10,000 counts each
   const GAT_KILL_GOAL = 10, HUMAN_KILL_GOAL = 10, KILL_REWARD = 10000
+  const MECHA_KILL_GOAL = 10, MECHA_KILL_REWARD = 15000                      // destroy 10 enemy ant mechas → 15,000
   let gatKills = parseInt(localStorage.getItem('gatKills') || '0', 10) || 0
   let gatKillRewarded = localStorage.getItem('gatKillRewarded') === '1'
   let humanKills = parseInt(localStorage.getItem('humanKills') || '0', 10) || 0
   let humanKillRewarded = localStorage.getItem('humanKillRewarded') === '1'
+  let mechaKills = parseInt(localStorage.getItem('mechaKills') || '0', 10) || 0
+  let mechaKillRewarded = localStorage.getItem('mechaKillRewarded') === '1'
   // black hole usable if you're the host OR you've earned the achievement
   // ---------- shop / ownership ----------
   // Every weapon except the basic missile must be PURCHASED in the shop, spending the counter
@@ -168,6 +171,12 @@
     pushState() {}, quit() { window.close() }
   }
 
+  // ---------- user-configurable slot hotkeys (settings → 단축키) ----------
+  const DEFAULT_KEYBINDS = { mod: 'alt', keys: ['Z', 'X', 'C'] }
+  let keybinds = DEFAULT_KEYBINDS
+  try { const kb = JSON.parse(localStorage.getItem('keybinds') || 'null'); if (kb && Array.isArray(kb.keys) && kb.keys.length) keybinds = { mod: kb.mod || 'alt', keys: kb.keys.slice(0, 3) } } catch {}
+  if (inputSource.setKeybinds) inputSource.setKeybinds(keybinds)   // tell main which physical keys to watch
+
   // ---------- counter ----------
   const counterEl = document.getElementById('counter')
   let tapCount = parseInt(localStorage.getItem('taps') || '0', 10) || 0
@@ -196,7 +205,7 @@
     bar.appendChild(f); setTimeout(() => f.remove(), 1300)
     if (counterEl) { counterEl.classList.add('loss-flash'); setTimeout(() => counterEl.classList.remove('loss-flash'), 800) }
   }
-  const KILL_COUNT = { ant: 10, human: 200, gat: 300 }   // count reward for destroying each; owner loses the same
+  const KILL_COUNT = { ant: 10, human: 200, gat: 300, mecha: 300, mechahuman: 500 }   // reward per destroy; owner loses the same (mecha human-form = 500)
   function rewardKill(kind, amt) {   // I destroyed a peer's ant/human/gatling → +count
     const n = amt || KILL_COUNT[kind] || 0; if (!n) return
     tapCount += n; counterDirty = true; renderCounter(); showCreditPop(n)
@@ -390,7 +399,8 @@
     { key: 'cathit', name: '🎯 저격수', desc: '상대 고양이를 미사일로 500회 타격', reward: CAT_HIT_REWARD, cur: () => catHits, goal: CAT_HIT_GOAL, done: () => catHitRewarded },
     { key: 'destroy', name: '💥 완전 파괴', desc: '내 캐릭터 체력이 0이 되어 완전 파괴 5회', reward: DESTROY_REWARD, cur: () => destroyCount, goal: DESTROY_GOAL, done: () => destroyRewarded },
     { key: 'gat', name: '🔫 게틀링 파괴자', desc: '상대 게틀링건 10회 파괴', reward: KILL_REWARD, cur: () => gatKills, goal: GAT_KILL_GOAL, done: () => gatKillRewarded },
-    { key: 'human', name: '🕺 인간 사냥꾼', desc: '상대 인간 10회 파괴', reward: KILL_REWARD, cur: () => humanKills, goal: HUMAN_KILL_GOAL, done: () => humanKillRewarded }
+    { key: 'human', name: '🕺 인간 사냥꾼', desc: '상대 인간 10회 파괴', reward: KILL_REWARD, cur: () => humanKills, goal: HUMAN_KILL_GOAL, done: () => humanKillRewarded },
+    { key: 'mecha', name: '🐜🤖 메카 파괴자', desc: '상대 메카 개미(개미형·인간형) 10회 처치', reward: MECHA_KILL_REWARD, cur: () => mechaKills, goal: MECHA_KILL_GOAL, done: () => mechaKillRewarded }
   ]
   function renderAchv() {
     if (!achvListEl) return
@@ -428,10 +438,10 @@
   window.addEventListener('mousemove', (e) => { if (achvDrag) { achvPos = { x: e.clientX - achvDrag.dx, y: e.clientY - achvDrag.dy }; positionAchv() } })
   window.addEventListener('mouseup', () => { achvDrag = null })
 
-  // ---------- 🖌️ HOST platform tool: brush strokes that become floor (HP 10) ----------
+  // ---------- 🖌️ HOST platform tool: brush strokes that become floor (HP 30) ----------
   // Multiplayer: the HOST is authoritative. It broadcasts the platform list (t:'platforms') and the
   // live stroke (t:'platdraw'); peers render + collide against them, and report hits via t:'plat-hit'.
-  const PLAT_HP = 10
+  const PLAT_HP = 30
   const platforms = []                 // { id, pts:[{x,y}], hp }
   let platformMode = false, curStroke = null
   let nextPlatId = 1
@@ -466,8 +476,13 @@
     for (let i = 0; i + 1 < p.length; i += 2) pts.push({ x: p[i] * W, y: p[i + 1] * H })
     return pts
   }
-  // y of a platform surface directly under x that an entity descending (prevY→feetY) lands on
+  // y of the platform surface directly under x that an entity should stand on. Robust on hand-drawn,
+  // uneven strokes: instead of requiring a pixel-perfect "descending onto it", we snap to the highest
+  // surface within a step tolerance both above (step up small rises) and below (land from a fall) the
+  // feet — so walking along a wavy line no longer falls through where the line rises ahead.
   function platformFloorAt(x, feetY, prevY) {
+    const STEP = 14 * view.scale
+    let best = null
     for (const pl of platforms) {
       const p = pl.pts
       for (let i = 1; i < p.length; i++) {
@@ -475,10 +490,11 @@
         if (x < Math.min(a.x, b.x) || x > Math.max(a.x, b.x)) continue
         const tt = (b.x - a.x) ? (x - a.x) / (b.x - a.x) : 0
         const segY = a.y + (b.y - a.y) * tt
-        if (prevY <= segY + 2 && feetY >= segY) return segY
+        // land if the feet are near the surface (fell onto it OR stepping up a small rise)
+        if (feetY >= segY - STEP && prevY <= segY + STEP) { if (best == null || segY < best) best = segY }
       }
     }
-    return null
+    return best
   }
   function drawPlatforms() {
     const ghost = curStroke || remoteDrawStroke
@@ -507,6 +523,96 @@
     if (!isDev) return
     platforms.length = 0; curStroke = null; platHpDirty.clear(); platformsDirty = true
     showToast('🗑️ 플랫폼 전체 삭제')
+  }
+
+  // ---------- 🕊️ PEACE MODE (developer toggle on the character) ----------
+  // Clears every summon + restores the taskbar, and LOCKS all weapons for everyone (dev included).
+  // Broadcast to the room; while on, each character shows a 🕊️ badge so peers know why nothing fires.
+  let peaceMode = false
+  const peaceBtn = document.getElementById('btn-peace')
+  function clearMySummons() {
+    projectiles.length = 0; ants.length = 0; gbullets.length = 0; hbullets.length = 0; bolts.length = 0
+    energyShots.length = 0; interceptors.length = 0; mechaShells.length = 0
+    if (me.gatActive) setGat(false)
+    if (me.humanActive) removeHuman()
+    if (me.mechaActive) removeMecha()
+    me.mechaMerging = false
+    me.netActive = false; me.netAiming = false; me.netPulling = false; me.netCaught = []
+    me.bhUntil = 0; me.shieldUntil = 0
+  }
+  function setPeace(on, fromRemote) {
+    peaceMode = !!on
+    if (peaceMode) { clearMySummons(); if (!fromRemote) resetTaskbarDig(true) }   // dev's restore broadcasts digreset to all
+    if (!fromRemote && connected() && net) net.send(JSON.stringify({ t: 'peace', on: peaceMode ? 1 : 0 }))
+    if (peaceBtn) { peaceBtn.classList.toggle('on', peaceMode); peaceBtn.textContent = peaceMode ? '🔓' : '🔒' }
+    showToast(peaceMode ? '🔒 전체 무기 잠금 ON — 모두 무기 사용 불가 · 소환체/작업표시줄 초기화' : '전체 무기 잠금 OFF')
+  }
+  function togglePeace() { if (!isDev) return; setPeace(!peaceMode, false) }
+  if (peaceBtn) peaceBtn.onclick = togglePeace
+  function positionPeace() {
+    if (wx == null || !peaceBtn) return
+    if (!isDev) { peaceBtn.classList.add('hidden'); return }   // developer-only control
+    peaceBtn.classList.remove('hidden')
+    peaceBtn.style.left = (wx + cellPxW - 30) + 'px'
+    peaceBtn.style.top = (wy + 2 + 68) + 'px'   // directly below the achievements button
+  }
+  // 👁 dim opponents — PER-PEER: each opponent gets a small 👁 button by their head; clicking it
+  // fades THAT player's character + weapons on my screen only. (No button on my own cat.)
+  const DIM_A = 0.28
+  const dimmedPeers = new Set()          // peer ids I've chosen to fade
+  let peerDimBtns = []                   // per-frame [{ pid, x, y, r }] hit targets (also fed to the hotzone)
+  function peerAlpha(pid) { return dimmedPeers.has(pid) ? DIM_A : 1 }
+  function toggleDimPeer(pid) { if (dimmedPeers.has(pid)) dimmedPeers.delete(pid); else dimmedPeers.add(pid) }
+  function drawPeerDimButtons(now) {
+    peerDimBtns = []
+    const R = 12 * view.scale
+    for (let i = 0; i < catPos.length; i++) {
+      const cat = allRef[i]; if (!cat || cat.id === 'me') continue   // opponents only
+      const c = catPos[i]; if (!c) continue
+      const bx = c.x + 34 * view.scale, by = c.y - 34 * view.scale   // up-right of the peer's head
+      peerDimBtns.push({ pid: cat.id, x: bx, y: by, r: R })
+      const dimmed = dimmedPeers.has(cat.id)
+      ctx.save(); ctx.beginPath(); ctx.arc(bx, by, R, 0, Math.PI * 2)
+      ctx.fillStyle = dimmed ? 'rgba(58,90,134,0.95)' : 'rgba(42,42,52,0.9)'; ctx.fill()
+      ctx.strokeStyle = dimmed ? 'rgba(120,180,255,0.9)' : 'rgba(200,205,220,0.5)'; ctx.lineWidth = 1.5 * view.scale; ctx.stroke()
+      ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `${13 * view.scale}px sans-serif`
+      ctx.fillText(dimmed ? '🚫' : '👁', bx, by + 0.5 * view.scale)
+      ctx.restore()
+    }
+  }
+  function hitPeerDimButton(x, y) { for (const b of peerDimBtns) if (Math.hypot(x - b.x, y - b.y) <= b.r + 3) return b; return null }
+  // 🕊️ SAFE MODE (settings toggle): a 9999-HP honeycomb dome wraps my cat (invincible), but I can't
+  // use weapons while it's on — a "leave it running safely" mode. Broadcast so peers see the dome.
+  me.safeMode = localStorage.getItem('safeMode') === '1'
+  function setSafeMode(on) {
+    me.safeMode = !!on; localStorage.setItem('safeMode', on ? '1' : '0')
+    if (me.safeMode) clearMySummons()   // drop my weapons when entering the pacifist dome
+    showToast(me.safeMode ? '🕊️ 평화 모드 — 무적 쉴드 ON (무기 사용 불가)' : '평화 모드 OFF')
+    pushState()
+  }
+  function weaponsLocked() { return peaceMode || me.safeMode }   // dev whole-room lock OR my personal safe mode
+  function drawSafeDomes(now) {   // honeycomb dome around me + any peer in safe mode
+    for (let i = 0; i < catPos.length; i++) {
+      const cat = allRef[i], c = catPos[i]; if (!c) continue
+      const on = cat.id === 'me' ? me.safeMode : !!cat.safe
+      if (!on) continue
+      const r = 108 * view.scale, cyb = c.y + 30 * view.scale   // snug around the cat (base at its feet)
+      ctx.save(); if (cat.id !== 'me') ctx.globalAlpha = peerAlpha(cat.id)
+      drawHexDome(c.x, cyb, r, 1, now, true)
+      ctx.restore()
+    }
+  }
+  function drawPeaceBadges(now) {   // 🕊️ above every character while peace mode locks weapons
+    const s = view.scale
+    ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+    for (const c of catPos) {
+      if (!c) continue
+      const by = c.y - 64 * s + Math.sin(now / 400 + c.x * 0.01) * 3 * s
+      ctx.globalAlpha = 0.9; ctx.fillStyle = 'rgba(120,40,40,0.85)'
+      ctx.beginPath(); ctx.roundRect(c.x - 16 * s, by - 12 * s, 32 * s, 23 * s, 8 * s); ctx.fill()
+      ctx.globalAlpha = 1; ctx.font = `${16 * s}px sans-serif`; ctx.fillText('🔒', c.x, by)
+    }
+    ctx.restore()
   }
 
   let net = null, sendBudget = 0, budgetRefill = performance.now()
@@ -563,11 +669,11 @@
         }
         for (const id of [...peers.keys()]) if (!seen.has(id)) peers.delete(id)
         // drop any remote entities belonging to peers who left (no lingering state)
-        for (const m of [remoteMissiles, remoteShields, remoteAnts, remoteBlackholes, remoteGatlings, remoteGBullets, remoteHumans, remoteHbullets, remoteNets])
+        for (const m of [remoteMissiles, remoteShields, remoteAnts, remoteBlackholes, remoteGatlings, remoteGBullets, remoteHumans, remoteHbullets, remoteNets, remoteMechas, remoteMShells])
           for (const id of [...m.keys()]) if (!seen.has(id)) m.delete(id)
         pushState()   // reflect the new count in the settings window
       }
-      else if (msg.t === 'pos') { const p = peers.get(msg.id); if (p) { p.nx = msg.nx; p.ny = msg.ny; p.taps = msg.taps; if (msg.hp != null) p.hp = msg.hp; p.away = !!msg.away } }
+      else if (msg.t === 'pos') { const p = peers.get(msg.id); if (p) { p.nx = msg.nx; p.ny = msg.ny; p.taps = msg.taps; if (msg.hp != null) p.hp = msg.hp; p.away = !!msg.away; p.safe = !!msg.safe } }
       else if (msg.t === 'pulse') { const p = peers.get(msg.id); if (p) pulse(p, msg.kind) }
       else if (msg.t === 'chat') { const p = peers.get(msg.id); if (p) showBubble(p, String(msg.text)) }
       else if (msg.t === 'throw') { const src = targetOf(msg.id); launch('me', src ? { from: src } : {}) }
@@ -596,6 +702,7 @@
       }
       else if (msg.t === 'dig') { carveTaskbar((msg.nx || 0) * canvas.clientWidth, msg.power || 1, false) }  // shared taskbar damage
       else if (msg.t === 'digreset') { resetTaskbarDig(false) }   // someone restored → everyone restores
+      else if (msg.t === 'peace') { setPeace(!!msg.on, true) }    // dev toggled peace mode → lock/unlock weapons for me too
       else if (msg.t === 'gatling') {
         if (msg.active) remoteGatlings.set(msg.id, { nx: msg.nx, ny: msg.ny, hp: msg.hp, ang: msg.ang })
         else remoteGatlings.delete(msg.id)
@@ -605,17 +712,23 @@
       else if (msg.t === 'kill') {
         if (msg.by === me.netId) {
           if (msg.kind === 'cat') rewardCatDestroy()
-          else { rewardKill(msg.kind, msg.amt); if (msg.kind === 'gat') addGatKill(); else if (msg.kind === 'human') addHumanKill() }
+          else { rewardKill(msg.kind, msg.amt); if (msg.kind === 'gat') addGatKill(); else if (msg.kind === 'human') addHumanKill(); else if (msg.kind === 'mecha' || msg.kind === 'mechahuman') addMechaKill() }
         }
       }
       else if (msg.t === 'human') {
         if (msg.active) remoteHumans.set(msg.id, { nx: msg.nx, ny: msg.ny, hp: msg.hp, weapon: msg.weapon || '', face: msg.face || 1 })
         else remoteHumans.delete(msg.id)
       }
+      else if (msg.t === 'mecha') {
+        if (msg.active) remoteMechas.set(msg.id, { nx: msg.nx, ny: msg.ny, hp: msg.hp, face: msg.face || 1, shield: msg.shield || 0, form: msg.form || 0, thr: msg.thr || 0, ch: msg.ch || 0, chg: msg.chg || 0, sdep: msg.sdep || 0, snx: msg.snx, sny: msg.sny, sang: msg.sang || 0 })
+        else remoteMechas.delete(msg.id)
+      }
+      else if (msg.t === 'mshells') { mergeRemote(remoteMShells, msg.id, msg.list, 'nx', 'ny') }
       else if (msg.t === 'net') {
         if (msg.active) remoteNets.set(msg.id, { ph: msg.ph, ax: msg.ax, ay: msg.ay, bx: msg.bx, by: msg.by, sp: msg.sp, items: msg.items || [], n: msg.n || 0, ts: performance.now() })
         else remoteNets.delete(msg.id)
       }
+      else if (msg.t === 'healall') { resetCatHp(); showToast('🩹 개발자가 전체 체력을 회복했습니다'); pushState() }
       else if (msg.t === 'capture') {   // a peer's net grabbed one of MY collidables → remove it here
         if (msg.target === me.netId) {
           let arr = null, key = 'id'
@@ -629,7 +742,7 @@
       else if (msg.t === 'hbullets') { mergeRemote(remoteHbullets, msg.id, msg.list, 'nx', 'ny') }
       else if (msg.t === 'error' && msg.reason === 'room_full') { setStatus('방이 가득 찼어요'); ws.close() }
     }
-    ws.onclose = () => { if (net === ws) { net = null; peers.clear(); remoteAnts.clear(); remoteBlackholes.clear(); remoteGatlings.clear(); remoteGBullets.clear(); remoteHumans.clear(); remoteHbullets.clear(); remoteNets.clear(); remoteDrawStroke = null; if (platformsAreRemote) { platforms.length = 0; platformsAreRemote = false }; me.netId = undefined; roomCount = 0; setStatus('오프라인 — 혼자 연주 중') } }
+    ws.onclose = () => { if (net === ws) { net = null; peers.clear(); remoteAnts.clear(); remoteBlackholes.clear(); remoteGatlings.clear(); remoteGBullets.clear(); remoteHumans.clear(); remoteHbullets.clear(); remoteNets.clear(); remoteMechas.clear(); remoteMShells.clear(); remoteDrawStroke = null; if (platformsAreRemote) { platforms.length = 0; platformsAreRemote = false }; me.netId = undefined; roomCount = 0; setStatus('오프라인 — 혼자 연주 중') } }
     ws.onerror = () => setStatus('접속 실패')
   }
   function disconnect() {
@@ -678,9 +791,9 @@
       name: me.name, skin: me.skin, pattern: me.pattern, hat: me.hat, shape: Object.assign({}, me.shape), slots: me.slots,
       server: localStorage.getItem('server') || 'ws://localhost:8787',
       room: localStorage.getItem('room') || '',
-      connected: connected(), status, editing,
+      connected: connected(), status, editing, safeMode: me.safeMode,
       count: connected() ? roomCount : 0, max: roomMax,
-      antKills, antGoal: ANT_KILL_GOAL, isHost, isDev, bhAvailable: bhAvailable(),
+      antKills, antGoal: ANT_KILL_GOAL, isHost, isDev, bhAvailable: bhAvailable(), keybinds,
       catHits, catHitGoal: CAT_HIT_GOAL, catHitReward: CAT_HIT_REWARD, catHitRewarded,
       destroys: destroyCount, destroyGoal: DESTROY_GOAL, destroyReward: DESTROY_REWARD, destroyRewarded, hp: me.hp,
       ownedHats: [...ownedHats]
@@ -705,8 +818,9 @@
     else if (msg.t === 'connect') { connect(msg.url, msg.room) }
     else if (msg.t === 'disconnect') { disconnect(); setStatus('오프라인 — 혼자 연주 중') }
     else if (msg.t === 'edit') { setEditing(!!msg.on) }
+    else if (msg.t === 'safemode') { setSafeMode(!!msg.on) }
     else if (msg.t === 'chat') { openChat() }
-    else if (msg.t === 'boost') { if (!platformMode && !me.netAiming && !me.netActive) boostMissiles() }   // net owns the click while aiming/held
+    else if (msg.t === 'boost') { if (!weaponsLocked() && !platformMode && !me.netAiming && !me.netActive) boostMissiles() }   // net owns the click while aiming/held
     else if (msg.t === 'lmb') {
       const was = lmbDown; lmbDown = !!msg.down
       if (me.netActive) { if (lmbDown && !was) releaseNet() }              // held net → click releases (fling)
@@ -721,10 +835,35 @@
     }
     else if (msg.t === 'platform-mode') { togglePlatformMode() }
     else if (msg.t === 'platform-clear') { clearPlatforms() }
-    else if (msg.t === 'human-key') {
-      if (msg.down) { if (!humanKeys.has(msg.key)) { humanKeys.add(msg.key); if (msg.key === 'q' && me.humanActive) humanAttack() } }   // Q = attack (aims at cursor)
-      else { humanKeys.delete(msg.key); if (msg.key === 'q' && me.humanActive) humanRelease() }
+    else if (msg.t === 'heal-all') {   // dev: restore every connected player's cat HP
+      if (isDev) { resetCatHp(); showToast('🩹 전체 체력 회복'); if (connected() && net) net.send(JSON.stringify({ t: 'healall' })); pushState() }
     }
+    else if (msg.t === 'keybinds') {
+      if (msg.keys && msg.keys.length) {
+        keybinds = { mod: msg.mod || 'alt', keys: msg.keys.slice(0, 3) }
+        localStorage.setItem('keybinds', JSON.stringify(keybinds))
+        if (inputSource.setKeybinds) inputSource.setKeybinds(keybinds)
+        pushState()
+      }
+    }
+    else if (msg.t === 'human-key') {
+      if (msg.down) {
+        if (!humanKeys.has(msg.key)) {
+          humanKeys.add(msg.key)
+          if (msg.key === 'q') {
+            if (weaponsLocked()) { /* weapons locked */ }
+            else if (me.humanActive) humanAttack()                              // human attack
+            else if (me.mechaActive) { me.mechaCharging = true; me.mechaChargeStart = performance.now(); me.mechaCharge = 0 }   // mecha cannon / energy charge
+            else if (!me.gatActive && antMax() >= 10 && ants.filter((a) => !a.dead && !a.falling).length >= 10) mergeAntsToMecha()   // 10 ants → merge
+          } else if (msg.key === 'r' && !weaponsLocked() && me.mechaActive && (me.mechaForm || 0) >= 0.5 && !me.mechaTransforming) fireInterceptors(performance.now())   // human-form R: interceptors
+          else if (msg.key === 'e' && me.mechaActive && !me.humanActive) toggleMechaShield()   // mecha: E places/retracts the shield (toggle)
+        }
+      } else {
+        humanKeys.delete(msg.key)
+        if (msg.key === 'q') { if (me.humanActive) humanRelease(); else if (me.mechaActive && me.mechaCharging) { me.mechaCharging = false; const t = performance.now(); if (weaponsLocked()) { /* locked */ } else if ((me.mechaForm || 0) >= 0.5) fireEnergyCannon(t); else if (t >= (me.mechaShellCd || 0)) { fireMechaShell(t); me.mechaShellCd = t + MSHELL_CD } } }
+      }
+    }
+    else if (msg.t === 'mecha-transform') { if (me.mechaActive) startMechaTransform(performance.now()) }
     else if (msg.t === 'fire-missile') { fireWeapon('missile') }
     else if (msg.t === 'fire-slot') {
       const id = me.slots[(msg.slot || 1) - 1] || 'none'
@@ -749,10 +888,10 @@
     updateToast.textContent = text
     updateToast.classList.remove('hidden')
     clearTimeout(updateToastTimer)
-    updateToastTimer = setTimeout(() => updateToast.classList.add('hidden'), ms || 30000)
+    updateToastTimer = setTimeout(() => updateToast.classList.add('hidden'), ms || 2400)   // quick auto-dismiss
   }
   function showUpdateToast(version) {
-    showToast(`🎉 새 버전${version ? ' v' + version : ''} 준비됨 · 앱 재시작 시 적용`)
+    showToast(`🎉 새 버전${version ? ' v' + version : ''} 준비됨 · 앱 재시작 시 적용`, 8000)   // keep the update notice up longer
   }
 
   // ---------- edit mode (drag feature positions) ----------
@@ -884,6 +1023,7 @@
 
   // fire the weapon assigned to a slot (extensible)
   function fireWeapon(id) {
+    if (weaponsLocked()) { showToast(me.safeMode ? '🕊️ 평화 모드 — 무기 사용 불가' : '🔒 무기 잠금 중'); return }
     if (!weaponUsable(id)) { showToast(`🛒 ${WEAPONS[id] || '이 무기'}은(는) 상점에서 먼저 구매하세요`); return }
     if (id === 'missile') fireHoming()
     else if (id === 'shield') activateShield()
@@ -1042,7 +1182,7 @@
 
   // ---------- 🕸️ 그물 (net) — cast (투망) from the hotkey spot, spread open to trap collidables, then a cursor pendulum ----------
   const NET_LEN = 130                                   // rope length (held phase; long → big swings)
-  const NET_GRAV = 0.5, NET_DAMP = 0.97, NET_COUPLE = 0.25   // cursor motion couples into the bob (light + builds momentum); damping caps the top speed
+  const NET_GRAV = 0.5, NET_DAMP = 0.97, NET_COUPLE = 0.17   // cursor motion couples into the bob (light + builds momentum); damping caps the top speed
   const NET_R = 40, NET_CAP = 20                        // held pouch radius + capacity
   const NET_MAX_PULL = 260, NET_FLING = 1.35, NET_KILL_SPEED = 9   // fling strength; ≥ NET_KILL_SPEED (×scale) → dies on ground impact
   const NET_MIN_RANGE = 60, NET_RANGE_SPAN = 360        // cast distance (px, pre-scale) scaled by pull power
@@ -1244,6 +1384,7 @@
     const W = canvas.clientWidth, H = canvas.clientHeight, s = view.scale
     for (const [pid, r] of [...remoteNets]) {
       if (now - r.ts > 500) { remoteNets.delete(pid); continue }
+      ctx.globalAlpha = peerAlpha(pid)
       const bx = r.bx * W, by = r.by * H, ax = r.ax * W, ay = r.ay * H, R = Math.max(6 * s, (r.sp || 0.03) * W)
       ctx.save(); ctx.lineCap = 'round'
       ctx.strokeStyle = 'rgba(210,222,236,0.85)'; ctx.lineWidth = 2 * s; ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke()
@@ -1261,6 +1402,7 @@
     if (me.humanActive) { removeHuman(); return }   // fire again → dismiss (no charge)
     if (!spendCoins(USE_COST.human)) { showToast(`🪙 인간 소환 비용 ${USE_COST.human} 부족`); return }
     if (me.gatActive) setGat(false)                 // gatling + human are mutually exclusive
+    if (me.mechaActive) removeMecha()               // mecha too
     me.humanActive = true
     me.humanX = cursor.x; me.humanY = antGroundY(cursor.x) - 1
     me.humanVX = 0; me.humanVY = 0; me.humanFace = 1; me.humanGround = true
@@ -1352,6 +1494,7 @@
   const SWING_MS = 140, SLASH_MIN = 0.35   // fast swing; min charge to release a 검기
   function humanAttack() {   // left-click DOWN
     if (!me.humanActive) return
+    if (weaponsLocked()) return
     if (humanTryPickup()) return                 // near a ground weapon → pick it up
     const now = performance.now(), wk = me.humanWeapon
     if (wk === 'sword') { me.charging = true; me.chargeKind = 'sword'; me.chargeStart = now; me.charge = 0; return }  // hold to charge
@@ -1662,6 +1805,508 @@
     }
   }
 
+  // ---------- 🐜🤖 ant MECHA — merge 10 ants (Q) into a big metal ant with a back cannon + dome shield ----------
+  // Controlled like the human (WASD). Q = charge→ballistic ant shell. E = protoss-style dome shield.
+  // Drawn from separable parts (via `form` 0=ant … 1=human) so a future upgrade can animate a transform.
+  const MECHA_HP = 25, MECHA_SCALE = 2.72, MECHA_SPEED = 2.8, MECHA_JUMP = 13, MECHA_GRAV = 0.62   // 80% of the original size
+  const MSHIELD_HP = 10, MSHIELD_BREAK_MS = 5000, MSHIELD_REGEN = 2 / 60   // per frame (~+2/sec)
+  const MECHA_CHARGE_MS = 900                                             // Q hold → launch distance (not damage)
+  const MSHELL_MIN = 7, MSHELL_MAX = 22, MSHELL_GRAV = 0.34, MSHELL_DMG = 5, MSHELL_HP = 5, MSHELL_CD = 500   // 0.5s between cannon shells
+  // ---- 🤖 human form (transform with Ctrl+`) ----
+  const TRANSFORM_MS = 950, TRANSFORM_CD = 20000
+  const HF_THRUST = 0.95, HF_MAXUP = 5.5, HF_MAXFALL = 8   // booster flight (per view.scale); MAXUP tamed so it doesn't rocket up
+  const ECANNON_MS = 1000, ECANNON_SPD = 17, ECANNON_DMG = 10, ECANNON_HP = 10   // Q energy cannon (charge=power, straight, punch-through)
+  const INT_COUNT = 10, INT_CD = 3000, INT_DMG = 1                                // R interceptors
+  const HF_GRAV = 0.42, HF_HSPD = 4.2, HF_DOWN = 6, HF_LIFT = 1.5   // booster flight: gravity / horizontal / fast-descend / peak thrust accel (ramps up while held)
+  const energyShots = []            // { x, y, vx, vy, hp, power, born, life }
+  const interceptors = []           // { x, y, vx, vy, born, life }
+  const mechaShells = []            // { x, y, vx, vy, hp, born, life }
+  const remoteMechas = new Map()    // peerId -> { nx, ny, hp, face, shield, form }
+  const remoteMShells = new Map()   // peerId -> { items: Map, ts }  (all mecha projectiles, keyed by kind)
+  let antKeysSent = false           // whether main is currently forwarding WASD/Q/E for the mecha
+  function mechaScale() { return view.scale * MECHA_SCALE }
+  const MERGE_MS = 1100
+  function mergeAntsToMecha() {   // START the magic-circle merge (ants spiral in; the mecha emerges after)
+    const alive = ants.filter((a) => !a.dead && !a.falling)
+    if (alive.length < 10 || antMax() < 10 || me.mechaActive || me.mechaMerging) return
+    if (me.humanActive) removeHuman(); if (me.gatActive) setGat(false)   // exclusive with human/gatling
+    const cx = alive.reduce((s, a) => s + a.x, 0) / alive.length
+    me.mergeSnap = alive.map((a) => ({ x0: a.x, y0: a.y, step: Math.random() * 10 }))
+    ants.length = 0
+    me.mechaMerging = true; me.mechaMergeStart = performance.now(); me.mechaMergeX = cx; me.mechaMergeY = mechaGroundY()
+    showToast('🐜✨ 개미들이 뭉치는 중...')
+  }
+  function spawnMecha(cx, cy) {   // called when the merge animation completes
+    me.mechaMerging = false; me.mechaActive = true
+    me.mechaX = cx; me.mechaY = cy; me.mechaVY = 0; me.mechaFace = 1; me.mechaGround = true
+    me.mechaHp = MECHA_HP; me.mechaHitCd = 0; me.mechaForm = 0
+    me.mechaShieldHp = MSHIELD_HP; me.mechaShieldOn = false; me.mechaShieldBrokenUntil = 0
+    me.mechaCharging = false; me.mechaCharge = 0
+    humanKeys.clear()
+    showToast('🐜🤖 개미 메카 합체! WASD 이동 · Q 대포 · E 쉴드')
+  }
+  function drawMagicCircle(cx, cy, t, now) {   // 그랑죠-style summoning glyph
+    const s = view.scale, R = (10 + t * 46) * s, a = t < 0.85 ? 0.9 : Math.max(0, (1 - t) / 0.15) * 0.9
+    ctx.save(); ctx.translate(cx, cy); ctx.lineCap = 'round'
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, R); g.addColorStop(0, `rgba(180,120,255,${a * 0.35})`); g.addColorStop(0.7, `rgba(120,90,230,${a * 0.18})`); g.addColorStop(1, 'rgba(120,90,230,0)')
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, R, 0, Math.PI * 2); ctx.fill()
+    ctx.strokeStyle = `rgba(200,170,255,${a})`; ctx.lineWidth = 2 * s
+    for (const [rr, dir] of [[R, 1], [R * 0.66, -1]]) {
+      ctx.beginPath(); ctx.arc(0, 0, rr, 0, Math.PI * 2); ctx.stroke()
+      for (let k = 0; k < 12; k++) { const ang = now / 500 * dir + k * Math.PI / 6; ctx.beginPath(); ctx.moveTo(Math.cos(ang) * rr, Math.sin(ang) * rr); ctx.lineTo(Math.cos(ang) * (rr - 5 * s), Math.sin(ang) * (rr - 5 * s)); ctx.stroke() }
+    }
+    ctx.strokeStyle = `rgba(232,214,255,${a})`; ctx.lineWidth = 1.5 * s   // rotating hexagram
+    for (const off of [0, Math.PI / 3]) { ctx.beginPath(); for (let k = 0; k <= 3; k++) { const ang = now / 700 + off + k * 2 * Math.PI / 3, x = Math.cos(ang) * R * 0.82, y = Math.sin(ang) * R * 0.82; k === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y) } ctx.closePath(); ctx.stroke() }
+    ctx.restore()
+  }
+  function stepMechaMerge(now) {
+    if (!me.mechaMerging) return
+    const t = Math.min(1, (now - me.mechaMergeStart) / MERGE_MS), s = view.scale
+    const cx = me.mechaMergeX, cy = me.mechaMergeY, myCol = antColor(me.skin)
+    drawMagicCircle(cx, cy, t, now)
+    for (const a of (me.mergeSnap || [])) {   // ants spiral into the center
+      const k = Math.min(1, t * 1.25), dx0 = a.x0 - cx, dy0 = a.y0 - cy
+      const ang = Math.atan2(dy0, dx0) + (1 - k) * 5, rad = Math.hypot(dx0, dy0) * (1 - k)
+      const ax = cx + Math.cos(ang) * rad, ay = cy + Math.sin(ang) * rad
+      a.step += 0.4; drawAnt({ x: ax, y: ay, dir: cx >= ax ? 1 : -1, step: a.step, hp: 1 }, now, false, myCol)
+    }
+    if (t >= 1) { addEffect(cx, cy - 12 * s, 4); for (let k = 0; k < 12; k++) spawnSpark(cx + (Math.random() - 0.5) * 44 * s, cy - 10 * s); spawnMecha(cx, cy) }
+  }
+  function removeMecha() { me.mechaActive = false; me.mechaMerging = false; me.mechaCharging = false; me.mechaBoost = false; me.mechaTransforming = false; me.mechaThrust = false; me.mechaShieldWant = false; me.mechaShieldDeploy = 0; humanKeys.clear() }
+  function mechaShieldShatter() {
+    const s = mechaScale(), r = 30 * s
+    addEffect(me.mechaX, me.mechaY - 20 * s, 2)
+    for (let k = 0; k < 16; k++) { const a = Math.random() * Math.PI * 2; debris.push({ x: me.mechaX + Math.cos(a) * r, y: me.mechaY - 20 * s + Math.sin(a) * r, vx: Math.cos(a) * 3, vy: Math.sin(a) * 3 - 1, born: performance.now(), life: 400 + Math.random() * 300, sz: 1.6 + Math.random() * 2, color: k % 2 ? 'rgba(120,200,255,0.9)' : 'rgba(180,230,255,0.85)' }) }
+  }
+  function mechaTakeDmg(dmg, now, byId) {
+    if (!me.mechaActive || now < (me.mechaHitCd || 0)) return
+    const s = mechaScale()
+    // the placed shield only protects the mech while it's near/inside it (hide behind the dome)
+    const sdx = me.mechaX - (me.mechaShieldX != null ? me.mechaShieldX : me.mechaX)
+    const sdy = me.mechaY - (me.mechaShieldY != null ? me.mechaShieldY : me.mechaY)
+    const protR = ((me.mechaForm || 0) >= 0.5 ? 52 : 56) * s
+    if (me.mechaShieldOn && me.mechaShieldHp > 0 && me.mechaShieldDeploy > 0.6 && Math.hypot(sdx, sdy) <= protR) {
+      me.mechaShieldHp -= dmg; me.mechaHitCd = now + 150
+      spawnSpark(me.mechaX + (Math.random() - 0.5) * 40 * s, me.mechaY - 22 * s + (Math.random() - 0.5) * 30 * s)
+      if (me.mechaShieldHp <= 0) { me.mechaShieldHp = 0; me.mechaShieldOn = false; me.mechaShieldWant = false; me.mechaShieldBrokenUntil = now + MSHIELD_BREAK_MS; mechaShieldShatter() }
+      return
+    }
+    me.mechaHp -= dmg; me.mechaHitCd = now + 250
+    for (let k = 0; k < 4; k++) spawnSpark(me.mechaX + (Math.random() - 0.5) * 26 * s, me.mechaY - 20 * s)   // metal sparks
+    if (me.mechaHp <= 0) {
+      addEffect(me.mechaX, me.mechaY - 18 * s, 4); spawnDebris(me.mechaX, me.mechaY - 10 * s, 22, '#6a6f7c')
+      creditKill((me.mechaForm || 0) >= 0.5 ? 'mechahuman' : 'mecha', byId)   // human form = 500, ant form = 300
+      removeMecha()
+    }
+  }
+  function fireMechaShell(now) {
+    const s = mechaScale(), ox = me.mechaX, oy = me.mechaY - 28 * s
+    const ang = Math.atan2(cursor.y - oy, cursor.x - ox); me.mechaFace = Math.cos(ang) >= 0 ? 1 : -1
+    const spd = (MSHELL_MIN + (me.mechaCharge || 0) * (MSHELL_MAX - MSHELL_MIN)) * view.scale   // charge = launch power (distance)
+    mechaShells.push({ x: ox + Math.cos(ang) * 20 * s, y: oy + Math.sin(ang) * 20 * s, vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd, hp: MSHELL_HP, born: now, life: 6000 })
+    me.mechaCharge = 0
+  }
+  function startMechaTransform(now) {   // Ctrl+` : animate ant ⇄ human form (HP carries over; 20s cooldown)
+    if (!me.mechaActive || me.mechaMerging || me.mechaTransforming) return
+    if (now < (me.mechaTransformCd || 0)) { showToast(`🔄 변신 쿨타임 ${Math.ceil((me.mechaTransformCd - now) / 1000)}초`); return }
+    me.mechaTransforming = true; me.mechaTransformStart = now; me.mechaTransformCd = now + TRANSFORM_CD
+    me.mechaTransformFrom = me.mechaForm || 0; me.mechaTransformTo = (me.mechaForm || 0) >= 0.5 ? 0 : 1
+    me.mechaCharging = false; me.mechaCharge = 0; me.mechaBoost = false; me.mechaThrust = false
+    showToast(me.mechaTransformTo >= 0.5 ? '🤖 인간형으로 변신! W 부스터 · Q 에너지포 · R 요격 · E 쉴드' : '🐜 개미형으로 복귀!')
+  }
+  function stepMecha(now) {
+    if (!me.mechaActive) return
+    const s = mechaScale(), W = canvas.clientWidth
+    if (me.mechaFalling) {   // fell into a dug-through hole
+      me.mechaFallVy = (me.mechaFallVy || 1) + 0.6 * s; me.mechaY += me.mechaFallVy; drawMecha(now, false)
+      if (me.mechaY > canvas.clientHeight + 60 * s) removeMecha()
+      return
+    }
+    for (const b of activeBlackholes(now)) { const dx = b.x - me.mechaX, dy = b.y - me.mechaY, d = Math.hypot(dx, dy) || 0.001; if (d < BH_CORE * W + 6 * s) { spawnDustToHole(me.mechaX, me.mechaY, b); removeMecha(); return } }
+    // ---- transform animation: control frozen, form interpolates, sparks cover the switch ----
+    if (me.mechaTransforming) {
+      const t = Math.min(1, (now - me.mechaTransformStart) / TRANSFORM_MS)
+      me.mechaForm = me.mechaTransformFrom + (me.mechaTransformTo - me.mechaTransformFrom) * t
+      if (now - (me.mechaTransformSpark || 0) > 55) { me.mechaTransformSpark = now; for (let k = 0; k < 4; k++) spawnSpark(me.mechaX + (Math.random() - 0.5) * 46 * s, me.mechaY - 24 * s + (Math.random() - 0.5) * 46 * s) }
+      const floorT = mechaGroundY(); me.mechaVY = (me.mechaVY || 0) + MECHA_GRAV * s; me.mechaY = Math.min(floorT, me.mechaY + me.mechaVY); if (me.mechaY >= floorT) { me.mechaY = floorT; me.mechaVY = 0; me.mechaGround = true }
+      if (t >= 1) { me.mechaForm = me.mechaTransformTo; me.mechaTransforming = false; me.mechaBoost = false }
+      drawMecha(now, false); return
+    }
+    const human = (me.mechaForm || 0) >= 0.5
+    const floor = mechaGroundY()
+    let moving = false
+    if (human) {
+      // ---- Iron-Man booster flight: W(ground)=jump, W(air again)=booster ON, hold W=thrust up, A/D=strafe, S=fast descend ----
+      if (humanKeys.has('a')) { me.mechaX -= HF_HSPD * s; me.mechaFace = -1; moving = true }
+      if (humanKeys.has('d')) { me.mechaX += HF_HSPD * s; me.mechaFace = 1; moving = true }
+      const wDown = humanKeys.has('w')
+      if (wDown && !me.mechaWWas) { if (me.mechaGround) { me.mechaVY = -MECHA_JUMP * s; me.mechaGround = false } else me.mechaBoost = true }
+      me.mechaWWas = wDown
+      const prevY = me.mechaY; me.mechaGround = false
+      me.mechaVY += HF_GRAV * s
+      const thrusting = me.mechaBoost && wDown
+      if (thrusting) { me.mechaThrustHold = Math.min(60, (me.mechaThrustHold || 0) + 1); const ramp = 0.3 + 0.7 * Math.min(1, me.mechaThrustHold / 55); me.mechaVY -= HF_LIFT * ramp * s }   // gentle at first, builds while held
+      else me.mechaThrustHold = 0
+      if (humanKeys.has('s')) me.mechaVY += HF_DOWN * 0.5 * s
+      me.mechaVY = Math.max(-HF_MAXUP * s, Math.min(HF_MAXFALL * s, me.mechaVY))
+      me.mechaY += me.mechaVY
+      if (me.mechaVY >= 0) { const segY = platformFloorAt(me.mechaX, me.mechaY, prevY); if (segY != null) { me.mechaY = segY; me.mechaVY = 0; me.mechaGround = true; me.mechaBoost = false } }
+      if (me.mechaY >= floor) { me.mechaY = floor; me.mechaVY = 0; me.mechaGround = true; me.mechaBoost = false }
+      if (me.mechaY < 26 * s) { me.mechaY = 26 * s; if (me.mechaVY < 0) me.mechaVY = 0 }   // ceiling
+      me.mechaThrust = thrusting
+    } else {
+      // ---- ant walk (heavy, grounded) ----
+      if (humanKeys.has('a')) { me.mechaX -= MECHA_SPEED * s; me.mechaFace = -1; moving = true }
+      if (humanKeys.has('d')) { me.mechaX += MECHA_SPEED * s; me.mechaFace = 1; moving = true }
+      if (humanKeys.has('w') && me.mechaGround) { me.mechaVY = -MECHA_JUMP * s; me.mechaGround = false }
+      const prevY = me.mechaY; me.mechaGround = false
+      me.mechaVY += MECHA_GRAV * s; me.mechaY += me.mechaVY
+      if (humanKeys.has('s')) me.mechaY += 5 * s
+      if (me.mechaVY >= 0) { const segY = platformFloorAt(me.mechaX, me.mechaY, prevY); if (segY != null) { me.mechaY = segY; me.mechaVY = 0; me.mechaGround = true } }
+      if (me.mechaY >= floor) { me.mechaY = floor; me.mechaVY = 0; me.mechaGround = true }
+      me.mechaThrust = false
+    }
+    me.mechaX = Math.max(16 * s, Math.min(W - 16 * s, me.mechaX))
+    if (me.mechaGround && mechaOverHole(me.mechaX)) { me.mechaFalling = true; me.mechaFallVy = 2; spawnFallFx(me.mechaX, me.mechaY); return }
+    // shield (E): ant=dome, human=cursor plate; shared HP / break / regen
+    if (me.mechaShieldBrokenUntil && now >= me.mechaShieldBrokenUntil && me.mechaShieldHp <= 0) { me.mechaShieldHp = MSHIELD_HP; me.mechaShieldBrokenUntil = 0 }
+    const canShield = me.mechaShieldHp > 0 && now >= (me.mechaShieldBrokenUntil || 0)
+    me.mechaShieldOn = canShield && !!me.mechaShieldWant   // E toggles the placed shield (no longer hold-to-keep)
+    if (!me.mechaShieldOn && canShield && me.mechaShieldHp < MSHIELD_HP) me.mechaShieldHp = Math.min(MSHIELD_HP, me.mechaShieldHp + MSHIELD_REGEN)
+    me.mechaShieldDeploy = (me.mechaShieldDeploy || 0) + ((me.mechaShieldOn ? 1 : 0) - (me.mechaShieldDeploy || 0)) * 0.18   // deploy/retract animation
+    // cannon/energy charge (Q held); face the cursor while charging
+    if (me.mechaCharging) { me.mechaFace = cursor.x >= me.mechaX ? 1 : -1; const chMs = human ? ECANNON_MS : MECHA_CHARGE_MS; if (humanKeys.has('q')) me.mechaCharge = Math.min(1, (now - me.mechaChargeStart) / chMs); else { me.mechaCharging = false; me.mechaCharge = 0 } }
+    // take damage from remote threats — the shield blocks (dome omni; plate absorbs while up)
+    if (now >= (me.mechaHitCd || 0)) {
+      const cx = me.mechaX, cy = me.mechaY - 20 * s, r = 26 * s
+      let byPid = null, hitit = false
+      const rm = hitRemoteMissile(cx, cy, 1); if (rm) { hitit = true; byPid = rm.pid }
+      if (!hitit) for (const [pid, rec] of remoteAnts) { for (const a of rec.items.values()) { if (a.dead) continue; const sp = remoteAntScreenPos(pid, a); if (sp && Math.hypot(cx - sp.x, cy - sp.y) < r) { hitit = true; byPid = pid; break } } if (hitit) break }
+      if (hitit) mechaTakeDmg(1, now, byPid)
+    }
+    drawMecha(now, moving && me.mechaGround)
+  }
+  // One parametric body that MORPHS between the ant mecha (form 0) and a Gundam-style humanoid (form 1):
+  // head / chest / pelvis / legs positions interpolate, ant parts cross-fade out while gundam parts fade in,
+  // and the whole frame rises as it "stands up" — so the transform reads as parts rearranging, not a pop.
+  function drawMecha(now, walking) {
+    const s = mechaScale(), x = me.mechaX, y = me.mechaY, f = me.mechaFace || 1
+    const t = Math.max(0, Math.min(1, me.mechaForm || 0))
+    const L = (a, b) => a + (b - a) * t
+    const metal = '#8a90a0', dark = '#4a4e5a', hi = '#c9cfdb', outline = 'rgba(10,12,18,0.6)', gm = '#7f8aa3', accent = '#d94b46'
+    const aAnt = Math.max(0, Math.min(1, 1 - (t - 0.25) * 2.4))   // ant parts fade out 0.25→0.66
+    const aGun = Math.max(0, Math.min(1, (t - 0.3) * 2.4))         // gundam parts fade in 0.3→0.72
+    const bob = me.mechaThrust ? Math.sin(now / 90) * 2 * s : 0
+    const bodyCY = L(-14, -40) * s
+    ctx.save(); ctx.translate(x, y + bob); ctx.lineCap = 'round'; ctx.lineJoin = 'round'
+    const A0 = ctx.globalAlpha   // entry alpha — lets a dim wrapper (opponent 👁 fade) tint the whole mech
+    ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.beginPath(); ctx.ellipse(0, 1 - bob, L(22, 15) * s, 4 * s, 0, 0, Math.PI * 2); ctx.fill()
+    // (funnel plates / dome are drawn by drawMechaShield in absolute coords — the shield stays placed)
+    // ===== legs: ant's 6 (fade out) crossfade with the gundam's 2 (fade in, walk cycle) =====
+    if (aAnt > 0.01) {
+      ctx.globalAlpha = A0 * aAnt; const gait = now / 130
+      for (let i = 0; i < 3; i++) for (const side of [-1, 1]) {
+        const group = (i + (side < 0 ? 0 : 1)) % 2, ph = gait + group * Math.PI
+        const swing = walking ? Math.sin(ph) : 0, lift = walking ? Math.max(0, Math.sin(ph)) : 0.15
+        const hipX = side * 6 * s, hipY = -13 * s
+        const reach = (13 + i * 3) * s, spread = (i - 1) * 6 * s
+        const footX = hipX + side * reach + spread * 0.3 + swing * 5 * s, footY = 0 - lift * 5 * s
+        const kneeX = hipX + (footX - hipX) * 0.5 + side * 5 * s, kneeY = hipY + (footY - hipY) * 0.45 - 4 * s
+        ctx.strokeStyle = dark; ctx.lineWidth = 2.8 * s; ctx.beginPath(); ctx.moveTo(hipX, hipY); ctx.lineTo(kneeX, kneeY); ctx.lineTo(footX, footY); ctx.stroke()
+        ctx.fillStyle = dark; ctx.beginPath(); ctx.arc(footX, footY, 1.4 * s, 0, Math.PI * 2); ctx.fill()
+      }
+      ctx.globalAlpha = 1
+    }
+    if (aGun > 0.01) {
+      ctx.globalAlpha = A0 * aGun; const wph = walking ? now / 130 : 0
+      for (const side of [-1, 1]) {
+        const sw = walking ? Math.sin(wph + (side > 0 ? Math.PI : 0)) : 0
+        const hipX = side * 5 * s, hipY = -22 * s
+        const kneeX = side * 6 * s + sw * 3 * s, kneeY = -12 * s
+        const footX = side * 6 * s + sw * 6 * s, footY = 0 - Math.max(0, sw) * 4 * s
+        ctx.strokeStyle = gm; ctx.lineWidth = 7 * s; ctx.beginPath(); ctx.moveTo(hipX, hipY); ctx.lineTo(kneeX, kneeY); ctx.lineTo(footX, footY); ctx.stroke()
+        ctx.strokeStyle = dark; ctx.lineWidth = 2 * s; ctx.beginPath(); ctx.moveTo(hipX, hipY); ctx.lineTo(kneeX, kneeY); ctx.lineTo(footX, footY); ctx.stroke()
+        ctx.fillStyle = dark; ctx.beginPath(); ctx.roundRect(footX - 5 * s, footY - 2.5 * s, 10 * s, 4.5 * s, 1.5 * s); ctx.fill()
+        if (me.mechaThrust) { const fl = (7 + Math.random() * 6) * s; ctx.fillStyle = 'rgba(120,200,255,0.9)'; ctx.beginPath(); ctx.moveTo(footX - 3 * s, footY + 2 * s); ctx.lineTo(footX + 3 * s, footY + 2 * s); ctx.lineTo(footX, footY + 2 * s + fl); ctx.closePath(); ctx.fill(); ctx.fillStyle = 'rgba(255,235,160,0.95)'; ctx.beginPath(); ctx.moveTo(footX - 1.4 * s, footY + 2 * s); ctx.lineTo(footX + 1.4 * s, footY + 2 * s); ctx.lineTo(footX, footY + 2 * s + fl * 0.6); ctx.closePath(); ctx.fill() }
+      }
+      ctx.globalAlpha = 1
+    }
+    // ===== body: ant abdomen+thorax (fade out, positions lerp up) vs gundam torso (fade in) =====
+    if (aAnt > 0.01) {
+      ctx.globalAlpha = A0 * aAnt; ctx.strokeStyle = outline; ctx.lineWidth = 2 * s; ctx.fillStyle = metal
+      ctx.beginPath(); ctx.ellipse(L(-f * 11, 0) * s, L(-14, -24) * s, L(15, 10) * s, 11 * s, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke()   // abdomen → pelvis
+      ctx.beginPath(); ctx.ellipse(0, bodyCY, 9 * s, 8 * s, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke()                                     // thorax
+      // ant back cannon (only meaningful in ant form; fades with the body)
+      const canAng = Math.atan2(cursor.y - (y + bodyCY - 6 * s), cursor.x - x)
+      ctx.save(); ctx.translate(L(-f * 6, 0) * s, bodyCY - 7 * s); ctx.rotate(canAng)
+      ctx.fillStyle = dark; ctx.beginPath(); ctx.roundRect(-4 * s, -4 * s, 26 * s, 8 * s, 3 * s); ctx.fill()
+      if (me.mechaCharging && t < 0.5) { const g = me.mechaCharge || 0; ctx.fillStyle = `rgba(255,${Math.round(200 - g * 150)},80,0.9)`; ctx.beginPath(); ctx.arc(22 * s, 0, (2 + g * 4) * s, 0, Math.PI * 2); ctx.fill() }
+      ctx.restore(); ctx.globalAlpha = 1
+    }
+    if (aGun > 0.01) {
+      ctx.globalAlpha = A0 * aGun
+      ctx.fillStyle = dark; ctx.beginPath(); ctx.roundRect(-8 * s, -26 * s, 16 * s, 8 * s, 2 * s); ctx.fill()   // pelvis
+      ctx.fillStyle = gm; ctx.strokeStyle = outline; ctx.lineWidth = 2 * s
+      ctx.beginPath(); ctx.roundRect(-12 * s, -46 * s, 24 * s, 22 * s, 4 * s); ctx.fill(); ctx.stroke()          // chest
+      ctx.fillStyle = accent; ctx.beginPath(); ctx.roundRect(-11 * s, -44 * s, 7 * s, 8 * s, 1.5 * s); ctx.fill(); ctx.beginPath(); ctx.roundRect(4 * s, -44 * s, 7 * s, 8 * s, 1.5 * s); ctx.fill()
+      ctx.fillStyle = 'rgba(255,220,90,0.95)'; ctx.beginPath(); ctx.roundRect(-10 * s, -43 * s, 5 * s, 6 * s, 1 * s); ctx.fill(); ctx.beginPath(); ctx.roundRect(5 * s, -43 * s, 5 * s, 6 * s, 1 * s); ctx.fill()   // yellow vents
+      ctx.fillStyle = 'rgba(120,205,255,0.95)'; ctx.beginPath(); ctx.arc(0, -34 * s, 2.6 * s, 0, Math.PI * 2); ctx.fill()   // core
+      for (const side of [-1, 1]) { ctx.fillStyle = gm; ctx.strokeStyle = outline; ctx.lineWidth = 1.6 * s; ctx.beginPath(); ctx.roundRect(side < 0 ? -19 * s : 11 * s, -47 * s, 8 * s, 9 * s, 2 * s); ctx.fill(); ctx.stroke() }   // shoulders
+      // back arm hanging + cursor-aimed cannon arm
+      ctx.strokeStyle = dark; ctx.lineWidth = 5 * s; ctx.beginPath(); ctx.moveTo(-f * 13 * s, -44 * s); ctx.lineTo(-f * 15 * s, -32 * s); ctx.stroke()
+      const pivotY = -44 * s, ang = Math.atan2(cursor.y - (y + bob + pivotY), cursor.x - x)
+      ctx.save(); ctx.translate(f * 3 * s, pivotY); ctx.rotate(ang)
+      ctx.strokeStyle = gm; ctx.lineWidth = 6 * s; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(14 * s, 0); ctx.stroke()
+      ctx.fillStyle = dark; ctx.beginPath(); ctx.roundRect(12 * s, -6 * s, 20 * s, 12 * s, 3 * s); ctx.fill()
+      ctx.fillStyle = '#2b2f36'; ctx.beginPath(); ctx.arc(32 * s, 0, 4.5 * s, 0, Math.PI * 2); ctx.fill()
+      if (me.mechaCharging) { const g = me.mechaCharge || 0; ctx.fillStyle = `rgba(${Math.round(120 + g * 80)},220,255,0.9)`; ctx.beginPath(); ctx.arc(32 * s, 0, (3 + g * 8) * s, 0, Math.PI * 2); ctx.fill() }
+      ctx.restore(); ctx.globalAlpha = 1
+    }
+    // ===== head: ant helmet (front) → gundam head (top), position lerps + shapes crossfade =====
+    const headX = L(f * 16, 0) * s, headY = L(-16, -56) * s
+    if (aAnt > 0.01) {
+      ctx.globalAlpha = A0 * aAnt
+      ctx.fillStyle = metal; ctx.strokeStyle = outline; ctx.lineWidth = 2 * s; ctx.beginPath(); ctx.arc(headX, headY, 7 * s, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
+      ctx.strokeStyle = dark; ctx.lineWidth = 2 * s; ctx.beginPath(); ctx.moveTo(headX + f * 5 * s, headY - 2 * s); ctx.lineTo(headX + f * 11 * s, headY - 4 * s); ctx.moveTo(headX + f * 5 * s, headY + 2 * s); ctx.lineTo(headX + f * 11 * s, headY + 4 * s); ctx.stroke()
+      ctx.fillStyle = '#ff5a4a'; ctx.beginPath(); ctx.arc(headX + f * 2 * s, headY, 1.8 * s, 0, Math.PI * 2); ctx.fill()
+      ctx.globalAlpha = 1
+    }
+    if (aGun > 0.01) {
+      ctx.globalAlpha = A0 * aGun
+      ctx.fillStyle = gm; ctx.strokeStyle = outline; ctx.lineWidth = 1.8 * s; ctx.beginPath(); ctx.roundRect(-5 * s, -58 * s, 10 * s, 10 * s, 2.5 * s); ctx.fill(); ctx.stroke()
+      ctx.fillStyle = dark; ctx.fillRect(-6.4 * s, -55 * s, 1.6 * s, 4 * s); ctx.fillRect(4.8 * s, -55 * s, 1.6 * s, 4 * s)
+      ctx.fillStyle = accent; ctx.beginPath(); ctx.moveTo(-1 * s, -57 * s); ctx.lineTo(-8 * s, -63 * s); ctx.lineTo(-4 * s, -56 * s); ctx.closePath(); ctx.fill(); ctx.beginPath(); ctx.moveTo(1 * s, -57 * s); ctx.lineTo(8 * s, -63 * s); ctx.lineTo(4 * s, -56 * s); ctx.closePath(); ctx.fill()   // V-fin
+      ctx.fillStyle = 'rgba(255,220,90,0.85)'; ctx.beginPath(); ctx.moveTo(0, -59 * s); ctx.lineTo(2 * s, -56 * s); ctx.lineTo(-2 * s, -56 * s); ctx.closePath(); ctx.fill()   // forehead crystal
+      ctx.fillStyle = '#ffd23a'; ctx.fillRect(-4 * s, -53.5 * s, 8 * s, 2.4 * s)   // twin-eye visor
+      ctx.globalAlpha = 1
+    }
+    // ===== HP bar =====
+    ctx.globalAlpha = A0
+    const hpw = 30 * s, hp01 = Math.max(0, (me.mechaHp || 0) / MECHA_HP), byy = L(-36, -68) * s
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(-hpw / 2, byy, hpw, 3.5 * s)
+    ctx.fillStyle = hp01 > 0.3 ? '#7ecb7e' : '#d05555'; ctx.fillRect(-hpw / 2, byy, hpw * hp01, 3.5 * s)
+    ctx.restore()
+    drawMechaShield(now)   // placed dome / funnel plates (absolute coords, stays where E was pressed)
+  }
+  function mechaShellImpact(p) { spawnBlood(p.x, p.y, 12); addBloodStain(p.x, p.y, 12 * view.scale); spawnSpark(p.x, p.y) }   // 피 연출 (not a blast)
+  function drawMechaShell(p) {
+    const s = view.scale, ang = Math.atan2(p.vy, p.vx)
+    ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(ang); ctx.scale(s * 3.6, s * 3.6)   // 2× shell size
+    ctx.fillStyle = '#33333c'
+    ctx.beginPath(); ctx.ellipse(-3, 0, 3, 2.3, 0, 0, Math.PI * 2); ctx.fill(); ctx.beginPath(); ctx.ellipse(0, 0, 2, 2, 0, 0, Math.PI * 2); ctx.fill(); ctx.beginPath(); ctx.ellipse(3, 0, 2.2, 2, 0, 0, Math.PI * 2); ctx.fill()
+    ctx.strokeStyle = 'rgba(18,16,24,0.9)'; ctx.lineWidth = 0.8; for (const L of [-1, 1]) { ctx.beginPath(); ctx.moveTo(-1, 0); ctx.lineTo(-2, L * 3); ctx.moveTo(1, 0); ctx.lineTo(2, L * 3); ctx.stroke() }
+    ctx.restore()
+  }
+  function stepMechaShells(now) {
+    const s = view.scale, W = canvas.clientWidth, H = canvas.clientHeight
+    for (let i = mechaShells.length - 1; i >= 0; i--) {
+      const p = mechaShells[i]
+      if (now - p.born > p.life) { mechaShells.splice(i, 1); continue }
+      p.vy += MSHELL_GRAV * s; p.x += p.vx; p.y += p.vy
+      if (p.x < -30 || p.x > W + 30 || p.y > H + 30) { mechaShells.splice(i, 1); continue }
+      const rm = hitRemoteMissile(p.x, p.y, MSHELL_DMG)   // collidable vs missiles (mutual)
+      if (rm) { p.hp -= (rm.power || 1); mechaShellImpact(p); if (p.hp <= 0) { mechaShells.splice(i, 1); continue } }
+      let hitP = false
+      for (let j = projectiles.length - 1; j >= 0; j--) { const pr = projectiles[j]; if (Math.hypot(pr.x - p.x, pr.y - p.y) < 14 * s) { p.hp -= (pr.power || 1); explode(pr.x, pr.y, pr.power || 1); projectiles.splice(j, 1); hitP = true; break } }
+      if (hitP) { mechaShellImpact(p); if (p.hp <= 0) { mechaShells.splice(i, 1); continue } }
+      let land = false
+      for (let ci = 0; ci < catPos.length; ci++) { const cat = allRef[ci]; if (!cat) continue; const cc = catPos[ci]; if (Math.abs(cc.x - p.x) < 52 * view.scale && Math.abs(cc.y - p.y) < 62 * view.scale) { if (!catShieldCovers(cat, cc, p.x, p.y, now)) applyCatHit(cat, MSHELL_DMG, now); land = true; break } }
+      if (!land) { const ah = missileHitsAnt(p.x, p.y); if (ah) { if (ah.local) { antTakeDmg(ah.ant, MSHELL_DMG); if (ah.ant.dead) addAntKill() } else if (connected()) net.send(JSON.stringify({ t: 'ant-hit', target: ah.pid, ant: ah.id, dmg: MSHELL_DMG })); land = true } }
+      if (!land) { const rg = hitRemoteGatling(p.x, p.y); if (rg) { if (connected()) net.send(JSON.stringify({ t: 'gat-hit', target: rg.pid, dmg: MSHELL_DMG })); land = true } }
+      if (!land && inTaskbar(p.x, p.y)) { carveTaskbar(p.x, 1.0); land = true }   // crater ≈ 5 merged missiles
+      if (land) { mechaShellImpact(p); mechaShells.splice(i, 1); continue }
+      drawMechaShell(p)
+    }
+  }
+  function drawRemoteMechas(now) {
+    const W = canvas.clientWidth, H = canvas.clientHeight
+    for (const [pid, m] of remoteMechas) {
+      ctx.globalAlpha = peerAlpha(pid)
+      const sv = { x: me.mechaX, y: me.mechaY, f: me.mechaFace, hp: me.mechaHp, on: me.mechaShieldOn, sh: me.mechaShieldHp, ch: me.mechaCharging, cg: me.mechaCharge, form: me.mechaForm, thr: me.mechaThrust, dep: me.mechaShieldDeploy, sX: me.mechaShieldX, sY: me.mechaShieldY, sA: me.mechaShieldAng, active: me.mechaActive }
+      me.mechaX = m.nx * W; me.mechaY = m.ny * H; me.mechaFace = m.face || 1; me.mechaHp = m.hp
+      me.mechaShieldHp = (m.shield || 0) * MSHIELD_HP
+      me.mechaForm = m.form || 0; me.mechaThrust = !!m.thr; me.mechaCharging = !!m.ch; me.mechaCharge = m.chg || 0
+      me.mechaShieldDeploy = m.sdep || 0; me.mechaShieldX = (m.snx != null ? m.snx : m.nx) * W; me.mechaShieldY = (m.sny != null ? m.sny : m.ny) * H; me.mechaShieldAng = m.sang || 0; me.mechaActive = true
+      drawMecha(now, false)
+      me.mechaX = sv.x; me.mechaY = sv.y; me.mechaFace = sv.f; me.mechaHp = sv.hp; me.mechaShieldOn = sv.on; me.mechaShieldHp = sv.sh; me.mechaCharging = sv.ch; me.mechaCharge = sv.cg; me.mechaForm = sv.form; me.mechaThrust = sv.thr; me.mechaShieldDeploy = sv.dep; me.mechaShieldX = sv.sX; me.mechaShieldY = sv.sY; me.mechaShieldAng = sv.sA; me.mechaActive = sv.active
+    }
+  }
+  function drawRemoteMShells(now) {
+    const W = canvas.clientWidth, H = canvas.clientHeight
+    for (const [pid, rec] of [...remoteMShells]) {
+      if (now - rec.ts > 400) { remoteMShells.delete(pid); continue }
+      ctx.globalAlpha = peerAlpha(pid)
+      for (const it of rec.items.values()) {
+        it.sx += (it.nx - it.sx) * SMOOTH; it.sy += (it.ny - it.sy) * SMOOTH
+        const o = { x: it.sx * W, y: it.sy * H, vx: (it.vx || 0) * W, vy: (it.vy || 1) * H, power: it.pw || 6 }
+        if (it.k === 1) drawEnergyShot(o, now)
+        else if (it.k === 2) drawInterceptor(o)
+        else drawMechaShell(o)
+      }
+    }
+  }
+  // ---- 🤖 human-form weapons: Q energy cannon (straight, punch-through) + R interceptors (homing) ----
+  function fireEnergyCannon(now) {
+    const s = mechaScale(), ox = me.mechaX, oy = me.mechaY - 42 * s
+    const ang = Math.atan2(cursor.y - oy, cursor.x - ox); me.mechaFace = Math.cos(ang) >= 0 ? 1 : -1
+    const stage = Math.max(1, Math.min(5, Math.ceil((me.mechaCharge || 0) * 5)))   // 5 charge stages
+    const power = stage * 2                                                          // 2 … 10 (= DMG = HP)
+    energyShots.push({ x: ox + Math.cos(ang) * 26 * s, y: oy + Math.sin(ang) * 26 * s, vx: Math.cos(ang) * ECANNON_SPD, vy: Math.sin(ang) * ECANNON_SPD, power, born: now, life: 2500, id: ++mshellId })
+    me.mechaCharge = 0
+  }
+  function drawEnergyShot(p, now) {
+    const r = (5 + (p.power || 6) * 1.7) * view.scale
+    ctx.save(); ctx.translate(p.x, p.y)
+    const A0 = ctx.globalAlpha   // respect a dim wrapper (opponent transparency)
+    const tl = Math.atan2(p.vy || 1, p.vx || 0)
+    ctx.globalAlpha = A0 * 0.4; ctx.fillStyle = 'rgba(120,210,255,0.5)'; ctx.beginPath(); ctx.ellipse(-Math.cos(tl) * r, -Math.sin(tl) * r, r * 1.3, r * 0.5, tl, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = A0
+    const g = ctx.createRadialGradient(0, 0, r * 0.2, 0, 0, r)
+    g.addColorStop(0, 'rgba(235,255,255,0.95)'); g.addColorStop(0.5, 'rgba(90,200,255,0.8)'); g.addColorStop(1, 'rgba(60,120,255,0)')
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill()
+    ctx.globalAlpha = A0 * (0.5 + 0.3 * Math.sin(now / 40)); ctx.strokeStyle = 'rgba(190,240,255,0.9)'; ctx.lineWidth = 1.6 * view.scale; ctx.beginPath(); ctx.arc(0, 0, r * 0.62, 0, Math.PI * 2); ctx.stroke()
+    ctx.restore()
+  }
+  function stepEnergyShots(now) {
+    const W = canvas.clientWidth, H = canvas.clientHeight
+    for (let i = energyShots.length - 1; i >= 0; i--) {
+      const p = energyShots[i]
+      if (now - p.born > p.life) { energyShots.splice(i, 1); continue }
+      p.x += p.vx; p.y += p.vy
+      if (p.x < -60 || p.x > W + 60 || p.y < -60 || p.y > H + 60) { energyShots.splice(i, 1); continue }
+      // solid cats stop it (like a missile)
+      let gone = false
+      for (let ci = 0; ci < catPos.length; ci++) { const cat = allRef[ci]; if (!cat) continue; const cc = catPos[ci]; if (Math.abs(cc.x - p.x) < 52 * view.scale && Math.abs(cc.y - p.y) < 62 * view.scale) { if (!catShieldCovers(cat, cc, p.x, p.y, now)) applyCatHit(cat, p.power, now); addEffect(p.x, p.y, 2); spawnSpark(p.x, p.y); energyShots.splice(i, 1); gone = true; break } }
+      if (gone) continue
+      // punch-through vs ants / gatling / enemy missiles (power depletes by target HP; gated so it doesn't multi-hit)
+      if (now >= (p.pierceCd || 0)) {
+        const ah = missileHitsAnt(p.x, p.y)
+        if (ah) {
+          if (ah.local) { antTakeDmg(ah.ant, p.power); if (ah.ant.dead) addAntKill() } else if (connected()) net.send(JSON.stringify({ t: 'ant-hit', target: ah.pid, ant: ah.id, dmg: p.power }))
+          spawnSpark(p.x, p.y); p.pierceCd = now + 90; if (p.power > 1) p.power -= 1; else { addEffect(p.x, p.y, 1); energyShots.splice(i, 1); continue }
+        }
+        const rg = hitRemoteGatling(p.x, p.y)
+        if (rg) { if (connected()) net.send(JSON.stringify({ t: 'gat-hit', target: rg.pid, dmg: p.power })); addEffect(p.x, p.y, 1); p.pierceCd = now + 120; if (p.power > (rg.hp || 1)) p.power -= (rg.hp || 1); else { energyShots.splice(i, 1); continue } }
+        const rm = hitRemoteMissile(p.x, p.y, p.power)
+        if (rm) { addEffect(p.x, p.y, 1); spawnSpark(p.x, p.y); p.pierceCd = now + 100; if (p.power > (rm.power || 1)) p.power -= (rm.power || 1); else { energyShots.splice(i, 1); continue } }
+      }
+      // vs local missiles (collidable, same punch-through rule as the ant shell)
+      let consumed = false
+      if (now >= (p.pierceCd || 0)) {
+        for (let j = projectiles.length - 1; j >= 0; j--) {
+          const pr = projectiles[j]
+          if (Math.hypot(pr.x - p.x, pr.y - p.y) < 14 * view.scale) {
+            const pw = pr.power || 1; explode(pr.x, pr.y, pw); projectiles.splice(j, 1); addEffect(p.x, p.y, 1); p.pierceCd = now + 90
+            if (p.power > pw) p.power -= pw; else { energyShots.splice(i, 1); consumed = true }
+            break
+          }
+        }
+      }
+      if (consumed) continue
+      // taskbar: carve a crater sized by the remaining power, then the shot spends itself
+      if (inTaskbar(p.x, p.y)) { carveTaskbar(p.x, Math.min(1.3, p.power * 0.13)); addEffect(p.x, p.y, 2); spawnSpark(p.x, p.y); energyShots.splice(i, 1); continue }
+      drawEnergyShot(p, now)
+    }
+  }
+  function fireInterceptors(now) {
+    if (now < (me.interceptCd || 0)) { showToast(`🚀 요격 쿨타임 ${Math.ceil((me.interceptCd - now) / 1000)}초`); return }
+    me.interceptCd = now + INT_CD
+    const s = mechaScale(), ox = me.mechaX, oy = me.mechaY - 40 * s, spd = MISSILE_SPEED * BOOST_MULT * 1.2   // 1.2× left-click boost missile
+    for (let k = 0; k < INT_COUNT; k++) {
+      const a = -Math.PI / 2 + (k - (INT_COUNT - 1) / 2) * 0.16
+      interceptors.push({ x: ox + (Math.random() - 0.5) * 12 * s, y: oy, vx: Math.cos(a) * spd * 0.5, vy: Math.sin(a) * spd, spd, born: now, life: 4000, id: ++mshellId })
+    }
+    showToast('🚀 요격 미사일 10발!')
+  }
+  function nearestInterceptTarget(x, y) {   // any collidable (mine OR enemy's) except characters, within homing range
+    let best = null, bd = 280 * view.scale
+    const consider = (tx, ty, hit) => { const d = Math.hypot(tx - x, ty - y); if (d < bd) { bd = d; best = { x: tx, y: ty, hit } } }
+    for (const pr of projectiles) consider(pr.x, pr.y, () => { const j = projectiles.indexOf(pr); if (j >= 0) { addEffect(pr.x, pr.y, 1); projectiles.splice(j, 1) } })
+    for (const a of ants) if (!a.dead && !a.falling) consider(a.x, a.y, () => antTakeDmg(a, INT_DMG))
+    const now = performance.now(), W = canvas.clientWidth, H = canvas.clientHeight
+    for (const [pid, rec] of remoteAnts) { if (now - rec.ts > 800) continue; for (const a of rec.items.values()) { if (a.dead) continue; const sp = remoteAntScreenPos(pid, a); if (sp) consider(sp.x, sp.y, () => { if (connected()) net.send(JSON.stringify({ t: 'ant-hit', target: pid, ant: a.id, dmg: INT_DMG })) }) } }
+    for (const [pid, g] of remoteGatlings) consider(g.nx * W, g.ny * H, () => { if (connected()) net.send(JSON.stringify({ t: 'gat-hit', target: pid, dmg: INT_DMG })) })
+    for (const [pid, rec] of remoteMissiles) { if (now - rec.ts > 500) continue; for (const it of rec.items.values()) consider(it.sx * W, it.sy * H, () => {}) }
+    return best
+  }
+  function stepInterceptors(now) {
+    const W = canvas.clientWidth, s = view.scale
+    for (let i = interceptors.length - 1; i >= 0; i--) {
+      const p = interceptors[i]
+      if (now - p.born > p.life) { interceptors.splice(i, 1); continue }
+      const tg = nearestInterceptTarget(p.x, p.y)
+      if (tg) {
+        const dx = tg.x - p.x, dy = tg.y - p.y, d = Math.hypot(dx, dy) || 1
+        p.vx += ((dx / d) * p.spd - p.vx) * 0.22; p.vy += ((dy / d) * p.spd - p.vy) * 0.22
+        if (d < 15 * s) { tg.hit(); addEffect(p.x, p.y, 1); spawnSpark(p.x, p.y); interceptors.splice(i, 1); continue }
+      } else { p.vy += (-p.spd - p.vy) * 0.04; p.vx *= 0.96 }   // no target → climb and fade
+      p.x += p.vx; p.y += p.vy
+      if (p.x < -40 || p.x > W + 40 || p.y < -80) { interceptors.splice(i, 1); continue }
+      drawInterceptor(p)
+    }
+  }
+  function drawInterceptor(p) {
+    const s = view.scale, ang = Math.atan2(p.vy, p.vx)
+    ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(ang)
+    ctx.fillStyle = 'rgba(255,170,60,0.9)'; ctx.beginPath(); ctx.ellipse(-7 * s, 0, 5 * s, 2 * s, 0, 0, Math.PI * 2); ctx.fill()   // thruster flame
+    ctx.fillStyle = '#dfe4ee'; ctx.beginPath(); ctx.roundRect(-4 * s, -1.7 * s, 9 * s, 3.4 * s, 1.5 * s); ctx.fill()
+    ctx.fillStyle = '#c0403a'; ctx.beginPath(); ctx.moveTo(6 * s, 0); ctx.lineTo(2.5 * s, -1.8 * s); ctx.lineTo(2.5 * s, 1.8 * s); ctx.closePath(); ctx.fill()   // nose cone
+    ctx.restore()
+  }
+  function toggleMechaShield() {   // E: PLACE the shield at a fixed world spot / retract it (toggle)
+    const now = performance.now()
+    if (!me.mechaShieldWant) {
+      if (me.mechaShieldHp > 0 && now >= (me.mechaShieldBrokenUntil || 0)) {
+        me.mechaShieldWant = true
+        me.mechaShieldX = me.mechaX; me.mechaShieldY = me.mechaY   // stays here even if the mech walks away
+        me.mechaShieldAng = Math.atan2(cursor.y - (me.mechaY - 38 * mechaScale()), cursor.x - me.mechaX)   // human-form deploy direction
+      } else showToast('🛡 쉴드 재생 중')
+    } else me.mechaShieldWant = false
+  }
+  // The shield lives at a FIXED world position once placed (drawn in absolute screen coords, after the
+  // mech body). Ant form = honeycomb hemisphere dome; human form = 2 funnel plates that fly from the
+  // mech's back to the placed spot, merge, and spread a wider force field. E again → they fly home.
+  function drawMechaShield(now) {
+    const form = me.mechaForm || 0, dep = me.mechaShieldDeploy || 0, s = mechaScale()
+    const hp01 = Math.max(0, Math.min(1, (me.mechaShieldHp || 0) / MSHIELD_HP))
+    if (form < 0.5) {
+      if (dep <= 0.02) return   // ant: nothing when retracted
+      const px = me.mechaShieldX != null ? me.mechaShieldX : me.mechaX
+      const py = me.mechaShieldY != null ? me.mechaShieldY : me.mechaY
+      ctx.save(); ctx.globalAlpha *= Math.min(1, dep * 1.3)
+      drawHexDome(px, py, (30 + 22 * dep) * s, hp01, now, true)   // grows as it deploys
+      ctx.restore()
+      return
+    }
+    // ---- human form: funnel plates + expanding force field ----
+    const cx = me.mechaX, cy = me.mechaY, ang = me.mechaShieldAng != null ? me.mechaShieldAng : 0
+    const sx = me.mechaShieldX != null ? me.mechaShieldX : cx, sy = me.mechaShieldY != null ? me.mechaShieldY : cy
+    const D = 28 * s, perp = ang + Math.PI / 2, gap = (14 - 6 * dep) * s   // plates converge (merge) when deployed
+    const depCx = sx + Math.cos(ang) * D, depCy = (sy - 38 * s) + Math.sin(ang) * D
+    if (dep > 0.12) {   // merged, wider force field at the placed spot
+      ctx.save(); ctx.translate(depCx, depCy); ctx.rotate(ang)
+      const R = (16 + dep * 22) * s, base = ctx.globalAlpha
+      ctx.globalAlpha = base * dep * (0.22 + 0.32 * hp01)
+      const g = ctx.createRadialGradient(0, 0, R * 0.2, 0, 0, R)
+      g.addColorStop(0, 'rgba(150,215,255,0.55)'); g.addColorStop(0.7, 'rgba(120,200,255,0.22)'); g.addColorStop(1, 'rgba(120,200,255,0)')
+      ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(0, 0, R * 0.72, R, 0, 0, Math.PI * 2); ctx.fill()
+      ctx.save(); ctx.beginPath(); ctx.ellipse(0, 0, R * 0.72, R, 0, 0, Math.PI * 2); ctx.clip(); ctx.globalAlpha = base * dep * 0.45; ctx.strokeStyle = 'rgba(175,225,255,0.85)'; ctx.lineWidth = 0.9 * s; honeycomb(0, 0, R * 1.1, 5 * s); ctx.restore()
+      if (hp01 < 0.45) { ctx.globalAlpha = base * (0.5 + 0.4 * Math.sin(now / 70)); ctx.strokeStyle = 'rgba(255,170,170,0.75)'; ctx.lineWidth = 1.2 * s; ctx.beginPath(); ctx.moveTo(-4 * s, -10 * s); ctx.lineTo(4 * s, 2 * s); ctx.lineTo(-4 * s, 14 * s); ctx.stroke() }
+      ctx.restore()
+    }
+    for (const side of [-1, 1]) {   // plates: back-of-mech → fixed placed spot
+      const dockX = cx + side * 13 * s, dockY = cy - 49 * s, dockRot = side * 0.7
+      const dX = depCx + Math.cos(perp) * side * gap, dY = depCy + Math.sin(perp) * side * gap
+      const px = dockX + (dX - dockX) * dep, py = dockY + (dY - dockY) * dep
+      const rot = dockRot + (ang - dockRot) * dep
+      ctx.save(); ctx.translate(px, py); ctx.rotate(rot)
+      ctx.fillStyle = '#6f7a93'; ctx.strokeStyle = 'rgba(10,12,18,0.6)'; ctx.lineWidth = 1.4 * s
+      ctx.beginPath(); ctx.roundRect(-4 * s, -14 * s, 8 * s, 28 * s, 3 * s); ctx.fill(); ctx.stroke()
+      ctx.fillStyle = '#d94b46'; ctx.beginPath(); ctx.roundRect(-2.5 * s, -11 * s, 5 * s, 6 * s, 1 * s); ctx.fill()
+      ctx.fillStyle = 'rgba(120,205,255,0.9)'; ctx.beginPath(); ctx.arc(0, 8 * s, 1.8 * s, 0, Math.PI * 2); ctx.fill()
+      ctx.restore()
+    }
+  }
+
   // Black hole — cast at the cursor, fixed there for 10s, 60s cooldown. Gated by achievement.
   function activateBlackhole() {
     if (!bhAvailable()) return
@@ -1773,6 +2418,7 @@
     else if (connected()) net.send(JSON.stringify({ t: 'hit', target: cat.id, power, shock: shock ? 1 : 0 }))
   }
   function damageMyCat(dmg, byId) {
+    if (me.safeMode) return                // 🕊️ peace mode: invincible 9999-HP dome absorbs everything
     if (!(dmg > 0) || me.hp <= 0) return   // already at 0 → no re-trigger until healed (resetCatHp)
     me.hp = Math.max(0, me.hp - dmg); localStorage.setItem('catHp', String(me.hp))
     if (me.hp === 0) onCatDestroyed(byId)
@@ -1808,6 +2454,12 @@
     else showToast(`🕺 상대 인간 파괴 ${humanKills}/${HUMAN_KILL_GOAL}`)
     renderAchv(); pushState()
   }
+  function addMechaKill() {   // I destroyed an enemy's ant mecha (ant OR human form)
+    mechaKills++; localStorage.setItem('mechaKills', String(mechaKills))
+    if (!mechaKillRewarded && mechaKills >= MECHA_KILL_GOAL) { mechaKillRewarded = true; localStorage.setItem('mechaKillRewarded', '1'); tapCount += MECHA_KILL_REWARD; counterDirty = true; renderCounter(); showToast(`🏆 메카 파괴자 ${MECHA_KILL_GOAL}회 — 🪙${MECHA_KILL_REWARD.toLocaleString()}!`) }
+    else showToast(`🐜🤖 상대 메카 처치 ${mechaKills}/${MECHA_KILL_GOAL}`)
+    renderAchv(); pushState()
+  }
 
   // ---------- 🔫 gatling gun ----------
   // toggling gatActive also tells main whether to forward the Q key (fire) to the overlay
@@ -1817,6 +2469,7 @@
     if (me.gatActive || now < (me.gatCdUntil || 0)) return   // one at a time; respect destroy cooldown
     if (!spendCoins(USE_COST.gatling)) { showToast(`🪙 게틀링건 소환 비용 ${USE_COST.gatling} 부족`); return }
     if (me.humanActive) removeHuman()                        // gatling + human are mutually exclusive
+    if (me.mechaActive) removeMecha()                        // mecha too
     setGat(true); me.gatX = cursor.x; me.gatY = cursor.y
     me.gatHp = GAT_HP; me.gatHeat = 0; me.gatOverUntil = 0; me.gatLastShot = 0
     me.gatAng = 0
@@ -1979,7 +2632,7 @@
     }
     ctx.restore()
   }
-  function drawGatlings() { for (const g of activeGatlings()) drawGatling(g) }
+  function drawGatlings() { for (const g of activeGatlings()) { const a = ctx.globalAlpha; if (!g.mine) ctx.globalAlpha = peerAlpha(g.pid); drawGatling(g); ctx.globalAlpha = a } }   // 👁 dim an opponent's turret
   function drawGatSmoke(now) {
     for (let i = gatSmoke.length - 1; i >= 0; i--) {
       const p = gatSmoke[i], t = (now - p.born) / p.life
@@ -1994,6 +2647,7 @@
     const W = canvas.clientWidth, H = canvas.clientHeight
     for (const [pid, rec] of [...remoteGBullets]) {
       if (now - rec.ts > 400) { remoteGBullets.delete(pid); continue }
+      ctx.globalAlpha = peerAlpha(pid)
       const extrap = now - rec.ts < 130
       for (const it of rec.items.values()) {
         if (extrap) { it.nx += it.vx || 0; it.ny += it.vy || 0 }   // dead-reckon fast bullets
@@ -2005,6 +2659,7 @@
   function drawRemoteHumans(now) {   // peers' summoned humans are now visible
     const W = canvas.clientWidth, H = canvas.clientHeight, s = view.scale * HUMAN_SCALE
     for (const [pid, h] of remoteHumans) {
+      ctx.globalAlpha = peerAlpha(pid)
       const x = h.nx * W, y = h.ny * H, f = h.face || 1
       const col = SKIN_BODY[(peers.get(pid) || {}).tint] || SKIN_BODY.default, outline = 'rgba(0,0,0,0.5)'
       const Hh = 34 * s, headR = 6.5 * s, shoulderY = -Hh * 0.74, hipY = -Hh * 0.42, headCY = -Hh + headR
@@ -2025,6 +2680,7 @@
     const W = canvas.clientWidth, H = canvas.clientHeight, s = view.scale
     for (const [pid, rec] of [...remoteHbullets]) {
       if (now - rec.ts > 400) { remoteHbullets.delete(pid); continue }
+      ctx.globalAlpha = peerAlpha(pid)
       const extrap = now - rec.ts < 130
       for (const it of rec.items.values()) {
         if (extrap) { it.nx += it.vx || 0; it.ny += it.vy || 0 }   // dead-reckon 검기/총알
@@ -2081,6 +2737,51 @@
     if (rem < 1500) a *= 0.55 + 0.45 * Math.sin(now / 70)    // + blink near the end
     return Math.max(0, a)
   }
+  // ---- 🛡️ honeycomb shield look (shared by every shield: human plate, mecha dome, safe-mode dome) ----
+  function hexPath(x, y, r) {   // pointy-top hexagon
+    ctx.beginPath()
+    for (let i = 0; i < 6; i++) { const a = (Math.PI / 180) * (60 * i - 90), px = x + Math.cos(a) * r, py = y + Math.sin(a) * r; i ? ctx.lineTo(px, py) : ctx.moveTo(px, py) }
+    ctx.closePath()
+  }
+  // stroke a honeycomb lattice covering radius R around (cx,cy); caller sets clip + stroke style
+  function honeycomb(cx, cy, R, r) {
+    const dx = Math.sqrt(3) * r, dy = 1.5 * r
+    const rows = Math.ceil(R / dy) + 2, cols = Math.ceil(R / dx) + 2
+    for (let row = -rows; row <= rows; row++) {
+      const oy = cy + row * dy, off = (row & 1) ? dx / 2 : 0
+      for (let col = -cols; col <= cols; col++) {
+        const ox = cx + col * dx + off
+        if (Math.hypot(ox - cx, oy - cy) > R) continue
+        hexPath(ox, oy, r * 0.9); ctx.stroke()
+      }
+    }
+  }
+  function shieldTint(hp) { const h = Math.max(0, Math.min(1, hp)); return { r: Math.round(120 + 135 * (1 - h)), g: Math.round(205 - 120 * (1 - h)), b: Math.round(255 - 175 * (1 - h)) } }
+  // energy DOME (hemisphere sitting on the ground at base y=cyb) with a honeycomb surface + base rings.
+  // Matches the reference: translucent blue dome, hex lattice, concentric ground rings. Used by the
+  // safe-mode shield; full-sphere variant (drawHexBubble) wraps the floating ant mecha.
+  function drawHexDome(cx, cyb, r, hp01, now, hemi = true) {
+    const hp = Math.max(0, Math.min(1, hp01)), c = shieldTint(hp), col = (a) => `rgba(${c.r},${c.g},${c.b},${a})`
+    const a0 = Math.PI, a1 = hemi ? 2 * Math.PI : 3 * Math.PI   // hemi = top half only; else full circle
+    let flick = 1; if (hp < 0.4) flick = 0.6 + 0.4 * Math.abs(Math.sin(now / 60))
+    ctx.save(); ctx.globalAlpha *= flick
+    // glassy fill
+    ctx.beginPath(); hemi ? (ctx.arc(cx, cyb, r, Math.PI, 2 * Math.PI), ctx.closePath()) : ctx.arc(cx, cyb, r, 0, 2 * Math.PI)
+    const g = ctx.createRadialGradient(cx, cyb - (hemi ? r * 0.35 : 0), r * 0.2, cx, cyb - (hemi ? r * 0.35 : 0), r)
+    g.addColorStop(0, col(0.05)); g.addColorStop(0.72, col(0.14)); g.addColorStop(1, col(0.34))
+    ctx.fillStyle = g; ctx.fill()
+    // honeycomb clipped to the dome
+    ctx.save(); ctx.beginPath(); hemi ? (ctx.arc(cx, cyb, r * 0.99, Math.PI, 2 * Math.PI), ctx.closePath()) : ctx.arc(cx, cyb, r * 0.99, 0, 2 * Math.PI); ctx.clip()
+    ctx.globalAlpha *= 0.45; ctx.strokeStyle = col(0.85); ctx.lineWidth = 1 * view.scale
+    honeycomb(cx, cyb - (hemi ? r * 0.42 : 0), r * 1.15, r * 0.17)
+    ctx.restore()
+    // bright rim
+    ctx.beginPath(); ctx.arc(cx, cyb, r, a0, a1 === 3 * Math.PI ? 2 * Math.PI : a1); ctx.strokeStyle = col(0.9); ctx.lineWidth = 2.4 * view.scale; ctx.stroke()
+    // ground rings (dome only)
+    if (hemi) for (const rr of [r * 1.02, r * 0.78, r * 0.55]) { ctx.beginPath(); ctx.ellipse(cx, cyb, rr, rr * 0.16, 0, 0, Math.PI * 2); ctx.strokeStyle = col(0.5); ctx.lineWidth = 1.6 * view.scale; ctx.stroke() }
+    ctx.restore()
+  }
+  function drawHexBubble(cx, cy, r, hp01, now) { drawHexDome(cx, cy, r, hp01, now, false) }
   // A curved shield PLATE floating at distance SHIELD_DIST in front of the cat, facing
   // `angle` (toward the cursor). Drawn as a convex band with a rim + central boss — a real
   // shield, not a sector from the cat. hp01: as it drops, the plate tints cyan→red + cracks.
@@ -2092,7 +2793,7 @@
     const cg = Math.round(205 - (205 - 90) * (1 - hp))
     const cb = Math.round(255 - (255 - 80) * (1 - hp))
     const col = (a) => `rgba(${cr},${cg},${cb},${a})`
-    let a = alpha
+    let a = alpha * ctx.globalAlpha   // scale by any dim wrapper (opponent 👁 fade)
     if (hp < 0.35) a *= 0.6 + 0.4 * Math.abs(Math.sin(performance.now() / 60))   // hurt flicker
     const platePath = () => { ctx.beginPath(); ctx.arc(cx, cy, D + t, angle - half, angle + half); ctx.arc(cx, cy, D - t, angle + half, angle - half, true); ctx.closePath() }
     ctx.save()
@@ -2103,6 +2804,11 @@
     const g = ctx.createLinearGradient(cx + Math.cos(angle) * (D - t), cy + Math.sin(angle) * (D - t), cx + Math.cos(angle) * (D + t), cy + Math.sin(angle) * (D + t))
     g.addColorStop(0, col(0.30)); g.addColorStop(0.5, col(0.62)); g.addColorStop(1, col(0.30))
     ctx.fillStyle = g; ctx.fill()
+    // honeycomb lattice across the plate (clipped to the band)
+    ctx.save(); platePath(); ctx.clip()
+    ctx.globalAlpha = a * 0.5; ctx.strokeStyle = col(0.8); ctx.lineWidth = 0.9 * sc
+    honeycomb(cx + Math.cos(angle) * D, cy + Math.sin(angle) * D, D * half + t * 2.5, 6 * sc)
+    ctx.restore(); ctx.globalAlpha = a
     // cracks across the plate surface (clipped to the band)
     ctx.save(); platePath(); ctx.clip()
     const nCracks = Math.round((1 - hp) * 8)
@@ -2159,7 +2865,7 @@
       let until = 0, ang = 0, hp01 = 1
       if (cat.id === 'me') { until = me.shieldUntil || 0; ang = me.shieldAngle || 0; hp01 = (me.shieldHP || 0) / SHIELD_HP }
       else { const rs = remoteShields.get(cat.id); if (rs) { until = rs.until; ang = rs.angle; hp01 = rs.hp / (rs.max || SHIELD_HP) } }
-      if (now < until) drawShield(c.x, c.y, ang, shieldAlpha(until, now), view.scale, hp01)
+      if (now < until) { const a = ctx.globalAlpha; if (cat.id !== 'me') ctx.globalAlpha = peerAlpha(cat.id); drawShield(c.x, c.y, ang, shieldAlpha(until, now), view.scale, hp01); ctx.globalAlpha = a }
     }
   }
   // glass-shard burst along the shield plate when it breaks
@@ -2318,6 +3024,15 @@
   // sunk inside the bar. Falls back to the screen bottom if there's no detectable taskbar.
   // ants stand on the DUG surface at their x (dip into pits), not the flat taskbar top
   function antGroundY(x) { const tb = taskbarRect(); return (tb ? tb.top + carveDepthAt(x || 0) : canvas.clientHeight) - 5 * view.scale }
+  // the big mecha stands on the taskbar SURFACE (bridges craters instead of sinking into them),
+  // and only falls when a through-hole spans its whole footing — not on a single narrow blast pit.
+  function mechaGroundY() { const tb = taskbarRect(); return (tb ? tb.top : canvas.clientHeight) - 1 }
+  function mechaOverHole(x) {
+    const tb = taskbarRect(); if (!tb) return false
+    const span = 16 * mechaScale()
+    for (const dx of [-span, 0, span]) if (carveDepthAt(x + dx) < tb.h * 0.88) return false
+    return true
+  }
   function summonAnt() {
     if (ants.filter((a) => !a.dead).length >= antMax()) return
     ants.push({ id: nextAntId++, x: cursor.x, y: cursor.y, vy: 0, onGround: false, hp: ANT_HP,
@@ -2450,6 +3165,7 @@
     const W = canvas.clientWidth
     for (const [pid, rec] of [...remoteAnts]) {
       if (now - rec.ts > 1000) { remoteAnts.delete(pid); continue }
+      ctx.globalAlpha = peerAlpha(pid)
       const col = antColor((peers.get(pid) || {}).tint)   // color by that peer's fur skin
       for (const a of rec.items.values()) {
         if (a.dead) continue
@@ -2541,8 +3257,8 @@
       ctx.beginPath(); ctx.moveTo(-13, -3); ctx.lineTo(-14 - bl * 0.6, 0); ctx.lineTo(-13, 3); ctx.closePath(); ctx.fill()
       for (let i = 0; i < 3; i++) {   // spark puffs trailing behind
         const px = -16 - (frnd(now / 40 + i) * 16), py = (frnd(now / 30 + i * 2) - 0.5) * 8
-        ctx.globalAlpha = 0.5; ctx.fillStyle = i % 2 ? '#ffd166' : '#8ec5ff'
-        ctx.beginPath(); ctx.arc(px, py, 1.6, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1
+        ctx.save(); ctx.globalAlpha *= 0.5; ctx.fillStyle = i % 2 ? '#ffd166' : '#8ec5ff'
+        ctx.beginPath(); ctx.arc(px, py, 1.6, 0, Math.PI * 2); ctx.fill(); ctx.restore()
       }
     }
     const fl = (7 + Math.sin(now / 40) * 3) * (boost ? 1.4 : 1)
@@ -2634,6 +3350,7 @@
     const W = canvas.clientWidth, H = canvas.clientHeight
     for (const [pid, rec] of [...remoteMissiles]) {
       if (now - rec.ts > 500) { remoteMissiles.delete(pid); continue }
+      ctx.globalAlpha = peerAlpha(pid)
       const extrap = now - rec.ts < 130   // dead-reckon only right after an update (avoids runaway on hiccups)
       for (const it of rec.items.values()) {
         if (extrap) { it.nx += it.vx || 0; it.ny += it.vy || 0 }   // move the estimate at the missile's own velocity
@@ -2758,8 +3475,16 @@
           if (p.power > 1) { p.power -= 1; p.pierceCd = now + 90 }   // punch through the ant, shrink
           else { explode(p.x, p.y, p.power); projectiles.splice(i, 1); continue }
         }
-        // cat (SOLID — always detonates), peer missile, peer gatling bullet, OR taskbar
-        if (hitTestCats(p.x, p.y) || hitRemoteMissile(p.x, p.y, p.power) || hitRemoteGBullet(p.x, p.y) || inTaskbar(p.x, p.y)) {
+        // missile vs an enemy missile → mutual attrition (bigger punches through, shrinks; both die if equal).
+        // Symmetric on both machines: each keeps its missile only if its power exceeds the other's.
+        const rmm = pierceReady ? hitRemoteMissile(p.x, p.y, p.power) : null
+        if (rmm) {
+          addEffect(p.x, p.y, 1); spawnSpark(p.x, p.y)
+          if (p.power > (rmm.power || 1)) { p.power -= (rmm.power || 1); p.pierceCd = now + 120 }   // punch through, shrink
+          else { explode(p.x, p.y, p.power); projectiles.splice(i, 1); continue }
+        }
+        // cat (SOLID — always detonates), peer gatling bullet, OR taskbar
+        if (hitTestCats(p.x, p.y) || hitRemoteGBullet(p.x, p.y) || inTaskbar(p.x, p.y)) {
           explode(p.x, p.y, p.power)
           projectiles.splice(i, 1); continue
         }
@@ -2789,7 +3514,8 @@
   }
 
   // stream my missiles (relative to my cat) + shield state so peers can see/collide/block
-  let sentMissiles = false, sentShield = false, sentAnts = false, sentBh = false, sentGat = false, sentGB = false, sentHuman = false, sentHB = false, sentNet = false
+  let sentMissiles = false, sentShield = false, sentAnts = false, sentBh = false, sentGat = false, sentGB = false, sentHuman = false, sentHB = false, sentNet = false, sentMecha = false, sentMShells = false
+  let mshellId = 1
   let lastPos = { nx: -1, ny: -1, taps: -1, hp: -1, away: -1, at: 0 }   // skip identical pos (idle rooms); 1s heartbeat for late joiners
   setInterval(() => {
     if (!connected()) return
@@ -2835,6 +3561,16 @@
       sentHuman = true
       net.send(JSON.stringify({ t: 'human', active: 1, nx: +(me.humanX / NW).toFixed(4), ny: +(me.humanY / NH).toFixed(4), hp: me.humanHp, weapon: me.humanWeapon || '', face: me.humanFace || 1 }))
     } else if (sentHuman) { net.send(JSON.stringify({ t: 'human', active: 0 })); sentHuman = false }
+    if (me.mechaActive) {
+      sentMecha = true
+      net.send(JSON.stringify({ t: 'mecha', active: 1, nx: +(me.mechaX / NW).toFixed(4), ny: +(me.mechaY / NH).toFixed(4), hp: me.mechaHp, face: me.mechaFace || 1, shield: +(me.mechaShieldHp / MSHIELD_HP).toFixed(2), form: +(me.mechaForm || 0).toFixed(2), thr: me.mechaThrust ? 1 : 0, ch: me.mechaCharging ? 1 : 0, chg: +(me.mechaCharge || 0).toFixed(2), sdep: +(me.mechaShieldDeploy || 0).toFixed(2), snx: +((me.mechaShieldX != null ? me.mechaShieldX : me.mechaX) / NW).toFixed(4), sny: +((me.mechaShieldY != null ? me.mechaShieldY : me.mechaY) / NH).toFixed(4), sang: +(me.mechaShieldAng || 0).toFixed(2) }))
+    } else if (sentMecha) { net.send(JSON.stringify({ t: 'mecha', active: 0 })); sentMecha = false }
+    // all mecha projectiles share one channel, tagged by kind (0=ant shell, 1=energy, 2=interceptor)
+    const allMShells = mechaShells.map((p) => ({ p, k: 0 })).concat(energyShots.map((p) => ({ p, k: 1 }))).concat(interceptors.map((p) => ({ p, k: 2 })))
+    if (allMShells.length) {
+      sentMShells = true
+      net.send(JSON.stringify({ t: 'mshells', list: allMShells.slice(-48).map(({ p, k }) => { if (!p.id) p.id = mshellId++; return { id: p.id, k, pw: p.power || 0, nx: +(p.x / NW).toFixed(4), ny: +(p.y / NH).toFixed(4), vx: +(p.vx / NW).toFixed(5), vy: +(p.vy / NH).toFixed(5) } }) }))
+    } else if (sentMShells) { net.send(JSON.stringify({ t: 'mshells', list: [] })); sentMShells = false }
     if (hbullets.length) {
       sentHB = true
       net.send(JSON.stringify({ t: 'hbullets', list: hbullets.slice(-30).map((p) => { if (!p.id) p.id = hbId++; return { id: p.id, nx: +(p.x / NW).toFixed(4), ny: +(p.y / NH).toFixed(4), vx: +(p.vx / NW).toFixed(5), vy: +(p.vy / NH).toFixed(5), k: p.adogen ? 2 : (p.wave ? 1 : 0), r: +((p.waveR ? (p.waveR * (p.hp0 ? p.hp / p.hp0 : 1)) : 3 * view.scale) / NW).toFixed(4) } }) }))
@@ -2862,11 +3598,11 @@
     // my cat where I put it and can see my counter
     if (wx != null) {
       const W = canvas.clientWidth || 1, H = canvas.clientHeight || 1
-      const nx = +(wx / W).toFixed(4), ny = +(wy / H).toFixed(4), aw = me.away ? 1 : 0
+      const nx = +(wx / W).toFixed(4), ny = +(wy / H).toFixed(4), aw = me.away ? 1 : 0, sf = me.safeMode ? 1 : 0
       // only send when something changed; heartbeat every 1s so late joiners still place my cat
-      if (nx !== lastPos.nx || ny !== lastPos.ny || tapCount !== lastPos.taps || me.hp !== lastPos.hp || aw !== lastPos.away || now - lastPos.at > 1000) {
-        net.send(JSON.stringify({ t: 'pos', nx, ny, taps: tapCount, hp: me.hp, away: aw }))
-        lastPos = { nx, ny, taps: tapCount, hp: me.hp, away: aw, at: now }
+      if (nx !== lastPos.nx || ny !== lastPos.ny || tapCount !== lastPos.taps || me.hp !== lastPos.hp || aw !== lastPos.away || sf !== lastPos.safe || now - lastPos.at > 1000) {
+        net.send(JSON.stringify({ t: 'pos', nx, ny, taps: tapCount, hp: me.hp, away: aw, safe: sf }))
+        lastPos = { nx, ny, taps: tapCount, hp: me.hp, away: aw, safe: sf, at: now }
       }
     }
   }, 50)   // ~20 updates/s — higher rate so remote missiles/ants move smoother
@@ -2914,13 +3650,22 @@
     for (let r = 0; r < GRID_ROWS; r++) for (let c = 0; c < GRID_COLS; c++) pts.push(anchorAt(c, r))
     return pts
   }
-  function nearestAnchor(x, y) {
-    let best = null, bd = Infinity
-    for (const p of anchorPoints()) { const d = (p.x - x) ** 2 + (p.y - y) ** 2; if (d < bd) { bd = d; best = p } }
-    return best
+  // an anchor is "taken" if a peer's widget sits on/near it (so two players can't share a preset)
+  function anchorOccupied(a) {
+    const W = canvas.clientWidth, H = canvas.clientHeight
+    for (const p of peers.values()) {
+      if (p.nx == null || p.ny == null) continue
+      if (Math.abs(p.nx * W - a.x) < cellPxW * 0.6 && Math.abs(p.ny * H - a.y) < cellPxH * 0.6) return true
+    }
+    return false
+  }
+  function nearestAnchor(x, y, avoidPeers) {
+    const pts = anchorPoints().sort((p, q) => ((p.x - x) ** 2 + (p.y - y) ** 2) - ((q.x - x) ** 2 + (q.y - y) ** 2))
+    if (avoidPeers) { for (const p of pts) if (!anchorOccupied(p)) return p }   // nearest FREE preset
+    return pts[0] || null
   }
   function snapToNearestAnchor() {
-    const a = nearestAnchor(wx, wy); if (!a) return
+    const a = nearestAnchor(wx, wy, true); if (!a) return
     wx = a.x; wy = a.y
     savedAnchor = { c: a.c, r: a.r }; localStorage.setItem('anchor', JSON.stringify(savedAnchor))
     clampWidget(); positionHud(); sendHotzone()
@@ -2942,7 +3687,7 @@
     hudBar.style.left = (wx + SIDE) + 'px'
     hudBar.style.top = (wy + cellPxH + 2) + 'px'
     hudBar.style.width = (cellPxW - SIDE * 2) + 'px'
-    positionShop(); positionAchv()
+    positionShop(); positionAchv(); positionPeace()
   }
   function positionChat() {
     chatbar.style.left = (wx + cellPxW / 2) + 'px'
@@ -2979,9 +3724,11 @@
   // Main decides click-through by polling the real cursor against this "hotzone".
   // We just report the widget rect (+ force flag while chatting/editing).
   let chatOpenFlag = false, dragging = null
+  let lastHzSend = 0
   function sendHotzone() {
     if (wx == null) return
-    inputSource.setHotzone({ rect: { x: wx, y: wy, w: cellPxW, h: cellPxH + BAR_SPACE }, force: chatOpenFlag || editing || shopOpenFlag || achvOpenFlag || platformMode || me.netAiming || me.netActive })
+    const extra = peerDimBtns.map((b) => ({ x: b.x - b.r - 2, y: b.y - b.r - 2, w: (b.r + 2) * 2, h: (b.r + 2) * 2 }))
+    inputSource.setHotzone({ rect: { x: wx, y: wy, w: cellPxW, h: cellPxH + BAR_SPACE }, extra, force: chatOpenFlag || editing || shopOpenFlag || achvOpenFlag || platformMode || me.netAiming || me.netActive })
   }
 
   // cursor for missile homing + dragging comes from main's poll (window-relative)
@@ -2996,6 +3743,8 @@
 
   // drag the cat (canvas) to move the whole widget — but not while editing
   canvas.addEventListener('mousedown', (e) => {
+    const pb = hitPeerDimButton(e.clientX, e.clientY)   // 👁 clicked an opponent's fade button?
+    if (pb) { toggleDimPeer(pb.pid); e.preventDefault(); return }
     if (editing || wx == null) return
     const onCat = e.clientX >= wx && e.clientX <= wx + cellPxW && e.clientY >= wy && e.clientY <= wy + cellPxH
     if (onCat) dragging = { dx: e.clientX - wx, dy: e.clientY - wy }
@@ -3006,15 +3755,17 @@
   // faint preset dots while dragging; nearest one highlighted (where the cat will land)
   function drawSnapGrid() {
     if (!dragging) return
-    const pts = anchorPoints(), near = nearestAnchor(wx, wy)
+    const pts = anchorPoints(), near = nearestAnchor(wx, wy, true)   // land on the nearest FREE preset
     const cxOff = cellPxW / 2, cyOff = cellPxH / 2
     ctx.save()
     for (const p of pts) {
       const isNear = near && p.x === near.x && p.y === near.y
+      const taken = anchorOccupied(p)
       ctx.beginPath(); ctx.arc(p.x + cxOff, p.y + cyOff, isNear ? 11 : 6, 0, Math.PI * 2)
-      ctx.fillStyle = isNear ? 'rgba(108,140,255,0.5)' : 'rgba(150,160,190,0.28)'
+      ctx.fillStyle = isNear ? 'rgba(108,140,255,0.5)' : (taken ? 'rgba(230,90,90,0.3)' : 'rgba(150,160,190,0.28)')   // taken presets show red
       ctx.fill()
       if (isNear) { ctx.strokeStyle = 'rgba(108,140,255,0.9)'; ctx.lineWidth = 2; ctx.stroke() }
+      else if (taken) { ctx.strokeStyle = 'rgba(230,90,90,0.7)'; ctx.lineWidth = 1.5; ctx.stroke() }
     }
     ctx.restore()
   }
@@ -3049,6 +3800,9 @@
     const all = [me, ...peers.values()]
     allRef = all
     me.away = (now - (me.lastInput || now)) > IDLE_MS   // 5-min 자리비움
+    // forward WASD/Q/E to the overlay when 10 ants can merge OR the mecha is active
+    const wantAntKeys = me.mechaActive || me.mechaMerging || (antMax() >= 10 && ants.filter((a) => !a.dead && !a.falling).length >= 10)
+    if (wantAntKeys !== antKeysSent) { antKeysSent = wantAntKeys; if (inputSource.antMechaControl) inputSource.antMechaControl(wantAntKeys) }
     for (const p of all) tickBlink(p, now)
 
     const scale = SCALE
@@ -3079,11 +3833,12 @@
 
     all.forEach((p, i) => {
       ctx.save()
+      if (p.id !== 'me') ctx.globalAlpha = peerAlpha(p.id)   // 👁 dim THIS opponent on my screen
       ctx.translate(origins[i].x, origins[i].y)
       ctx.scale(scale, scale)
       window.AnimalArt.draw(ctx, p.animal, p, now)
       ctx.restore()
-      if (p.id !== 'me' && p.taps != null) drawPeerCount(origins[i], p.taps) // peer's counter
+      if (p.id !== 'me' && p.taps != null) { ctx.save(); ctx.globalAlpha = peerAlpha(p.id); drawPeerCount(origins[i], p.taps); ctx.restore() }   // peer's counter (dims with 👁)
     })
 
     // ---- FX layer (ABOVE the HUD bar): weapons draw on top of the character UI so ants /
@@ -3098,23 +3853,34 @@
     drawShields(now)
     stepProjectiles(now)
     drawShieldShards(now)
-    drawRemoteMissiles(now)
+    ctx.save(); drawRemoteMissiles(now); ctx.restore()   // (per-peer 👁 dim set inside each drawRemote*; save/restore contains it)
     drawDebris(now)
     stepAnts(now)
-    drawRemoteAnts(now)
+    ctx.save(); drawRemoteAnts(now); ctx.restore()
     drawGatlings()
     stepGatling(now)
     drawGatSmoke(now)
-    drawRemoteGBullets(now)
+    ctx.save(); drawRemoteGBullets(now); ctx.restore()
     stepHbullets(now)
     stepNet(now)          // net physics + catching (positions a netted human before it draws)
     stepHuman(now)
-    drawRemoteHumans(now)
-    drawRemoteHbullets(now)
+    stepMechaMerge(now)
+    stepMecha(now)
+    stepMechaShells(now)
+    stepEnergyShots(now)
+    stepInterceptors(now)
+    ctx.save(); drawRemoteHumans(now); ctx.restore()
+    ctx.save(); drawRemoteMechas(now); ctx.restore()
+    ctx.save(); drawRemoteMShells(now); ctx.restore()
+    ctx.save(); drawRemoteHbullets(now); ctx.restore()
     drawNetAll(now)       // aim UI + my net pouch (on top of entities)
-    drawRemoteNets(now)
+    ctx.save(); drawRemoteNets(now); ctx.restore()
     stepLightning(now)
     drawBhDust(now)
+    drawSafeDomes(now)    // 🕊️ invincible peace-mode honeycomb dome (me + safe peers)
+    drawPeerDimButtons(now)   // 👁 per-opponent fade buttons
+    if (peaceMode) drawPeaceBadges(now)   // 🔒 badge above every character while the room is weapon-locked
+    if (now - lastHzSend > 180) { lastHzSend = now; sendHotzone() }   // keep the per-peer button click-zones tracking moving peers
     ctx = stagectx
 
     positionHandles(now)

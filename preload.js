@@ -15,6 +15,8 @@ contextBridge.exposeInMainWorld('bongo', {
   setHotzone(z) { ipcRenderer.send('hotzone', z) },
   humanControl(active) { ipcRenderer.send('human-control', !!active) },
   gatlingControl(active) { ipcRenderer.send('gatling-control', !!active) },
+  antMechaControl(active) { ipcRenderer.send('antmecha-control', !!active) },
+  setKeybinds(kb) { ipcRenderer.send('set-keybinds', kb) },
   pushState(state) { ipcRenderer.send('to-settings', state) },
   quit() { ipcRenderer.send('quit') },
 

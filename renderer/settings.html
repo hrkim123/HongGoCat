@@ -94,6 +94,14 @@
   </details>
 
   <details class="cat">
+    <summary>🕊️ 평화 모드</summary>
+    <div class="cat-body">
+      <label class="check"><input type="checkbox" id="in-safe"> 평화 모드 (무적 쉴드 · 무기 사용 불가)</label>
+      <p class="hint">켜면 캐릭터를 <b>육각형 반구 쉴드</b>가 감싸며 <b>무적(체력 9999)</b>이 됩니다. 대신 <b>내 무기는 사용할 수 없어요</b> — 작업 중 방해받지 않게 켜 두세요. 멀티에서도 이 쉴드가 보입니다.</p>
+    </div>
+  </details>
+
+  <details class="cat">
     <summary>화면</summary>
     <div class="cat-body">
       <button id="btn-monitor" class="wide secondary">🖥 다음 모니터로 이동</button>
@@ -102,12 +110,32 @@
     </div>
   </details>
 
-  <details class="cat hidden" id="host-tools">
-    <summary>🖌️ 플랫폼 그리기 (개발자)</summary>
+  <details class="cat">
+    <summary>⌨️ 단축키</summary>
     <div class="cat-body">
-      <button id="platform-mode" class="wide secondary" type="button">플랫폼 그리기 모드</button>
+      <label>조합키
+        <select id="kb-mod">
+          <option value="alt">Alt</option>
+          <option value="ctrlalt">Ctrl+Alt</option>
+          <option value="ctrlshift">Ctrl+Shift</option>
+          <option value="caps">CapsLock</option>
+        </select>
+      </label>
+      <div class="kb-row"><span>슬롯 1</span><button id="kb-key-0" class="kb-key" type="button">Z</button></div>
+      <div class="kb-row"><span>슬롯 2</span><button id="kb-key-1" class="kb-key" type="button">X</button></div>
+      <div class="kb-row"><span>슬롯 3</span><button id="kb-key-2" class="kb-key" type="button">C</button></div>
+      <button id="kb-reset" class="wide secondary" type="button">기본값 (Alt+Z / X / C)</button>
+      <p class="hint">키 버튼을 누른 뒤 원하는 키(글자·숫자·F키)를 누르면 지정됩니다. <b>조합키 + 각 키</b>로 슬롯 무기를 사용해요. 윈도우·브라우저 단축키와 겹치지 않는 키를 권장합니다.</p>
+    </div>
+  </details>
+
+  <details class="cat hidden" id="host-tools">
+    <summary>🛠️ 개발자 도구</summary>
+    <div class="cat-body">
+      <button id="platform-mode" class="wide secondary" type="button">🖌️ 플랫폼 그리기 모드</button>
       <button id="platform-clear" class="wide secondary" type="button">🗑️ 플랫폼 전체 지우기</button>
-      <p class="hint">켠 뒤 화면에 <b>왼쪽 클릭 드래그</b>로 바닥(플랫폼)을 그립니다. 각 획은 체력 10이며 미사일·총알에 맞으면 부서집니다. <b>개발자 전용</b> 도구이며, 접속 중이면 다른 유저에게도 동기화됩니다.</p>
+      <button id="heal-all" class="wide secondary" type="button">🩹 전체 체력 회복</button>
+      <p class="hint"><b>개발자 전용</b>. 플랫폼: 켠 뒤 <b>왼쪽 클릭 드래그</b>로 바닥을 그립니다(획당 체력 30). 전체 체력 회복: 접속 중인 <b>모든 유저</b>의 캐릭터 체력을 회복시킵니다.</p>
     </div>
   </details>
 

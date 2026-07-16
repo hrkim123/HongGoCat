@@ -100,6 +100,27 @@ let winOrigin = { x: 0, y: 0 } // top-left of the (multi-monitor) overlay in scr
 let chatting = false          // while true, the overlay is allowed to stay focused (for typing)
 let humanActive = false       // true while the WASD-controllable human weapon is summoned
 let gatlingActive = false     // true while a gatling turret is deployed (needs the Q fire key forwarded)
+let antMechaActive = false    // true while 10 ants are ready to merge OR the ant mecha is active (WASD/Q/E)
+
+// user-configurable slot hotkeys (from the settings window). mod = 'alt' | 'ctrlalt' | 'ctrlshift';
+// keys are names (Z/X/C, 1/2/3, F6…) mapped to uiohook physical keycodes.
+let slotMod = 'alt'
+let slotKeyMap = {}           // uiohook keycode -> slot number (1/2/3)
+function buildSlotKeys(keys) {
+  const m = {}
+  ;(keys || []).forEach((name, i) => { const code = UiohookKey[name]; if (code != null) m[code] = i + 1 })
+  return m
+}
+function slotModMatches(ctrl, alt, shift, caps) {
+  if (slotMod === 'ctrlalt') return ctrl && alt
+  if (slotMod === 'ctrlshift') return ctrl && shift
+  if (slotMod === 'caps') return caps   // hold CapsLock
+  return alt && !ctrl   // 'alt' (not AltGr)
+}
+function applyKeybinds(kb) {
+  if (kb && (kb.mod === 'alt' || kb.mod === 'ctrlalt' || kb.mod === 'ctrlshift' || kb.mod === 'caps')) slotMod = kb.mod
+  if (kb && Array.isArray(kb.keys) && kb.keys.length) slotKeyMap = buildSlotKeys(kb.keys)
+}
 
 // Only ever allow ONE overlay — prevents stale/ghost windows from stacking up
 // (repeated launches otherwise leave leftover windows that look like a stray bar).
@@ -277,6 +298,7 @@ function openChatFocus() {
 // overlay interactive only while the cursor is over the widget "hotzone" (or chatting/
 // editing). This is more reliable than forwarded mousemove for click-through windows.
 let hotzone = null          // { x, y, w, h } in window coords
+let hotzoneExtra = null     // [{ x, y, w, h }] extra clickable rects (per-opponent dim buttons)
 let forceInteractive = false
 let interactive = false
 let pollTimer = null
@@ -302,6 +324,9 @@ function startCursorPoll() {
       want = cx >= hotzone.x && cx <= hotzone.x + hotzone.w &&
              cy >= hotzone.y && cy <= hotzone.y + hotzone.h
     }
+    if (!want && hotzoneExtra) {   // per-opponent 👁 buttons drawn near each peer are clickable too
+      for (const r of hotzoneExtra) { if (cx >= r.x && cx <= r.x + r.w && cy >= r.y && cy <= r.y + r.h) { want = true; break } }
+    }
     if (want !== interactive) {
       interactive = want
       win.setIgnoreMouseEvents(!want, { forward: true })
@@ -323,25 +348,30 @@ app.whenReady().then(() => {
     const keysDown = new Set()
     const isCtrl = () => keysDown.has(UiohookKey.Ctrl) || keysDown.has(UiohookKey.CtrlRight)
     const isAlt = () => keysDown.has(UiohookKey.Alt) || keysDown.has(UiohookKey.AltRight)
-    // Alt+Z/X/C → fire weapon in slot 1/2/3. Easy one-hand reach (Alt thumb + Z/X/C finger) for
-    // small hands, unlike the wide Ctrl+Alt+number. We only OBSERVE keys (can't block), so this must
-    // not collide with OS/browser shortcuts: Alt+letter isn't a standard shortcut (only observed).
-    const SLOT_KEYS = { [UiohookKey.Z]: 1, [UiohookKey.X]: 2, [UiohookKey.C]: 3 }
-    const slotHeld = new Set()   // slot keys whose Alt combo press we forwarded (for hold-to-charge weapons)
+    const isShift = () => keysDown.has(UiohookKey.Shift) || keysDown.has(UiohookKey.ShiftRight)
+    const isCaps = () => keysDown.has(UiohookKey.CapsLock)   // held (not the toggle state)
+    // slot 1/2/3 hotkeys are user-configurable (settings → 단축키). Default Alt+Z/X/C. We only OBSERVE
+    // keys (can't block), so combos must avoid OS/browser shortcuts — the UI warns about that.
+    if (!Object.keys(slotKeyMap).length) slotKeyMap = buildSlotKeys(['Z', 'X', 'C'])
+    const slotHeld = new Set()   // slot keys whose combo press we forwarded (for hold-to-charge weapons)
     // WASD forwarded to the overlay ONLY while a controllable human is active (privacy: we don't
     // leak key identity otherwise). The renderer toggles this via the 'human-control' ipc below.
-    const MOVE_KEYS = { [UiohookKey.W]: 'w', [UiohookKey.A]: 'a', [UiohookKey.S]: 's', [UiohookKey.D]: 'd', [UiohookKey.E]: 'e', [UiohookKey.Q]: 'q' }
+    const MOVE_KEYS = { [UiohookKey.W]: 'w', [UiohookKey.A]: 'a', [UiohookKey.S]: 's', [UiohookKey.D]: 'd', [UiohookKey.E]: 'e', [UiohookKey.Q]: 'q', [UiohookKey.R]: 'r' }
     uIOhook.on('keydown', (e) => {
       // ignore OS auto-repeat while a key is held — act only on the initial press
       if (keysDown.has(e.keycode)) return
       keysDown.add(e.keycode)
       sendInput('key')
-      if (SLOT_KEYS[e.keycode] && isAlt() && !isCtrl()) {   // Alt (not AltGr) + Z/X/C
+      if (slotKeyMap[e.keycode] && slotModMatches(isCtrl(), isAlt(), isShift(), isCaps())) {
         slotHeld.add(e.keycode)
-        if (win && !win.isDestroyed()) win.webContents.send('command', { t: 'fire-slot', slot: SLOT_KEYS[e.keycode], down: true })
+        if (win && !win.isDestroyed()) win.webContents.send('command', { t: 'fire-slot', slot: slotKeyMap[e.keycode], down: true })
       }
-      if ((humanActive || gatlingActive) && MOVE_KEYS[e.keycode] && win && !win.isDestroyed()) {
+      if ((humanActive || gatlingActive || antMechaActive) && MOVE_KEYS[e.keycode] && win && !win.isDestroyed()) {
         win.webContents.send('command', { t: 'human-key', key: MOVE_KEYS[e.keycode], down: true })
+      }
+      // Ctrl+` : toggle the ant mecha's human ⇄ ant form (only while a mecha is active)
+      if (antMechaActive && e.keycode === UiohookKey.Backquote && isCtrl() && win && !win.isDestroyed()) {
+        win.webContents.send('command', { t: 'mecha-transform' })
       }
     })
     uIOhook.on('keyup', (e) => {
@@ -351,9 +381,9 @@ app.whenReady().then(() => {
         win.webContents.send('command', { t: 'human-key', key: MOVE_KEYS[e.keycode], down: false })
       }
       // release a held slot key (hold-to-charge weapons like 낙뢰) — forward regardless of modifiers
-      if (slotHeld.has(e.keycode) && SLOT_KEYS[e.keycode]) {
+      if (slotHeld.has(e.keycode) && slotKeyMap[e.keycode]) {
         slotHeld.delete(e.keycode)
-        if (win && !win.isDestroyed()) win.webContents.send('command', { t: 'fire-slot', slot: SLOT_KEYS[e.keycode], down: false })
+        if (win && !win.isDestroyed()) win.webContents.send('command', { t: 'fire-slot', slot: slotKeyMap[e.keycode], down: false })
       }
     })
     uIOhook.on('mousedown', (e) => {
@@ -376,6 +406,8 @@ app.whenReady().then(() => {
 
 ipcMain.on('human-control', (_e, active) => { humanActive = !!active })
 ipcMain.on('gatling-control', (_e, active) => { gatlingActive = !!active })
+ipcMain.on('antmecha-control', (_e, active) => { antMechaActive = !!active })
+ipcMain.on('set-keybinds', (_e, kb) => applyKeybinds(kb))
 ipcMain.on('open-settings', toggleSettings)
 ipcMain.on('apply-update', () => { if (updater) { try { updater.quitAndInstall(true, true) } catch (e) {} } })
 ipcMain.on('check-update', () => {
@@ -389,6 +421,7 @@ ipcMain.on('check-update', () => {
 // renderer reports the widget rect (window coords) + whether to force interactive (chat/edit)
 ipcMain.on('hotzone', (_e, z) => {
   hotzone = z && z.rect ? z.rect : null
+  hotzoneExtra = z && Array.isArray(z.extra) ? z.extra : null
   forceInteractive = !!(z && z.force)
 })
 ipcMain.on('quit', () => app.quit())
