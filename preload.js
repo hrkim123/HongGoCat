@@ -3,7 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('bongo', {
   // developer unlock: ONLY the machine with env var HONGGOCAT_DEV=1 gets everything unlocked.
   // Friends don't have it set, so they can't fake it. Set once with: setx HONGGOCAT_DEV 1
-  isDev: process.env.HONGGOCAT_DEV === '1',
+  isDev: (process.env.HONGGOCAT_DEV || '').trim() === '1',   // trim: cmd `set X=1 &&`는 "1 "(뒤 공백) 저장될 수 있음
   appVersion: (() => { try { return ipcRenderer.sendSync('get-version') || '' } catch { return '' } })(),
   // ----- overlay window -----
   onInput(cb) { ipcRenderer.on('input', (_e, kind) => cb(kind)) },

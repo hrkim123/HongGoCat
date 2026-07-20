@@ -432,7 +432,7 @@
     const target = cumTarget(cumAchCleared), pct = Math.min(100, (totalCount / target) * 100)
     const card = document.createElement('div'); card.className = 'ach'
     card.innerHTML = `<div class="ach-top"><span class="ach-name">🏆 누적 카운트 ${target.toLocaleString()}회</span><span class="ach-reward">🎁 💎 ${CUM_ACH_GEMS}</span></div>` +
-      `<p class="ach-desc">키보드·마우스 누적 입력 ${target.toLocaleString()}회 달성 시 소환 재화 지급 (달성하면 다음 목표가 자동으로 나타나요)</p>` +
+      `<p class="ach-desc">키보드·마우스 누적 입력 ${target.toLocaleString()}회 달성 시 소환 재화 지급</p>` +
       `<div class="ach-bar"><div class="ach-fill" style="width:${pct}%"></div></div>` +
       `<div class="ach-status">${totalCount.toLocaleString()} / ${target.toLocaleString()} · 지금까지 ${cumAchCleared}단계 달성</div>`
     achvListEl.appendChild(card)
