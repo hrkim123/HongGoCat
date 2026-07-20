@@ -55,13 +55,13 @@
     mechaAnt: {
       name: '메카 개미', cat: 'unit', rarity: 'rare', cost: 5, hp: 80,
       speed: 0.09, atk: { type: 'proj', dmg: 12, range: 0.30, cd: 0.5 },
-      battleShield: { absorb: 15, cooldown: 4 }, // 피격 시 자동 쉴드(15 흡수 → 깨지면 4s 후 재생)
+      battleShield: { absorb: 15, cooldown: 5 }, // 자동 쉴드(15 흡수). cooldown = "피격 없이 5s 지나야 재충전"(교전 중 재생 X)
       art: 'mecha', size: 1.6, // 기존 메카 그림 재사용, 개미 대포
     },
     mechaHuman: {
       name: '메카 인간폼', cat: 'unit', rarity: 'legend', cost: 7, hp: 120,
       speed: 0.12, atk: { type: 'proj', dmg: 15, range: 0.28, cd: 0.7 },
-      battleShield: { absorb: 20, cooldown: 5 }, // 자동 쉴드(20 흡수 → 5s 재생)
+      battleShield: { absorb: 20, cooldown: 6 }, // 자동 쉴드(20 흡수). 피격 없이 6s 지나야 재충전(교전 중 재생 X)
       art: 'human', size: 1.7, flying: true, // 공중 타입: 구멍 무시. 발밑 부스터 상시 분사 + 바닥에서 살짝 뜬 채 전진
     },
     human: {
