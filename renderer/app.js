@@ -959,6 +959,7 @@
   if (window.BattleGachaUI && window.BattleGacha) {
     window.BattleGachaUI.setCountBridge({ get: () => tapCount, spend: (n) => { spendCoins(n) }, set: (n) => { tapCount = Math.max(0, n | 0); counterDirty = true; renderCounter() } })
     window.BattleGachaUI.setDev(isDev)
+    window.__startBattle = startBattleSolo   // 배틀은 오버레이 통합(app.js)에서 시작
     window.BattleGachaUI.setDevContext({
       peers: () => [...peers.values()].map((p) => ({ id: p.id, name: p.name })),
       setPeer: (id, cur) => { if (net && connected()) net.send(JSON.stringify({ t: 'setcur', target: id, count: cur.count, gems: cur.gems, mat: cur.mat })) },
@@ -3335,6 +3336,83 @@
       window.BattleSprites.draw(ctx, u.id, { x: u.x, y: u.y, scale: s, facing: u.dir, state: u.state, t: u.animT, flash: u.state === 'attack' })
     }
   }
+
+  // ---------- 배틀 모드 (오버레이 통합: 실제 작업표시줄 위 · 별도 캔버스 아님) ----------
+  let battleActive = false, battle = null, battleAI = null, battleLastT = 0, battleResultAt = 0
+  let battleAtkAt = {}, battleDead = [], battleOpp = null, battleHud = null
+  const BATTLE_PAD = 90
+  function battleLaneX(L) { const W = canvas.clientWidth; return BATTLE_PAD + L * (W - 2 * BATTLE_PAD) }   // side0 기지=좌
+  function startBattleSolo() {
+    if (!(window.BattleSim && window.BattleData)) { showToast('배틀 모듈 로드 안 됨'); return }
+    if (window.BattleGacha && window.BattleGacha.deckReady && !window.BattleGacha.deckReady()) { showToast('덱 구성을 완료하세요 — 소환체 3개 이상, 무기 1개 이상'); return }
+    battle = window.BattleSim.newBattle({})
+    battleAI = battle.makeAI(1, ['ant', 'rifleman', 'grenadier', 'mechaAnt', 'mechaHuman'].filter((id) => window.BattleData.UNITS[id]), 1.4)
+    battleOpp = Object.assign({ id: 'battleOpp', animal: 'cat', name: '상대', skin: 'gray', pattern: 'solid', hat: 'none', ear: 'pointed', eye: 'oval', mouth: 'smile', tail: 'curl', shape: {}, hp: CAT_HP }, newAnimState())
+    battleAtkAt = {}; battleDead = []; battleResultAt = 0; battleLastT = performance.now(); battleActive = true
+    buildBattleHud(); sendHotzone()
+  }
+  function stopBattle() { battleActive = false; battle = null; if (battleHud) { battleHud.remove(); battleHud = null } sendHotzone() }
+  function buildBattleHud() {
+    if (battleHud) battleHud.remove()
+    const deck = (window.BattleGacha && window.BattleGacha.getDeck) ? window.BattleGacha.getDeck().units : []
+    const h = document.createElement('div'); h.className = 'no-drag'
+    h.style.cssText = 'position:fixed;z-index:2147483000;background:rgba(8,10,14,.85);border:1px solid #2b2f39;border-radius:12px;padding:8px 10px;width:300px;font-family:system-ui,"맑은 고딕",sans-serif'
+    const pos = JSON.parse(localStorage.getItem('battle.hudpos') || 'null')
+    h.style.left = (pos ? pos.x : 12) + 'px'; h.style.top = (pos ? pos.y : Math.max(20, canvas.clientHeight - 260)) + 'px'
+    h.innerHTML = '<div class="bhgrip" style="font-size:11px;color:#7f8797;cursor:move;margin-bottom:6px;user-select:none">⠿ 마나 · 덱 (드래그) · <span style="color:#e57373;cursor:pointer" class="bhx">나가기</span></div>' +
+      '<div class="bhmana" style="display:flex;gap:3px;align-items:center;margin-bottom:8px"><div class="bhsegs" style="display:flex;gap:3px;flex:1"></div><span class="bhval" style="font-size:11px;color:#cfd4de"></span></div>' +
+      '<div class="bhdeck" style="display:flex;gap:5px"></div>'
+    const segs = h.querySelector('.bhsegs'); for (let i = 0; i < 10; i++) { const s = document.createElement('div'); s.style.cssText = 'flex:1;height:9px;border-radius:2px;background:rgba(255,255,255,.14)'; segs.appendChild(s) }
+    const dk = h.querySelector('.bhdeck')
+    deck.forEach((id) => { const u = window.BattleData.UNITS[id]; if (!u) return; const b = document.createElement('div'); b.dataset.id = id; b.style.cssText = 'flex:1;text-align:center;padding:6px 2px;border-radius:8px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);color:#e8ebf0;font-size:11px;cursor:pointer;user-select:none'; b.innerHTML = `${u.name}<br><span style="color:#8fd3ff;font-weight:600">${u.cost}</span>`; b.onclick = () => { if (battle && battle.spawn(0, id)) updateBattleHud() }; dk.appendChild(b) })
+    h.querySelector('.bhx').onclick = () => stopBattle()
+    // drag
+    const grip = h.querySelector('.bhgrip'); let dx = 0, dy = 0, on = false
+    grip.addEventListener('mousedown', (e) => { if (e.target.classList.contains('bhx')) return; on = true; dx = e.clientX - h.offsetLeft; dy = e.clientY - h.offsetTop; e.preventDefault() })
+    window.addEventListener('mousemove', (e) => { if (!on) return; h.style.left = (e.clientX - dx) + 'px'; h.style.top = (e.clientY - dy) + 'px' })
+    window.addEventListener('mouseup', () => { if (!on) return; on = false; localStorage.setItem('battle.hudpos', JSON.stringify({ x: h.offsetLeft, y: h.offsetTop })) })
+    document.body.appendChild(h); battleHud = h
+  }
+  function updateBattleHud() {
+    if (!battleHud || !battle) return
+    const mana = battle.state.mana[0], buff = battle.state.manaBuff ? (battle.state.manaBuff[0] || 0) : 0
+    battleHud.querySelectorAll('.bhsegs div').forEach((s, i) => s.style.background = i < Math.floor(mana) ? '#4aa3ff' : 'rgba(255,255,255,.14)')
+    const v = battleHud.querySelector('.bhval'); if (v) v.textContent = `${mana.toFixed(1)}/${battle.state.cfg.manaCap}` + (buff > 0 ? ` ⚡+${buff.toFixed(1)}` : '')
+    battleHud.querySelectorAll('.bhdeck [data-id]').forEach((b) => { const u = window.BattleData.UNITS[b.dataset.id]; b.style.opacity = (u && mana >= (u.cost || 1)) ? '1' : '0.4' })
+  }
+  function stepBattle(now) {
+    let dt = (now - (battleLastT || now)) / 1000; battleLastT = now; if (dt > 0.1) dt = 0.1
+    if (battleAI) battleAI(dt); battle.step(dt)
+    for (const e of battle.drainEvents()) { if (e.type === 'hit') battleAtkAt[e.by] = now; else if (e.type === 'die') battleDead.push({ id: e.unit, L: e.L, side: e.side, born: now }) }
+    for (let i = battleDead.length - 1; i >= 0; i--) if (now - battleDead[i].born > 900) battleDead.splice(i, 1)
+    updateBattleHud()
+    if (battle.state.winner != null && !battleResultAt) { battleResultAt = now; const win = battle.state.winner === 0; showToast(win ? '🏆 승리!' : '💀 패배') }
+    if (battleResultAt && now - battleResultAt > 3000) stopBattle()
+  }
+  function drawBattleUnits(now) {
+    if (!battle || !window.BattleSprites) return
+    const st = battle.state
+    for (const u of st.units) {
+      const x = battleLaneX(u.L), def = window.BattleData.UNITS[u.type] || {}
+      const y = antGroundY(x) - (def.flying ? 34 * view.scale : 0)
+      const facing = u.side === 0 ? 1 : -1, atk = battleAtkAt[u.uid] && now - battleAtkAt[u.uid] < 380
+      const s = view.scale * 1.3 * (def.size || 1)
+      window.BattleSprites.draw(ctx, u.type, { x, y, scale: s, facing, state: atk ? 'attack' : 'walk', t: u.uid * 0.37 + now / 1000, flash: atk })
+      if (u.shHp > 0) { ctx.strokeStyle = 'rgba(120,200,255,.7)'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(x, y - 22 * s, 15 * s, Math.PI, 0); ctx.stroke() }
+      const w = 24 * s, f = u.hp / u.maxHp
+      ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(x - w / 2, y - 44 * s, w, 3.5)
+      ctx.fillStyle = f > 0.4 ? '#7ecb7e' : '#e24b4a'; ctx.fillRect(x - w / 2, y - 44 * s, w * f, 3.5)
+    }
+    for (const d of battleDead) { const p = Math.min(1, (now - d.born) / 900); window.BattleSprites.draw(ctx, d.id, { x: battleLaneX(d.L), y: antGroundY(battleLaneX(d.L)), scale: view.scale * 1.3, facing: d.side === 0 ? 1 : -1, state: 'death', t: 0, deathT: p }) }
+    // 기지 HP 바 (양 끝 고양이 위)
+    drawBattleBaseHp(battleLaneX(0), 0); drawBattleBaseHp(battleLaneX(1), 1)
+  }
+  function drawBattleBaseHp(x, side) {
+    const y = antGroundY(x) - 96 * view.scale, w = 60, hp = battle.state.baseHp[side], f = Math.max(0, hp / battle.state.baseHpMax)
+    ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(x - w / 2, y, w, 8)
+    ctx.fillStyle = side === 0 ? '#1D9E75' : '#D85A30'; ctx.fillRect(x - w / 2, y, w * f, 8)
+    ctx.fillStyle = '#fff'; ctx.font = '11px system-ui'; ctx.textAlign = 'center'; ctx.fillText((side === 0 ? '내 기지 ' : '상대 ') + Math.ceil(hp), x, y - 4)
+  }
   // peer ants: normalized X → my screen; pinned to MY taskbar line so they always crawl on it
   function remoteAntScreenPos(peerId, a) {
     const sx = (a.sx != null ? a.sx : a.nx) * canvas.clientWidth
@@ -4219,12 +4297,20 @@
       y: origins[i].y + (BUB + 100) * scale // ~ head/upper body
     }))
 
+    // 배틀 모드: 내 고양이를 작업표시줄 좌측 끝으로 이동(피어 숨김·상대 고양이는 우측 끝)
+    if (battleActive) {
+      const by = Math.max(0, usableBottom() - (CELL_H * scale + BAR_SPACE))
+      origins[0] = { x: Math.max(4, battleLaneX(0) - CELL_W / 2 * scale), y: by }
+      catPos[0] = { x: origins[0].x + CELL_W / 2 * scale, y: origins[0].y + (BUB + 100) * scale }
+    }
+
     // shield faces the cursor while active
     if (catPos[0]) me.shieldAngle = Math.atan2(cursor.y - catPos[0].y, cursor.x - catPos[0].x)
 
     drawSnapGrid()   // preset dots under the cats while dragging
 
     all.forEach((p, i) => {
+      if (battleActive && p.id !== 'me') return   // 배틀 중엔 다른 피어 숨김
       ctx.save()
       if (p.id !== 'me') ctx.globalAlpha = peerAlpha(p.id)   // 👁 dim THIS opponent on my screen
       ctx.translate(origins[i].x, origins[i].y)
@@ -4233,6 +4319,11 @@
       ctx.restore()
       if (p.id !== 'me' && p.taps != null) { ctx.save(); ctx.globalAlpha = peerAlpha(p.id); drawPeerCount(origins[i], p.taps); ctx.restore() }   // peer's counter (dims with 👁)
     })
+    if (battleActive && battleOpp) {   // 상대 고양이(우측 끝) — 솔로는 AI 더미
+      const by = Math.max(0, usableBottom() - (CELL_H * scale + BAR_SPACE))
+      const bx = Math.min(cW - CELL_W * scale - 4, battleLaneX(1) - CELL_W / 2 * scale)
+      ctx.save(); ctx.translate(bx, by); ctx.scale(scale, scale); window.AnimalArt.draw(ctx, 'cat', battleOpp, now); ctx.restore()
+    }
 
     // ---- FX layer (ABOVE the HUD bar): weapons draw on top of the character UI so ants /
     // missiles are never hidden behind the counter bar ----
@@ -4251,6 +4342,7 @@
     stepAnts(now)
     ctx.save(); drawRemoteAnts(now); ctx.restore()
     stepFieldUnits(now); drawFieldUnits(now)   // 신규 소환체(오버레이)
+    if (battleActive && battle) { stepBattle(now); drawBattleUnits(now) }   // 배틀 모드(오버레이 통합)
     drawGatlings()
     stepGatling(now)
     drawGatSmoke(now)

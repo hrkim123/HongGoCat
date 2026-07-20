@@ -464,10 +464,10 @@
 
     function render() {
       body.innerHTML = ''
-      if (window.BattleMode) {
+      if (window.__startBattle || window.BattleMode) {
         const tb = document.createElement('button'); tb.className = 'bg-btn primary'; tb.textContent = '⚔ 솔로 배틀 테스트'
         tb.style.cssText = 'width:100%;margin-bottom:8px'
-        tb.onclick = () => { close(); window.BattleMode.startSolo() }
+        tb.onclick = () => { close(); (window.__startBattle ? window.__startBattle() : window.BattleMode.startSolo()) }
         body.appendChild(tb)
       }
       if (window.BattleSprites) {
