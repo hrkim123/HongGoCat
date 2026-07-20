@@ -58,11 +58,11 @@
       // 자동 쉴드: 남아있으면 먼저 흡수
       if (target.shHp != null && target.shHp > 0) {
         const block = Math.min(target.shHp, dmg); target.shHp -= block; dmg -= block
-        if (target.shHp <= 0) st.events.push({ type: 'shieldbreak', uid: target.uid })
-        if (dmg <= 0) { st.events.push({ type: 'shieldblock', uid: target.uid }); return }
+        if (target.shHp <= 0) st.events.push({ type: 'shieldbreak', uid: target.uid, L: target.L, side: target.side })
+        if (dmg <= 0) { st.events.push({ type: 'shieldblock', uid: target.uid, L: target.L, side: target.side }); return }
       }
       target.hp -= dmg
-      if (target.hp <= 0) { target.hp = 0; st.events.push({ type: 'die', uid: target.uid, side: target.side }) }
+      if (target.hp <= 0) { target.hp = 0; st.events.push({ type: 'die', uid: target.uid, side: target.side, L: target.L, unit: target.type }) }
     }
 
     function step(dt) {
