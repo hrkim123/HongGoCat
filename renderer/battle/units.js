@@ -10,12 +10,14 @@
   'use strict'
 
   // ── 희귀도 체계 (일반 < 고급 < 희귀 < 전설) ────────────────────────────────
-  // weight = 1회 뽑기 확률 가중치(합 100). anim = 희귀도별 가챠 연출 키.
+  // weight = 1회 뽑기 "희귀도(tier)" 선택 확률(합 100). tier를 고른 뒤 그 안에서는 균등 분배(엔빵)
+  //   → 같은 희귀도에 항목이 늘면 개별 확률 = weight ÷ 개수 로 자동 분배.
+  // anim = 희귀도별 가챠 연출 키.
   const RARITY = {
-    common:   { key: 'common',   name: '일반', weight: 60, color: '#b8c0cc', anim: 'flash'   },
-    uncommon: { key: 'uncommon', name: '고급', weight: 25, color: '#4aa3ff', anim: 'beam'    },
-    rare:     { key: 'rare',     name: '희귀', weight: 12, color: '#b06bff', anim: 'swirl'   },
-    legend:   { key: 'legend',   name: '전설', weight:  3, color: '#ffcf3a', anim: 'burst'   },
+    common:   { key: 'common',   name: '일반', weight: 45, color: '#b8c0cc', anim: 'flash'   },
+    uncommon: { key: 'uncommon', name: '고급', weight: 40, color: '#4aa3ff', anim: 'beam'    },
+    rare:     { key: 'rare',     name: '희귀', weight: 13, color: '#b06bff', anim: 'swirl'   },
+    legend:   { key: 'legend',   name: '전설', weight:  2, color: '#ffcf3a', anim: 'burst'   },
   }
 
   // ── 가챠 재화(💎 젬) ───────────────────────────────────────────────────────
