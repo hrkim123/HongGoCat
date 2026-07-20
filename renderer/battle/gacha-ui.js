@@ -454,6 +454,11 @@
     if (dev) items.push(['🛠️ 개발자 (재화)', () => openDevPanel()])
     const wrap = document.createElement('div'); wrap.style.cssText = 'display:flex;flex-direction:column;gap:8px'
     items.forEach(([label, fn]) => { const b = document.createElement('button'); b.className = 'bg-btn'; b.textContent = label; b.style.textAlign = 'left'; b.onclick = () => { close(); fn() }; wrap.appendChild(b) })
+    // 홍고캣 종료 — 메뉴 최하단(위험 색)
+    const quit = document.createElement('button'); quit.className = 'bg-btn'; quit.textContent = '⏻ 홍고캣 종료'
+    quit.style.cssText = 'text-align:left;margin-top:6px;border-color:#7a2b2b;background:#3a1e1e;color:#ff9a9a'
+    quit.onclick = () => { if (bridges.quit) bridges.quit(); else close() }
+    wrap.appendChild(quit)
     card.appendChild(wrap)
     mount(back)
   }

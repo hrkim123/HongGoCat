@@ -105,7 +105,7 @@
   $('btn-restore-bar').onclick = () => api.toOverlay({ t: 'reset-taskbar' })
   $('btn-chat').onclick = () => api.toOverlay({ t: 'chat' })
   $('btn-check-update').onclick = () => { if (api.checkUpdate) api.checkUpdate() }
-  $('btn-quit').onclick = () => api.toOverlay({ t: 'quit' })
+  { const q = $('btn-quit'); if (q) q.onclick = () => api.toOverlay({ t: 'quit' }) }   // 종료는 햄버거 메뉴로 이동
 
   api.toOverlay({ t: 'request-state' })
 })()

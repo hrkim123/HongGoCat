@@ -969,6 +969,7 @@
       weapon: () => openWeaponLoadout(),         // ⚔ 무기 설정: 전용 팝업(오버레이 단축키 슬롯)
       achievements: () => openAchv(),            // 🏆 업적: 기존 팝업
       settings: () => inputSource.openSettings(), // ⚙ 설정: 기존 설정 창
+      quit: () => { try { inputSource.quit() } catch (e) {} }, // ⏻ 홍고캣 종료
     })
     window.__bgModalChanged = () => sendHotzone()   // 배틀 팝업 열림/닫힘 → hotzone 갱신
     menuBtn.onclick = () => { window.BattleGachaUI.openMenu(); sendHotzone() }
