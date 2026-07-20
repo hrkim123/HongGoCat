@@ -200,7 +200,7 @@
   function fmtCount(n) { n = Math.max(0, Math.floor(n || 0)); if (n >= 1e6) return (n / 1e6).toFixed(2).replace(/\.?0+$/, '') + 'M'; if (n >= 1e4) return (n / 1e3).toFixed(1).replace(/\.0$/, '') + 'K'; return n.toLocaleString() }
   function renderCounter() {
     const total = countMode === 'total'
-    counterEl.textContent = (total ? 'Σ ' : '🪙 ') + (total ? fmtCount(totalCount) : tapCount.toLocaleString())
+    counterEl.textContent = total ? fmtCount(totalCount) : tapCount.toLocaleString()
     const broken = me.hp <= 0
     counterEl.classList.toggle('penalty', broken && !total)
     counterEl.classList.toggle('total-mode', total)

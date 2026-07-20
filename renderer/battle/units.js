@@ -62,9 +62,9 @@
       art: 'human', size: 1.7, flying: true, // 공중 타입: 구멍 무시. 발밑 부스터 상시 분사 + 바닥에서 살짝 뜬 채 전진
     },
     human: {
-      name: '인간', cat: 'unit', rarity: 'rare', cost: 4, hp: 55,
-      speed: 0.13, atk: { type: 'melee', dmg: 8, range: 0.03, cd: 0.7 },
-      art: 'human', size: 1.3, // 배틀에선 근접 브루저(오버레이에선 WASD 조종·무기 장착). 아도겐은 인간의 기본 기능.
+      name: '인간', cat: 'unit', rarity: 'rare', cost: 4, hp: 45,
+      speed: 0.12, atk: { type: 'proj', dmg: 10, range: 0.24, cd: 1.0 },
+      art: 'human', size: 1.3, // 배틀: 자동 조작 · 기본 공격 = 아도겐(원거리). 오버레이: WASD 수동 조종.
     },
   }
 
