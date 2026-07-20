@@ -76,6 +76,51 @@
     gatling: '커서 방향 연사 터렛', human: 'WASD 이동 · 무기 장착 전투', lightning: '커서→작업표시줄 낙뢰',
     adogen: '기 모아 쏘는 기공파', blackhole: '주변 물체를 빨아들여 소멸(배틀 1회)',
   }
+  // 상세 설명(? 버튼 팝업용) — 충실히 작성
+  const INFO = {
+    ant: '작업 표시줄 위를 기어다니는 기본 근접 소환체. 체력·공격력은 낮지만 코스트 1로 물량으로 밀어붙이기 좋다. 상대 소환체를 만나면 물어뜯어 공격한다. 오버레이에선 여러 마리가 돌아다니다 10마리가 모이면 메카 개미로 합체한다.',
+    rifleman: '총을 든 개미 병사. 일정 사거리 밖에서 3연발로 사격해 안전하게 딜을 넣는다. 근접전에 약하니 앞에 탱커(쉴더)를 세워주면 좋다. 업그레이드 최대 시 4연발이 된다.',
+    grenadier: '수류탄을 던지는 개미 병사. 착탄 지점 범위에 광역 피해를 줘 뭉쳐 오는 적 물량에 강하다. 단발 위력은 좋지만 쿨타임이 길다. 업그레이드 시 착탄 지점에 화염 장판(지속 피해)이 남는다.',
+    shielder: '방패를 든 개미 탱커. 공격은 못 하지만 전방을 막아 아군을 보호한다. 총 10의 피해를 막으면 방패가 부서진다. 딜러 앞에 세워 라인을 유지하는 용도. 업그레이드 시 흡수량이 늘고, 파괴될 때 주변 아군에게 잠깐 보호막을 준다.',
+    mechaAnt: '개미 10마리가 합체한 중장 기체. 높은 체력으로 버티며 개미 대포를 빠르게 연사한다. 코스트가 높지만 라인의 중심을 잡아준다. 업그레이드 시 대포를 2연사한다.',
+    mechaHuman: '메카 개미의 인간형(건담) 변신. 발밑 부스터로 바닥에서 살짝 떠 전진하는 공중 타입이라 땅에 파인 구멍을 무시하고 지나간다. 최고 수준의 체력·화력을 가진 결전 병기. 업그레이드 시 부스터 대시로 순간 접근한다.',
+    missile: '커서를 따라가 명중 시 폭발하는 유도 미사일. 여러 발이 겹치면 합쳐져 더 커지고, 10발이 합쳐지면 ☢핵이 된다. 왼쪽 클릭으로 마지막 방향으로 3배 가속. 자신보다 약한 대상(개미·게틀링 등)은 관통하며 그만큼 파워가 깎여 작아진다.',
+    shield: '커서 방향에 10초간 방패를 세워 날아오는 미사일·탄을 막는다. 체력 10 — 맞을수록 금이 가다 깨지고 3초 쿨타임. 공격이 아닌 방어/생존용이다.',
+    net: '활처럼 당겨 발사하는 그물. 펼쳐지며 범위 안의 발사체(상대 것 포함: 미사일·개미·총알 등)를 잡아 가둔다. 잡은 뒤 커서에 매달아 휘두르다 다시 클릭하면 그 방향으로 사출한다(미사일은 재점화). 단, 메카·인간·터렛 본체는 잡지 못한다.',
+    gatling: '책상 위에 고정 소환하는 터렛. Q를 누르는 동안 커서 방향으로 연사한다. 약 2초 사격하면 과열되어 3초간 멈춘다. 체력 10, 총알당 소량 피해. 지속 견제와 라인 방어에 좋다.',
+    human: 'WASD로 직접 조종하는 인간 소환체(W 점프·S 급강하). E 홀드로 커서 방향 방패, Q로 공격(맨손 주먹 / 주운 무기 / 아도겐 충전). 바닥에 가끔 떨어지는 칼·권총·라이플·바주카를 주워 장착할 수 있다.',
+    lightning: '커서 위치에서 작업 표시줄 방향으로 번개가 내리꽂힌다. Q를 누르는 동안 충전(최대 5단계 — 색이 노랑→보라로, 범위·피해가 커짐). 경로에서 처음 만나는 대상에서 끊겨 감전·타격하고, 없으면 바닥까지 내려가 땅을 판다.',
+    adogen: '맨손 인간이 왼쪽 클릭을 꾹 눌러 기를 모으고 놓으면 커서 방향으로 기공파를 발사한다. 충전량에 따라 크기·체력·피해가 커진다(최대 5단계). 미사일·탄과 부딪치면 서로 깎이고, 클수록 땅도 크게 판다.',
+    blackhole: '커서에 10초간 블랙홀을 소환한다(쿨 60초). 화면 전체에서 캐릭터를 제외한 모든 물체(미사일·개미·총알·터렛·포탄 등)를 중심으로 빨아들여 소멸시킨다 — 가까울수록 강하게. 배틀 모드에선 한 게임에 1번만 쓸 수 있다.',
+  }
+  function statLine(e) {
+    if (e.cat === 'weapon') return e.mana != null ? `무기 · 마나 ${e.mana}` : '무기 · 오버레이'
+    const a = e.atk || {}
+    const atk = a.type === 'melee' ? `근접 ${a.dmg}` : a.type === 'proj' ? `원거리 ${a.dmg}${a.burst ? ' ×' + a.burst + '연발' : ''}`
+      : a.type === 'aoe' ? `광역 ${a.dmg}` : a.type === 'none' ? '공격 없음' : ''
+    return `코스트 ${e.cost} · HP ${e.hp} · ${atk}${e.flying ? ' · 공중' : ''}`
+  }
+  function openInfo(id) {
+    const e = (D.UNITS[id] ? { id, ...D.UNITS[id] } : { id, ...D.WEAPONS[id] })
+    const info = D.RARITY[e.rarity] || D.RARITY.common
+    const back = document.createElement('div'); back.className = 'bg-back'
+    const card = document.createElement('div'); card.className = 'bg-card'; card.style.width = 'min(400px,92vw)'; back.appendChild(card)
+    const close = () => { back.remove(); hostSync() }
+    back.addEventListener('mousedown', (ev) => { if (ev.target === back) close() })
+    const up = window.BattleUpgrade
+    card.innerHTML = `<div class="bg-head"><div class="bg-title">${e.name}</div><button class="bg-x">✕</button></div>
+      <div style="display:flex;gap:14px;align-items:center;margin-bottom:12px">
+        <div style="width:96px;height:96px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:${info.color}18;border:1px solid ${info.color}">${iconFor(e, 84)}</div>
+        <div style="flex:1;min-width:0">
+          <span class="bg-badge" style="background:${info.color}22;color:${info.color};border:1px solid ${info.color}66">${info.name}</span>
+          <div class="bg-sub" style="margin-top:8px">${statLine(e)}</div>
+          ${up && up.spec(id) ? `<div class="bg-sub" style="margin-top:4px;color:#9aa0ab">⬆ ${up.effectSummary(id)}</div>` : ''}
+        </div>
+      </div>
+      <div style="font-size:13px;line-height:1.7;color:#dfe3ea">${INFO[id] || DESC[id] || ''}</div>`
+    card.querySelector('.bg-x').onclick = close
+    mount(back)
+  }
   function iconFor(e, size) {
     // 개미 베이스 + 유닛별 액세서리 SVG(art.js). 로드 안 됐으면 이모지 폴백.
     if (window.BattleArt) return window.BattleArt.icon(e, size || 30)
@@ -189,8 +234,10 @@
     .bg-filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
     .bg-fbtn{cursor:pointer;border:1px solid #2b2f39;background:#1c2029;color:#cfd4de;border-radius:999px;padding:4px 11px;font-size:12px}
     .bg-fbtn.on{background:#2f6bd8;border-color:#3f7ce8;color:#fff}
-    .bg-cell{cursor:pointer}
+    .bg-cell{cursor:pointer;position:relative}
     .bg-cell.indeck{outline:2px solid #4aa3ff;outline-offset:-1px}
+    .bg-help{position:absolute;top:3px;right:3px;width:16px;height:16px;padding:0;border-radius:50%;border:1px solid rgba(255,255,255,.25);background:rgba(20,24,30,.75);color:#cfd4de;font-size:11px;line-height:1;cursor:pointer;z-index:2}
+    .bg-help:hover{background:#2f6bd8;color:#fff}
     .bg-cell .dk{font-size:9px;margin-top:1px;color:#8fd3ff}
     .bg-up{display:flex;align-items:center;gap:10px;background:#1c2029;border:1px solid #2b2f39;border-radius:10px;padding:8px 10px;margin-bottom:6px}
     .bg-up .ui{flex:1;min-width:0}
@@ -217,7 +264,8 @@
     function cellHtml(e) {
       const info = D.RARITY[e.rarity], indeck = G.inDeck(e.id)
       const tag = e.cat === 'weapon' ? '무기' : `코스트 ${e.cost}`
-      return `<div class="bg-cell ${e.owned ? '' : 'locked'} ${indeck ? 'indeck' : ''}" data-id="${e.id}" title="${e.name} — ${DESC[e.id] || ''} [${info.name}]" style="border-color:${e.owned ? info.color : '#2b2f39'};background:${e.owned ? info.color + '18' : '#1c2029'}">
+      return `<div class="bg-cell ${e.owned ? '' : 'locked'} ${indeck ? 'indeck' : ''}" data-id="${e.id}" title="${e.name} [${info.name}]" style="border-color:${e.owned ? info.color : '#2b2f39'};background:${e.owned ? info.color + '18' : '#1c2029'}">
+        <button class="bg-help" data-help="${e.id}" title="설명">?</button>
         <div class="e">${iconFor(e, 36)}</div><div class="n">${e.name}</div>` +
         (e.owned ? `<div class="lv">${tag} · Lv.${e.level}</div>${indeck ? '<div class="dk">덱 ✓</div>' : ''}` : `<div class="lk">🔒 미획득</div>`) + `</div>`
     }
@@ -260,6 +308,7 @@
       body.querySelectorAll('[data-fc]').forEach((b) => b.onclick = () => { fCat = b.dataset.fc; render() })
       body.querySelectorAll('[data-fr]').forEach((b) => b.onclick = () => { fRar = b.dataset.fr; render() })
       body.querySelectorAll('[data-rm]').forEach((b) => b.onclick = (ev) => { ev.stopPropagation(); G.toggleDeck(b.dataset.rm); render() })
+      body.querySelectorAll('[data-help]').forEach((b) => b.onclick = (ev) => { ev.stopPropagation(); openInfo(b.dataset.help) })
       body.querySelectorAll('.bg-cell[data-id]').forEach((c) => c.onclick = () => {
         const id = c.dataset.id; if (!G.isOwned(id)) return
         const r = G.toggleDeck(id); if (!r.ok && r.reason === 'full') flashMsg(card, '덱이 가득 찼어요')
