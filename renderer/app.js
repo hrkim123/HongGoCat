@@ -95,7 +95,8 @@
   const SLOT_CHOICES = ['none', 'missile', 'shield', 'gatling', 'ant', 'human', 'blackhole', 'lightning', 'net']
   let owned = new Set()
   try { const a = JSON.parse(localStorage.getItem('owned') || '[]'); if (Array.isArray(a)) owned = new Set(a) } catch {}
-  function isOwned(id) { return isHost || owned.has(id) }
+  // 보유 판정 통합: 호스트 / 레거시 구매(owned) / 가챠 보유(BattleGacha) 중 하나면 보유.
+  function isOwned(id) { return isHost || owned.has(id) || !!(window.BattleGacha && window.BattleGacha.isOwned(id)) }
   // hats are all LOCKED for now (to be sold in the shop / given as achievement rewards later).
   // ownedHats starts empty → only 'none' is available.
   let ownedHats = new Set()

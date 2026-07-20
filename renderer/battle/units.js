@@ -63,11 +63,17 @@
     },
   }
 
-  // ── 무기 (cat:'weapon') — 덱 불필요, 배틀 중 마나 코스트로 사용 ─────────────
-  // 기존 무기 체계 재활용. 획득은 가챠로 전환 예정(카운트 구매 폐지). starter는 기본 지급.
+  // ── 무기 (cat:'weapon') — 가챠로 획득. 오버레이(재미용)에서도 사용. battle:true = 배틀 덱 가능.
+  // 획득은 가챠로 전환(카운트 구매 폐지). starter는 기본 지급. rarity는 docs/battle-mode.md 표.
   const WEAPONS = {
-    missile: { name: '미사일', cat: 'weapon', rarity: 'common', starter: true, mana: 0.5, merge: true }, // 합체 유지
-    gatling: { name: '게틀링건', cat: 'weapon', rarity: 'uncommon', mana: 7, place: 'base-fixed', aim: 'cursor' },
+    missile:   { name: '미사일', cat: 'weapon', rarity: 'common',   starter: true, battle: true, mana: 0.5, merge: true }, // 합체 유지
+    shield:    { name: '쉴드',   cat: 'weapon', rarity: 'common' },
+    net:       { name: '그물',   cat: 'weapon', rarity: 'uncommon' },
+    gatling:   { name: '게틀링건', cat: 'weapon', rarity: 'uncommon', battle: true, mana: 7, place: 'base-fixed', aim: 'cursor' },
+    human:     { name: '인간',   cat: 'weapon', rarity: 'rare' },
+    lightning: { name: '낙뢰',   cat: 'weapon', rarity: 'rare' },
+    adogen:    { name: '아도겐', cat: 'weapon', rarity: 'rare' },
+    blackhole: { name: '블랙홀', cat: 'weapon', rarity: 'legend', battle: true }, // 배틀: 1게임 1회
   }
 
   // ── 헬퍼 ──────────────────────────────────────────────────────────────────

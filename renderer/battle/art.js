@@ -72,7 +72,8 @@
       `<circle cx="26.5" cy="24.5" r="3.2" fill="#8a90a0" stroke="#454b59" stroke-width="0.8"/>`,
   }
 
-  const EMOJI = { ant: '🐜', rifleman: '🐜', grenadier: '🐜', shielder: '🛡', mechaAnt: '🤖', mechaHuman: '🦾', missile: '🚀', gatling: '🔫' }
+  const EMOJI = { ant: '🐜', rifleman: '🐜', grenadier: '🐜', shielder: '🛡', mechaAnt: '🤖', mechaHuman: '🦾',
+    missile: '🚀', gatling: '🔫', shield: '🛡', net: '🕸️', human: '🕺', lightning: '⚡', adogen: '🔵', blackhole: '🕳' }
 
   function icon(e, size) {
     const id = typeof e === 'string' ? e : (e && e.id)
