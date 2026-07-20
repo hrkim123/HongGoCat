@@ -67,7 +67,7 @@
       ? `접속 인원: ${s.count || 0} / ${max}명`
       : `접속 인원: — / ${max}명 (오프라인)`
     // platform tool: offline → anyone; online → host only. Hide only when connected & not host.
-    const ht = $('host-tools'); if (ht) ht.classList.toggle('hidden', !s.isDev)   // platform tool = developer-only
+    const navHt = $('nav-host-tools'); if (navHt) navHt.classList.toggle('hidden', !s.isDev)   // dev 카테고리 나브 버튼 (dev 전용)
     // (achievements moved out of settings → dedicated 🏆 button under the shop button in the overlay)
     if (s.keybinds && kbCapturing == null) { kb = { mod: s.keybinds.mod || 'alt', keys: (s.keybinds.keys || ['Z', 'X', 'C']).slice(0, 3) }; renderKb() }
     ready = true

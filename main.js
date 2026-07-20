@@ -245,7 +245,7 @@ function openSettings() {
     settingsWin.show(); settingsWin.moveTop(); settingsWin.focus(); return
   }
   settingsWin = new BrowserWindow({
-    width: 310,
+    width: 460,
     height: 600,
     resizable: false,
     minimizable: false,

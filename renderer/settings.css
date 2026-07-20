@@ -82,3 +82,14 @@ section.footer { background: none; padding: 6px 0 0; margin-bottom: 0; }
 .kb-key { flex: 1; padding: 7px 10px; border: 1px solid #444a5a; border-radius: 7px; background: #2b2e38; color: #fff; font-weight: 700; font-size: 13px; cursor: pointer; letter-spacing: 0.5px; text-align: center; }
 .kb-key:hover { background: #353948; }
 .kb-key.capturing { background: #3a2f16; border-color: #ffcf47; color: #ffe08a; }
+
+/* 좌측 카테고리 사이드바 레이아웃 */
+.settings-layout { display: flex; gap: 10px; align-items: flex-start; }
+.side { flex: 0 0 120px; display: flex; flex-direction: column; gap: 6px; }
+.nav-btn { flex: 0 0 auto; width: 100%; text-align: left; padding: 9px 10px; border-radius: 8px; background: #23232f; color: #b6b6c8; font-size: 12px; font-weight: 600; border: 1px solid transparent; }
+.nav-btn:hover { background: #2b2b38; color: #e8e8ee; }
+.nav-btn.active { background: #2f3550; color: #fff; border-color: #6c8cff; }
+.panes { flex: 1; min-width: 0; }
+.pane { display: none; margin-bottom: 0; }
+.pane.active { display: block; }
+.pane > label:last-child, .pane > *:last-child { margin-bottom: 0; }

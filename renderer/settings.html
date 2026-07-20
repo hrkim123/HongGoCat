@@ -8,144 +8,137 @@
 <body>
   <h1>🐱 HongGoCat 설정</h1>
 
-  <details class="cat">
-    <summary>캐릭터</summary>
-    <div class="cat-body">
-      <label>이름<input id="in-name" maxlength="20" placeholder="내 이름"></label>
-      <label>털색
-        <select id="in-skin">
-          <option value="default">흰색 (기본)</option>
-          <option value="cream">크림</option>
-          <option value="gray">회색</option>
-          <option value="brown">갈색</option>
-          <option value="black">검정</option>
-          <option value="orange">치즈</option>
-          <option value="pink">분홍</option>
-          <option value="mint">민트</option>
-          <option value="lavender">라벤더</option>
-        </select>
-      </label>
-      <label>무늬
-        <select id="in-pattern">
-          <option value="solid">단색</option>
-          <option value="tabby">태비 (줄무늬)</option>
-          <option value="tuxedo">턱시도</option>
-          <option value="spotted">점박이</option>
-          <option value="point">포인트</option>
-        </select>
-      </label>
-      <label>모자
-        <select id="in-hat">
-          <option value="none">없음</option>
-          <option value="beanie">비니</option>
-          <option value="party">파티모자</option>
-          <option value="crown">왕관</option>
-          <option value="tophat">중산모</option>
-          <option value="cap">야구모자</option>
-        </select>
-      </label>
-      <label>귀 모양
-        <select id="in-ear">
-          <option value="pointed">뾰족 (기본)</option>
-          <option value="round">둥근 귀</option>
-          <option value="folded">접힌 귀</option>
-        </select>
-      </label>
-      <label>눈 모양
-        <select id="in-eye">
-          <option value="oval">기본 눈</option>
-          <option value="round">동그란 눈</option>
-          <option value="happy">웃는 눈</option>
-          <option value="sparkle">반짝 눈</option>
-        </select>
-      </label>
-      <label>입 모양
-        <select id="in-mouth">
-          <option value="smile">방긋 (기본)</option>
-          <option value="cat">고양이 입</option>
-          <option value="oh">오~</option>
-          <option value="wide">활짝</option>
-        </select>
-      </label>
-      <label>꼬리 모양
-        <select id="in-tail">
-          <option value="curl">말린 꼬리 (기본)</option>
-          <option value="straight">곧은 꼬리</option>
-          <option value="fluffy">복슬 꼬리</option>
-          <option value="stub">짧은 꼬리</option>
-        </select>
-      </label>
-      <label class="check"><input type="checkbox" id="in-edit"> 디자인 편집 모드 (귀·눈·꼬리 위치 조정)</label>
-    </div>
-  </details>
+  <div class="settings-layout">
+    <nav class="side" id="side-nav">
+      <button class="nav-btn active" data-pane="pane-char" type="button">🐱 캐릭터</button>
+      <button class="nav-btn" data-pane="pane-multi" type="button">🌐 멀티플레이</button>
+      <button class="nav-btn" data-pane="pane-peace" type="button">🕊️ 평화 모드</button>
+      <button class="nav-btn" data-pane="pane-screen" type="button">🖥 화면</button>
+      <button class="nav-btn" data-pane="pane-kb" type="button">⌨️ 단축키</button>
+      <button class="nav-btn hidden" id="nav-host-tools" data-pane="host-tools" type="button">🛠️ 개발자</button>
+      <button class="nav-btn" data-pane="pane-info" type="button">ℹ️ 앱 정보</button>
+    </nav>
 
-  <details class="cat">
-    <summary>멀티플레이</summary>
-    <div class="cat-body">
-      <label>서버 주소<input id="in-server" placeholder="ws://localhost:8787"></label>
-      <label>방 코드<input id="in-room" maxlength="16" placeholder="예: BONGO123"></label>
-      <div class="row">
-        <button id="btn-connect">접속</button>
-        <button id="btn-disconnect" class="secondary" disabled>나가기</button>
-      </div>
-      <div id="status">오프라인 — 혼자 연주 중</div>
-      <div id="capacity" class="capacity">접속 인원: — / 12명</div>
-    </div>
-  </details>
+    <div class="panes">
+      <section class="pane active" id="pane-char">
+        <label>이름<input id="in-name" maxlength="20" placeholder="내 이름"></label>
+        <label>털색
+          <select id="in-skin">
+            <option value="default">흰색 (기본)</option>
+            <option value="cream">크림</option>
+            <option value="gray">회색</option>
+            <option value="brown">갈색</option>
+            <option value="black">검정</option>
+            <option value="orange">치즈</option>
+            <option value="pink">분홍</option>
+            <option value="mint">민트</option>
+            <option value="lavender">라벤더</option>
+          </select>
+        </label>
+        <label>무늬
+          <select id="in-pattern">
+            <option value="solid">단색</option>
+            <option value="tabby">태비 (줄무늬)</option>
+            <option value="tuxedo">턱시도</option>
+            <option value="spotted">점박이</option>
+            <option value="point">포인트</option>
+          </select>
+        </label>
+        <label>모자
+          <select id="in-hat">
+            <option value="none">없음</option>
+            <option value="beanie">비니</option>
+            <option value="party">파티모자</option>
+            <option value="crown">왕관</option>
+            <option value="tophat">중산모</option>
+            <option value="cap">야구모자</option>
+          </select>
+        </label>
+        <label>귀 모양
+          <select id="in-ear">
+            <option value="pointed">뾰족 (기본)</option>
+            <option value="round">둥근 귀</option>
+            <option value="folded">접힌 귀</option>
+          </select>
+        </label>
+        <label>눈 모양
+          <select id="in-eye">
+            <option value="oval">기본 눈</option>
+            <option value="round">동그란 눈</option>
+            <option value="happy">웃는 눈</option>
+            <option value="sparkle">반짝 눈</option>
+          </select>
+        </label>
+        <label>입 모양
+          <select id="in-mouth">
+            <option value="smile">방긋 (기본)</option>
+            <option value="cat">고양이 입</option>
+            <option value="oh">오~</option>
+            <option value="wide">활짝</option>
+          </select>
+        </label>
+        <label>꼬리 모양
+          <select id="in-tail">
+            <option value="curl">말린 꼬리 (기본)</option>
+            <option value="straight">곧은 꼬리</option>
+            <option value="fluffy">복슬 꼬리</option>
+            <option value="stub">짧은 꼬리</option>
+          </select>
+        </label>
+        <label class="check"><input type="checkbox" id="in-edit"> 디자인 편집 모드 (귀·눈·꼬리 위치 조정)</label>
+      </section>
 
-  <details class="cat">
-    <summary>🕊️ 평화 모드</summary>
-    <div class="cat-body">
-      <label class="check"><input type="checkbox" id="in-safe"> 평화 모드 (무적 쉴드 · 무기 사용 불가)</label>
-      <p class="hint">켜면 캐릭터를 <b>육각형 반구 쉴드</b>가 감싸며 <b>무적(체력 9999)</b>이 됩니다. 대신 <b>내 무기는 사용할 수 없어요</b> — 작업 중 방해받지 않게 켜 두세요. 멀티에서도 이 쉴드가 보입니다.</p>
-    </div>
-  </details>
+      <section class="pane" id="pane-multi">
+        <label>서버 주소<input id="in-server" placeholder="ws://localhost:8787"></label>
+        <label>방 코드<input id="in-room" maxlength="16" placeholder="예: BONGO123"></label>
+        <div class="row">
+          <button id="btn-connect">접속</button>
+          <button id="btn-disconnect" class="secondary" disabled>나가기</button>
+        </div>
+        <div id="status">오프라인 — 혼자 연주 중</div>
+        <div id="capacity" class="capacity">접속 인원: — / 12명</div>
+      </section>
 
-  <details class="cat">
-    <summary>화면</summary>
-    <div class="cat-body">
-      <button id="btn-monitor" class="wide secondary">🖥 다음 모니터로 이동</button>
-      <button id="btn-restore-bar" class="wide secondary">🧱 작업 표시줄 복구</button>
-      <p class="hint">여러 모니터가 있으면 이 버튼으로 오버레이를 옮깁니다. 캐릭터는 드래그로 그 화면 안 어디든 옮길 수 있어요.</p>
-    </div>
-  </details>
+      <section class="pane" id="pane-peace">
+        <label class="check"><input type="checkbox" id="in-safe"> 평화 모드 (무적 쉴드 · 무기 사용 불가)</label>
+        <p class="hint">켜면 캐릭터를 <b>육각형 반구 쉴드</b>가 감싸며 <b>무적(체력 9999)</b>이 됩니다. 대신 <b>내 무기는 사용할 수 없어요</b> — 작업 중 방해받지 않게 켜 두세요. 멀티에서도 이 쉴드가 보입니다.</p>
+      </section>
 
-  <details class="cat">
-    <summary>⌨️ 단축키</summary>
-    <div class="cat-body">
-      <label>조합키
-        <select id="kb-mod">
-          <option value="alt">Alt</option>
-          <option value="ctrlalt">Ctrl+Alt</option>
-          <option value="ctrlshift">Ctrl+Shift</option>
-          <option value="caps">CapsLock</option>
-        </select>
-      </label>
-      <div class="kb-row"><span>슬롯 1</span><button id="kb-key-0" class="kb-key" type="button">Z</button></div>
-      <div class="kb-row"><span>슬롯 2</span><button id="kb-key-1" class="kb-key" type="button">X</button></div>
-      <div class="kb-row"><span>슬롯 3</span><button id="kb-key-2" class="kb-key" type="button">C</button></div>
-      <button id="kb-reset" class="wide secondary" type="button">기본값 (Alt+Z / X / C)</button>
-      <p class="hint">키 버튼을 누른 뒤 원하는 키(글자·숫자·F키)를 누르면 지정됩니다. <b>조합키 + 각 키</b>로 슬롯 무기를 사용해요. 윈도우·브라우저 단축키와 겹치지 않는 키를 권장합니다.</p>
-    </div>
-  </details>
+      <section class="pane" id="pane-screen">
+        <button id="btn-monitor" class="wide secondary">🖥 다음 모니터로 이동</button>
+        <button id="btn-restore-bar" class="wide secondary">🧱 작업 표시줄 복구</button>
+        <p class="hint">여러 모니터가 있으면 이 버튼으로 오버레이를 옮깁니다. 캐릭터는 드래그로 그 화면 안 어디든 옮길 수 있어요.</p>
+      </section>
 
-  <details class="cat hidden" id="host-tools">
-    <summary>🛠️ 개발자 도구</summary>
-    <div class="cat-body">
-      <button id="platform-mode" class="wide secondary" type="button">🖌️ 플랫폼 그리기 모드</button>
-      <button id="platform-clear" class="wide secondary" type="button">🗑️ 플랫폼 전체 지우기</button>
-      <button id="heal-all" class="wide secondary" type="button">🩹 전체 체력 회복</button>
-      <p class="hint"><b>개발자 전용</b>. 플랫폼: 켠 뒤 <b>왼쪽 클릭 드래그</b>로 바닥을 그립니다(획당 체력 30). 전체 체력 회복: 접속 중인 <b>모든 유저</b>의 캐릭터 체력을 회복시킵니다.</p>
-    </div>
-  </details>
+      <section class="pane" id="pane-kb">
+        <label>조합키
+          <select id="kb-mod">
+            <option value="alt">Alt</option>
+            <option value="ctrlalt">Ctrl+Alt</option>
+            <option value="ctrlshift">Ctrl+Shift</option>
+            <option value="caps">CapsLock</option>
+          </select>
+        </label>
+        <div class="kb-row"><span>슬롯 1</span><button id="kb-key-0" class="kb-key" type="button">Z</button></div>
+        <div class="kb-row"><span>슬롯 2</span><button id="kb-key-1" class="kb-key" type="button">X</button></div>
+        <div class="kb-row"><span>슬롯 3</span><button id="kb-key-2" class="kb-key" type="button">C</button></div>
+        <button id="kb-reset" class="wide secondary" type="button">기본값 (Alt+Z / X / C)</button>
+        <p class="hint">키 버튼을 누른 뒤 원하는 키(글자·숫자·F키)를 누르면 지정됩니다. <b>조합키 + 각 키</b>로 슬롯 무기를 사용해요. 윈도우·브라우저 단축키와 겹치지 않는 키를 권장합니다.</p>
+      </section>
 
-  <details class="cat">
-    <summary>ℹ️ 앱 정보</summary>
-    <div class="cat-body">
-      <button id="btn-check-update" class="wide secondary" type="button">⬇️ 업데이트 확인</button>
-      <p class="hint">최신 버전이면 알려주고, 새 버전이 있으면 받아서 재시작할지 물어봅니다. (설치된 앱에서만 동작)</p>
+      <section class="pane" id="host-tools">
+        <button id="platform-mode" class="wide secondary" type="button">🖌️ 플랫폼 그리기 모드</button>
+        <button id="platform-clear" class="wide secondary" type="button">🗑️ 플랫폼 전체 지우기</button>
+        <button id="heal-all" class="wide secondary" type="button">🩹 전체 체력 회복</button>
+        <p class="hint"><b>개발자 전용</b>. 플랫폼: 켠 뒤 <b>왼쪽 클릭 드래그</b>로 바닥을 그립니다(획당 체력 30). 전체 체력 회복: 접속 중인 <b>모든 유저</b>의 캐릭터 체력을 회복시킵니다.</p>
+      </section>
+
+      <section class="pane" id="pane-info">
+        <button id="btn-check-update" class="wide secondary" type="button">⬇️ 업데이트 확인</button>
+        <p class="hint">최신 버전이면 알려주고, 새 버전이 있으면 받아서 재시작할지 물어봅니다. (설치된 앱에서만 동작)</p>
+      </section>
     </div>
-  </details>
+  </div>
 
   <section class="footer">
     <div class="row">
@@ -155,5 +148,18 @@
   </section>
 
   <script src="settings.js"></script>
+  <script>
+    // 좌측 카테고리 사이드바 — 클릭 시 해당 페인만 표시
+    (function () {
+      const nav = document.getElementById('side-nav')
+      const btns = [...nav.querySelectorAll('.nav-btn')]
+      const panes = [...document.querySelectorAll('.pane')]
+      nav.addEventListener('click', (e) => {
+        const b = e.target.closest('.nav-btn'); if (!b) return
+        btns.forEach((x) => x.classList.toggle('active', x === b))
+        panes.forEach((p) => p.classList.toggle('active', p.id === b.dataset.pane))
+      })
+    })()
+  </script>
 </body>
 </html>
