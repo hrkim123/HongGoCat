@@ -13,11 +13,12 @@
   // weight = 1회 뽑기 "희귀도(tier)" 선택 확률(합 100). tier를 고른 뒤 그 안에서는 균등 분배(엔빵)
   //   → 같은 희귀도에 항목이 늘면 개별 확률 = weight ÷ 개수 로 자동 분배.
   // anim = 희귀도별 가챠 연출 키.
+  // dup = 중복 획득 시 지급 강화 재료(등급별 차등)
   const RARITY = {
-    common:   { key: 'common',   name: '일반', weight: 45, color: '#e8ecf2', anim: 'flash'   }, // 흰색
-    uncommon: { key: 'uncommon', name: '고급', weight: 40, color: '#4ec36a', anim: 'beam'    }, // 녹색
-    rare:     { key: 'rare',     name: '희귀', weight: 13, color: '#c98bff', anim: 'swirl'   }, // 밝은 보라
-    legend:   { key: 'legend',   name: '전설', weight:  2, color: '#ff9d3a', anim: 'burst'   }, // 주황
+    common:   { key: 'common',   name: '일반', weight: 45, color: '#e8ecf2', anim: 'flash', dup: 1 }, // 흰색
+    uncommon: { key: 'uncommon', name: '고급', weight: 40, color: '#4ec36a', anim: 'beam',  dup: 2 }, // 녹색
+    rare:     { key: 'rare',     name: '희귀', weight: 13, color: '#c98bff', anim: 'swirl', dup: 3 }, // 밝은 보라
+    legend:   { key: 'legend',   name: '전설', weight:  2, color: '#ff9d3a', anim: 'burst', dup: 5 }, // 주황
   }
 
   // ── 가챠 재화(💎 젬) ───────────────────────────────────────────────────────

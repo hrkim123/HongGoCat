@@ -198,13 +198,14 @@
   let penaltyAcc = 0   // while 완전 파괴, only every 2nd input counts (half rate)
   // 큰 수 축약: 100만↑ M, 1만↑ K
   function fmtCount(n) { n = Math.max(0, Math.floor(n || 0)); if (n >= 1e6) return (n / 1e6).toFixed(2).replace(/\.?0+$/, '') + 'M'; if (n >= 1e4) return (n / 1e3).toFixed(1).replace(/\.0$/, '') + 'K'; return n.toLocaleString() }
+  const countIconEl = document.getElementById('count-icon')
   function renderCounter() {
     const total = countMode === 'total'
     counterEl.textContent = total ? fmtCount(totalCount) : tapCount.toLocaleString()
+    if (countIconEl) countIconEl.textContent = total ? '∞' : '🪙'
     const broken = me.hp <= 0
     counterEl.classList.toggle('penalty', broken && !total)
-    counterEl.classList.toggle('total-mode', total)
-    counterEl.title = total ? `총 누적 카운트 ${totalCount.toLocaleString()} (Σ)` : (broken ? '완전 파괴 패널티 — 입력 2번당 +1' : '현재 재화 카운트 (🪙)')
+    counterEl.title = total ? `총 누적 카운트 ${totalCount.toLocaleString()} (∞)` : (broken ? '완전 파괴 패널티 — 입력 2번당 +1' : '현재 재화 카운트 (🪙)')
   }
   function toggleCountMode() { countMode = countMode === 'cur' ? 'total' : 'cur'; localStorage.setItem('countMode', countMode); renderCounter() }
   function floatPenalty() {   // faint red "+1" so you can tell you're earning at half rate

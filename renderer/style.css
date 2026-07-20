@@ -34,7 +34,7 @@ html, body {
   padding: 0 11px;
   display: flex; align-items: center; justify-content: center;
   border-radius: 6px;
-  background: #2a2a34;
+  background: #111116;   /* 재화/누적 공통: 짙은 검정 */
   color: #fff; font-size: 13px; font-weight: 700;
   font-variant-numeric: tabular-nums; letter-spacing: 0.5px;
   transition: transform 0.08s ease-out;
@@ -99,7 +99,14 @@ html, body {
   font-size: 13px; line-height: 1; display: flex; align-items: center; justify-content: center;
 }
 #btn-count-toggle:hover { background: #3d3d4c; color: #fff; }
-#counter.total-mode { background: #2b3540; }   /* 누적 모드: 배경색만 살짝 다르게(재화=#2a2a34) */
+#count-icon {
+  position: absolute; left: 2px; top: -9px;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: #111116; color: #ffd86b;
+  font-size: 11px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.45); z-index: 2;
+}
 
 #chatbar {
   position: absolute;

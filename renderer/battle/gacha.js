@@ -103,7 +103,7 @@
 
     const dup = !!owned[entry.id]
     let gained = 0
-    if (dup) { gained = D.UPGRADE.perDuplicate; addMaterials(gained) }
+    if (dup) { gained = (rarity && rarity.dup) || D.UPGRADE.perDuplicate; addMaterials(gained) }   // 등급별 차등
     else { owned[entry.id] = true; if (!levels[entry.id]) levels[entry.id] = 1; saveOwned() }
 
     return { id: entry.id, entry, rarity, dup, material: gained }
