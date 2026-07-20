@@ -173,7 +173,9 @@
     const pullBtn = document.createElement('button'); pullBtn.className = 'bg-btn primary'; pullBtn.textContent = `소환 (💎${D.GEM.pullCost})`
     const exBtn = document.createElement('button'); exBtn.className = 'bg-btn'; exBtn.textContent = `카운트 ${D.GEM.countPerGem.toLocaleString()} → 💎1`
     const colBtn = document.createElement('button'); colBtn.className = 'bg-btn'; colBtn.textContent = '📚 컬렉션'
-    controls.append(pullBtn, exBtn, colBtn); card.appendChild(controls)
+    const rateBtn = document.createElement('button'); rateBtn.className = 'bg-btn'; rateBtn.textContent = '🎲 확률'
+    rateBtn.onclick = () => openRates()
+    controls.append(pullBtn, exBtn, colBtn, rateBtn); card.appendChild(controls)
 
     function syncButtons() {
       pullBtn.disabled = G.getGems() < D.GEM.pullCost
@@ -246,6 +248,33 @@
     .bg-up .ul{font-size:12px;color:#ffcf3a;white-space:nowrap}
     `
     document.head.appendChild(st)
+  }
+
+  // ── 소환 확률 팝업 (희귀도 태그별 + 개별 확률) ──────────────────────────
+  function openRates() {
+    const { back, close } = makeBack()
+    const card = document.createElement('div'); card.className = 'bg-card'; back.appendChild(card)
+    card.innerHTML = `<div class="bg-head"><div class="bg-title">🎲 소환 확률</div><button class="bg-x">✕</button></div>` +
+      `<div class="bg-sub" style="margin-bottom:8px">희귀도(tier) 확률로 먼저 뽑고, 같은 등급 안에서는 균등 분배</div>`
+    card.querySelector('.bg-x').onclick = close
+    const pool = D.gachaPool()
+    const order = ['legend', 'rare', 'uncommon', 'common']
+    order.forEach((rk) => {
+      const info = D.RARITY[rk], items = pool.filter((e) => e.rarity === rk)
+      if (!items.length) return
+      const per = info.weight / items.length
+      const h = document.createElement('div'); h.className = 'bg-rgroup'
+      h.style.cssText = 'display:flex;justify-content:space-between;margin-top:10px'
+      h.innerHTML = `<span style="color:${info.color};font-weight:600">${info.name}</span><span style="color:${info.color}">${info.weight}%</span>`
+      card.appendChild(h)
+      items.forEach((e) => {
+        const row = document.createElement('div')
+        row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:4px 2px;border-bottom:1px solid #23272f'
+        row.innerHTML = `<span style="width:26px;text-align:center">${iconFor(e, 22)}</span><span style="flex:1;font-size:13px;color:#e8ebf0">${e.name}</span><span style="font-size:12px;color:#9aa0ab">${(per < 1 ? per.toFixed(2) : per.toFixed(1))}%</span>`
+        card.appendChild(row)
+      })
+    })
+    mount(back)
   }
 
   // ── 컬렉션 UI (상단 덱 편성 + 필터 + 하단 컬렉션) ────────────────────────
