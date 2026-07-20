@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, globalShortcut, screen, Notification, dialog } = require('electron')
+const { app, BrowserWindow, ipcMain, globalShortcut, screen, Notification, dialog, powerMonitor } = require('electron')
 const path = require('path')
 
 let updater = null   // electron-updater instance (set in initAutoUpdate), for restart-to-apply
@@ -285,6 +285,29 @@ function reassertOverlay() {
   stripWin11Chrome(win) // DWMWA_BORDER_COLOR = NONE again
 }
 
+// 세션/디스플레이 변화(원격 데스크톱 연결·종료, 잠금 해제, 모니터 구성 변경) 후 오버레이 복구.
+// 이때 디스플레이 bounds가 바뀌면 winOrigin/창 좌표가 어긋나 커서→hotzone 매핑이 깨져
+// 클릭이 통과(버튼 먹통)한다. 여기서 창 bounds·winOrigin을 현재 디스플레이로 다시 맞추고
+// 오버레이 상태와 전역 입력 훅을 재부착한다.
+let recoverScheduled = false
+function recoverOverlay() {
+  if (!win || win.isDestroyed()) return
+  try {
+    const b = activeDisplay().bounds
+    winOrigin = { x: b.x, y: b.y }
+    win.setBounds({ x: b.x, y: b.y, width: b.width, height: b.height })
+  } catch (e) { console.error('[bongo] recover bounds failed:', e && e.message) }
+  reassertOverlay()
+  try { win.showInactive() } catch {}
+  // 전역 입력 훅 재부착(세션 전환 후 저수준 훅이 떨어질 수 있음)
+  if (uIOhook) { try { uIOhook.stop() } catch {} ; try { uIOhook.start() } catch (e) { console.error('[bongo] rehook failed:', e && e.message) } }
+}
+function scheduleRecover() {   // 디스플레이 이벤트가 연달아 오므로 살짝 디바운스
+  if (recoverScheduled) return
+  recoverScheduled = true
+  setTimeout(() => { recoverScheduled = false; recoverOverlay() }, 600)
+}
+
 function openChatFocus() {
   if (!win || win.isDestroyed()) return
   chatting = true          // allow the overlay to stay focused while typing
@@ -340,6 +363,15 @@ app.whenReady().then(() => {
   createWindow()
   startCursorPoll()
   initAutoUpdate()
+
+  // 원격 데스크톱 연결/종료·잠금해제·절전복귀·모니터 구성 변경 후 오버레이 복구
+  try {
+    powerMonitor.on('resume', scheduleRecover)
+    powerMonitor.on('unlock-screen', scheduleRecover)
+    screen.on('display-metrics-changed', scheduleRecover)
+    screen.on('display-added', scheduleRecover)
+    screen.on('display-removed', scheduleRecover)
+  } catch (e) { console.error('[bongo] recover listeners failed:', e && e.message) }
 
   const ok = globalShortcut.register('Control+Shift+B', openChatFocus)
   if (!ok) console.error('[bongo] failed to register chat hotkey Ctrl+Shift+B')

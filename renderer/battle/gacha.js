@@ -10,6 +10,7 @@
   const D = window.BattleData
   const K = { gems: 'hgbattle.gems', mat: 'hgbattle.mat', owned: 'hgbattle.owned', lvl: 'hgbattle.lvl', deck: 'hgbattle.deck' }
   const DECK_UNITS = 5, DECK_WEAPONS = 2
+  const DECK_MIN_UNITS = 3, DECK_MIN_WEAPONS = 1   // 배틀 참여 최소 조건
 
   function loadNum(k) { const n = parseInt(localStorage.getItem(k) || '0', 10); return Number.isFinite(n) ? n : 0 }
   function loadObj(k) { try { const o = JSON.parse(localStorage.getItem(k) || '{}'); return o && typeof o === 'object' ? o : {} } catch { return {} } }
@@ -50,7 +51,8 @@
   // ── 덱 (배틀용): 소환체 5 + 무기 2 ──
   function saveDeck() { localStorage.setItem(K.deck, JSON.stringify(deck)) }
   function getDeck() { return { units: deck.units.slice(), weapons: deck.weapons.slice() } }
-  function deckLimits() { return { units: DECK_UNITS, weapons: DECK_WEAPONS } }
+  function deckLimits() { return { units: DECK_UNITS, weapons: DECK_WEAPONS, minUnits: DECK_MIN_UNITS, minWeapons: DECK_MIN_WEAPONS } }
+  function deckReady() { return deck.units.length >= DECK_MIN_UNITS && deck.weapons.length >= DECK_MIN_WEAPONS }
   function inDeck(id) { return deck.units.includes(id) || deck.weapons.includes(id) }
   function toggleDeck(id) {
     const e = D.UNITS[id] ? { cat: 'unit' } : (D.WEAPONS[id] ? { cat: 'weapon' } : null)
@@ -117,6 +119,6 @@
   window.BattleGacha = {
     getGems, getMaterials, isOwned, getLevel, addGems, addMaterials, spendMaterials, setGems, setMaterials, setLevel,
     gemsFromCount, catalog, roll, setRandom, _devReset,
-    getDeck, deckLimits, inDeck, toggleDeck,
+    getDeck, deckLimits, deckReady, inDeck, toggleDeck,
   }
 })()

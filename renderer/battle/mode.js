@@ -39,16 +39,20 @@
     document.head.appendChild(st)
   }
 
+  function toast(msg) {
+    ensureStyle()
+    const t = document.createElement('div')
+    t.style.cssText = 'position:fixed;left:50%;top:20%;transform:translateX(-50%);z-index:2147483600;background:#c0392b;color:#fff;padding:10px 16px;border-radius:10px;font-family:system-ui,"맑은 고딕",sans-serif;font-size:14px;box-shadow:0 6px 24px rgba(0,0,0,.4)'
+    t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 2200)
+  }
+
   function startSolo(opts) {
     opts = opts || {}
     ensureStyle()
     stop()
-    // 내 덱: 저장된 덱 유닛 → 없으면 보유 유닛 → 없으면 기본
+    // 덱 완성 조건(소환체 ≥3, 무기 ≥1) 필수
+    if (G && G.deckReady && !G.deckReady()) { toast('덱 구성을 완료하세요 — 소환체 3개 이상, 무기 1개 이상'); return }
     let deckUnits = (G && G.getDeck) ? G.getDeck().units.slice() : []
-    if (!deckUnits.length) {
-      const owned = (G ? D.unitList().filter((u) => G.isOwned(u.id)) : D.unitList()).map((u) => u.id)
-      deckUnits = owned.slice(0, 5)
-    }
     if (!deckUnits.length) deckUnits = ['ant', 'rifleman', 'grenadier', 'shielder', 'mechaAnt']
     myDeck = deckUnits
     sideMe = 0
