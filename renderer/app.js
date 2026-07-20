@@ -895,8 +895,22 @@
   })
   if (inputSource.onChatOpen) inputSource.onChatOpen(openChat)
 
-  // ---------- settings button + command bridge ----------
-  document.getElementById('btn-menu').onclick = () => inputSource.openSettings()
+  // ---------- 통합 햄버거 메뉴 (배틀 UI + 기존 기능 브리지) ----------
+  const menuBtn = document.getElementById('btn-menu')
+  if (window.BattleGachaUI && window.BattleGacha) {
+    window.BattleGachaUI.setCountBridge({ get: () => tapCount, spend: (n) => { spendCoins(n) } })
+    window.BattleGachaUI.setBridges({
+      weapon: () => openShop(),                 // ⚔ 무기 설정: (임시) 기존 상점 = 슬롯 선택 포함
+      achievements: () => openAchv(),            // 🏆 업적: 기존 팝업
+      settings: () => inputSource.openSettings(), // ⚙ 설정: 기존 설정 창
+    })
+    window.__bgModalChanged = () => sendHotzone()   // 배틀 팝업 열림/닫힘 → hotzone 갱신
+    menuBtn.onclick = () => { window.BattleGachaUI.openMenu(); sendHotzone() }
+    // 떠있던 개별 버튼 숨김 — 전부 메뉴로 통합 (인라인 display 로 이후 재노출 방지)
+    for (const b of [shopBtn, achvBtn, peaceBtn]) if (b) b.style.display = 'none'
+  } else {
+    menuBtn.onclick = () => inputSource.openSettings()
+  }
 
   function pushState() {
     inputSource.pushState({
@@ -3994,7 +4008,7 @@
   function sendHotzone() {
     if (wx == null) return
     const extra = peerDimBtns.map((b) => ({ x: b.x - b.r - 2, y: b.y - b.r - 2, w: (b.r + 2) * 2, h: (b.r + 2) * 2 }))
-    inputSource.setHotzone({ rect: { x: wx, y: wy, w: cellPxW, h: cellPxH + BAR_SPACE }, extra, force: chatOpenFlag || editing || shopOpenFlag || achvOpenFlag || platformMode || me.netAiming || me.netActive || updateNotesOpen })
+    inputSource.setHotzone({ rect: { x: wx, y: wy, w: cellPxW, h: cellPxH + BAR_SPACE }, extra, force: chatOpenFlag || editing || shopOpenFlag || achvOpenFlag || platformMode || me.netAiming || me.netActive || updateNotesOpen || !!document.querySelector('.bg-back') })
   }
 
   // cursor for missile homing + dragging comes from main's poll (window-relative)

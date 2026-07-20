@@ -10,6 +10,9 @@
 
   let countBridge = null
   function setCountBridge(b) { countBridge = b }
+  // 호스트 앱에 팝업 열림/닫힘 통지(오버레이 hotzone 갱신용)
+  function hostSync() { try { if (window.__bgModalChanged) window.__bgModalChanged() } catch (e) {} }
+  function mount(back) { document.body.appendChild(back); hostSync() }
 
   // ── 스타일 1회 주입 ─────────────────────────────────────────────────────
   const STYLE_ID = 'bg-gacha-style'
@@ -74,7 +77,7 @@
   function makeBack(onClose) {
     const back = document.createElement('div'); back.className = 'bg-back'
     back.addEventListener('mousedown', (ev) => { if (ev.target === back) { close() } })
-    function close() { back.remove(); if (onClose) onClose() }
+    function close() { back.remove(); hostSync(); if (onClose) onClose() }
     return { back, close }
   }
 
@@ -126,7 +129,7 @@
     }
     colBtn.onclick = () => openCollection()
 
-    document.body.appendChild(back)
+    mount(back)
   }
 
   // 희귀도별 연출 → 카드 공개
@@ -235,7 +238,7 @@
       })
     }
     render()
-    document.body.appendChild(back)
+    mount(back)
   }
 
   function flashMsg(card, msg) {
@@ -279,7 +282,7 @@
       body.querySelectorAll('[data-up]').forEach((b) => b.onclick = () => { if (U) { U.upgrade(b.dataset.up); render() } })
     }
     render()
-    document.body.appendChild(back)
+    mount(back)
   }
 
   // ── 햄버거 통합 메뉴 ─────────────────────────────────────────────────────
@@ -301,7 +304,7 @@
     const wrap = document.createElement('div'); wrap.style.cssText = 'display:flex;flex-direction:column;gap:8px'
     items.forEach(([label, fn]) => { const b = document.createElement('button'); b.className = 'bg-btn'; b.textContent = label; b.style.textAlign = 'left'; b.onclick = () => { close(); fn() }; wrap.appendChild(b) })
     card.appendChild(wrap)
-    document.body.appendChild(back)
+    mount(back)
   }
 
   window.BattleGachaUI = { openGacha, openCollection, openShop, openMenu, setCountBridge, setBridges }
