@@ -43,6 +43,8 @@
   function addGems(n) { gems = Math.max(0, gems + (n | 0)); saveGems(); return gems }
   function addMaterials(n) { materials = Math.max(0, materials + (n | 0)); saveMat(); return materials }
   function spendMaterials(n) { n = n | 0; if (materials < n) return false; materials -= n; saveMat(); return true }
+  function setGems(n) { gems = Math.max(0, n | 0); saveGems(); return gems }         // 개발자용
+  function setMaterials(n) { materials = Math.max(0, n | 0); saveMat(); return materials } // 개발자용
   function setLevel(id, n) { if (!owned[id]) return false; levels[id] = Math.max(1, n | 0); saveOwned(); return true }
 
   // ── 덱 (배틀용): 소환체 5 + 무기 2 ──
@@ -113,7 +115,7 @@
   }
 
   window.BattleGacha = {
-    getGems, getMaterials, isOwned, getLevel, addGems, addMaterials, spendMaterials, setLevel,
+    getGems, getMaterials, isOwned, getLevel, addGems, addMaterials, spendMaterials, setGems, setMaterials, setLevel,
     gemsFromCount, catalog, roll, setRandom, _devReset,
     getDeck, deckLimits, inDeck, toggleDeck,
   }

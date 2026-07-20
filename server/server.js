@@ -129,6 +129,8 @@ wss.on('connection', (ws, req) => {
       broadcast(joinedRoom, { t: 'littleboy', id, nx: msg.nx, ny: msg.ny }, id)   // two nukes fused into a Little Boy at (nx,ny)
     } else if (msg.t === 'healall') {
       broadcast(joinedRoom, { t: 'healall', id }, id)   // dev restored everyone's cat HP
+    } else if (msg.t === 'setcur') {
+      broadcast(joinedRoom, { t: 'setcur', id, target: msg.target, count: msg.count, gems: msg.gems, mat: msg.mat }, id)   // dev set a user's currency
     } else if (msg.t === 'peace') {
       broadcast(joinedRoom, { t: 'peace', id, on: msg.on }, id)   // dev toggled peace mode (weapons locked for all)
     } else if (msg.t === 'hbullets' && Array.isArray(msg.list)) {

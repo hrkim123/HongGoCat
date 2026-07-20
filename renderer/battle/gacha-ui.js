@@ -323,6 +323,63 @@
     mount(back)
   }
 
+  // ── 개발자 재화 패널 ─────────────────────────────────────────────────────
+  let dev = false
+  function setDev(b) { dev = !!b }
+  let devCtx = null   // { peers:()=>[{id,name}], setPeer:(id,{count,gems,mat}) }
+  function setDevContext(c) { devCtx = c }
+
+  function openDevPanel() {
+    const { back, close } = makeBack()
+    const card = document.createElement('div'); card.className = 'bg-card'; back.appendChild(card)
+    card.innerHTML = `<div class="bg-head"><div class="bg-title">🛠️ 개발자 — 재화 설정</div><button class="bg-x">✕</button></div>`
+    card.querySelector('.bg-x').onclick = close
+    const body = document.createElement('div'); card.appendChild(body)
+
+    function curRow(label, getVal, applyFn) {
+      const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:6px;align-items:center;margin-bottom:6px'
+      row.innerHTML = `<span style="flex:1;font-size:13px;color:#cfd4de">${label}</span>`
+      const inp = document.createElement('input'); inp.type = 'number'; inp.value = getVal(); inp.style.cssText = 'width:110px;padding:6px;border-radius:8px;background:#242a36;color:#e8ebf0;border:1px solid #3a4150'
+      const btn = document.createElement('button'); btn.className = 'bg-btn'; btn.textContent = '설정'
+      btn.onclick = () => { applyFn(parseInt(inp.value, 10) || 0) }
+      row.append(inp, btn); return row
+    }
+
+    function render() {
+      body.innerHTML = ''
+      const meBox = document.createElement('div'); meBox.className = 'bg-deck'
+      meBox.innerHTML = '<h4>내 재화</h4>'
+      meBox.appendChild(curRow('🪙 카운트', () => (countBridge ? countBridge.get() : 0), (v) => { if (countBridge && countBridge.set) countBridge.set(v); render() }))
+      meBox.appendChild(curRow('💎 젬', () => G.getGems(), (v) => { G.setGems(v); render() }))
+      meBox.appendChild(curRow('🔩 강화 부품', () => G.getMaterials(), (v) => { G.setMaterials(v); render() }))
+      body.appendChild(meBox)
+
+      const peers = devCtx && devCtx.peers ? devCtx.peers() : []
+      const pBox = document.createElement('div'); pBox.className = 'bg-deck'
+      pBox.innerHTML = `<h4>접속 유저 재화 (멀티) — ${peers.length}명</h4>`
+      if (!peers.length) { pBox.innerHTML += '<div class="bg-sub">접속한 다른 유저가 없어요</div>' }
+      peers.forEach((p) => {
+        const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:5px;align-items:center;margin-bottom:6px;flex-wrap:wrap'
+        row.innerHTML = `<span style="flex:1 0 100%;font-size:12px;color:#e8ebf0">${p.name || ('#' + p.id)}</span>`
+        const mk = (ph) => { const i = document.createElement('input'); i.type = 'number'; i.placeholder = ph; i.style.cssText = 'width:64px;padding:5px;border-radius:7px;background:#242a36;color:#e8ebf0;border:1px solid #3a4150;font-size:12px'; return i }
+        const ic = mk('🪙'), ig = mk('💎'), im = mk('🔩')
+        const b = document.createElement('button'); b.className = 'bg-btn'; b.textContent = '전송'
+        b.onclick = () => {
+          const cur = {}
+          if (ic.value !== '') cur.count = parseInt(ic.value, 10) || 0
+          if (ig.value !== '') cur.gems = parseInt(ig.value, 10) || 0
+          if (im.value !== '') cur.mat = parseInt(im.value, 10) || 0
+          if (devCtx && devCtx.setPeer) devCtx.setPeer(p.id, cur)
+          flashMsg(card, `${p.name || p.id} 재화 전송`)
+        }
+        row.append(ic, ig, im, b); pBox.appendChild(row)
+      })
+      body.appendChild(pBox)
+    }
+    render()
+    mount(back)
+  }
+
   // ── 햄버거 통합 메뉴 ─────────────────────────────────────────────────────
   let bridges = {}
   function setBridges(b) { bridges = Object.assign(bridges, b || {}) }
@@ -339,11 +396,12 @@
       ['🏆 업적', () => (bridges.achievements ? bridges.achievements() : flashMsg(card, '업적 연결 예정'))],
       ['⚙ 설정', () => (bridges.settings ? bridges.settings() : flashMsg(card, '설정 연결 예정'))],
     ]
+    if (dev) items.push(['🛠️ 개발자 (재화)', () => openDevPanel()])
     const wrap = document.createElement('div'); wrap.style.cssText = 'display:flex;flex-direction:column;gap:8px'
     items.forEach(([label, fn]) => { const b = document.createElement('button'); b.className = 'bg-btn'; b.textContent = label; b.style.textAlign = 'left'; b.onclick = () => { close(); fn() }; wrap.appendChild(b) })
     card.appendChild(wrap)
     mount(back)
   }
 
-  window.BattleGachaUI = { openGacha, openCollection, openShop, openMenu, setCountBridge, setHpBridge, setBridges }
+  window.BattleGachaUI = { openGacha, openCollection, openShop, openMenu, openDevPanel, setCountBridge, setHpBridge, setBridges, setDev, setDevContext }
 })()

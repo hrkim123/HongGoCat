@@ -830,6 +830,14 @@
         } else remoteNets.delete(msg.id)
       }
       else if (msg.t === 'healall') { resetCatHp(); showToast('🩹 개발자가 전체 체력을 회복했습니다'); pushState() }
+      else if (msg.t === 'setcur') {   // dev set my currency (multiplayer)
+        if (msg.target === me.netId) {
+          if (typeof msg.count === 'number') { tapCount = Math.max(0, msg.count | 0); counterDirty = true; renderCounter() }
+          if (typeof msg.gems === 'number' && window.BattleGacha) window.BattleGacha.setGems(msg.gems)
+          if (typeof msg.mat === 'number' && window.BattleGacha) window.BattleGacha.setMaterials(msg.mat)
+          showToast('🛠️ 개발자가 재화를 설정했습니다')
+        }
+      }
       else if (msg.t === 'capture') {   // a peer's net grabbed one of MY collidables → remove it here
         if (msg.target === me.netId) {
           if (msg.kind === 'mshell') { for (const arr of [mechaShells, energyShots, interceptors]) { const i = arr.findIndex((o) => o.id === msg.eid); if (i >= 0) { arr.splice(i, 1); break } } }
@@ -930,7 +938,12 @@
   // ---------- 통합 햄버거 메뉴 (배틀 UI + 기존 기능 브리지) ----------
   const menuBtn = document.getElementById('btn-menu')
   if (window.BattleGachaUI && window.BattleGacha) {
-    window.BattleGachaUI.setCountBridge({ get: () => tapCount, spend: (n) => { spendCoins(n) } })
+    window.BattleGachaUI.setCountBridge({ get: () => tapCount, spend: (n) => { spendCoins(n) }, set: (n) => { tapCount = Math.max(0, n | 0); counterDirty = true; renderCounter() } })
+    window.BattleGachaUI.setDev(isDev)
+    window.BattleGachaUI.setDevContext({
+      peers: () => [...peers.values()].map((p) => ({ id: p.id, name: p.name })),
+      setPeer: (id, cur) => { if (net && connected()) net.send(JSON.stringify({ t: 'setcur', target: id, count: cur.count, gems: cur.gems, mat: cur.mat })) },
+    })
     window.BattleGachaUI.setHpBridge({
       get: () => me.hp, max: CAT_HP, cost: 500,
       heal: () => { if (me.hp >= CAT_HP || !spendCoins(500)) return false; resetCatHp(); pushState(); return true },
