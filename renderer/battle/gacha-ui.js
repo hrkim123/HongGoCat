@@ -396,6 +396,12 @@
 
     function render() {
       body.innerHTML = ''
+      if (window.BattleMode) {
+        const tb = document.createElement('button'); tb.className = 'bg-btn primary'; tb.textContent = '⚔ 솔로 배틀 테스트'
+        tb.style.cssText = 'width:100%;margin-bottom:10px'
+        tb.onclick = () => { close(); window.BattleMode.startSolo() }
+        body.appendChild(tb)
+      }
       const meBox = document.createElement('div'); meBox.className = 'bg-deck'
       meBox.innerHTML = '<h4>내 재화</h4>'
       meBox.appendChild(curRow('🪙 카운트', () => (countBridge ? countBridge.get() : 0), (v) => { if (countBridge && countBridge.set) countBridge.set(v); render() }))

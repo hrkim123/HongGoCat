@@ -29,6 +29,7 @@
     <button id="b-col">📚 컬렉션·덱</button>
     <button id="b-shop">🛒 상점</button>
     <button id="b-mat">+ 🔩 부품 20</button>
+    <button id="b-battle">⚔ 솔로 배틀</button>
     <button id="b-reset">개발 리셋</button>
   </div>
   <div id="log"></div>
@@ -37,7 +38,9 @@
   <script src="art.js"></script>
   <script src="gacha.js"></script>
   <script src="upgrade.js"></script>
+  <script src="sim.js"></script>
   <script src="gacha-ui.js"></script>
+  <script src="mode.js"></script>
   <script>
     // 시뮬레이션 카운트 지갑(하버스 전용). 실제 앱에선 tapCount 브리지로 대체.
     let simCount = parseInt(localStorage.getItem('hgbattle.simCount') || '0', 10) || 0
@@ -56,6 +59,7 @@
     $('b-col').onclick = () => BattleGachaUI.openCollection()
     $('b-shop').onclick = () => BattleGachaUI.openShop()
     $('b-mat').onclick = () => { BattleGacha.addMaterials(20); refresh(); log('부품 +20') }
+    $('b-battle').onclick = () => BattleMode.startSolo()
     $('b-reset').onclick = () => { BattleGacha._devReset(); simCount = 0; saveCount(); refresh(); log('리셋 완료') }
 
     function log(m){ const el = $('log'); el.textContent = '· ' + m + '\n' + el.textContent }
