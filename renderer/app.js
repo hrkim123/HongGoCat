@@ -90,7 +90,7 @@
   // (taps) as currency. One-time purchase → permanently owned (localStorage). Host owns all.
   const PRICES = { shield: 10000, gatling: 10000, blackhole: 10000, ant: 10000, human: 10000, adogen: 10000, lightning: 10000, net: 10000 }   // all unlocks 10k
   // per-summon cost: even after unlocking, these charge the counter EACH time you summon them
-  const USE_COST = { blackhole: 1000 }   // human/gatling are free now; only blackhole costs to summon
+  const USE_COST = {}   // 소환 추가비용 폐지 — 보유하면 무료 소환 (배틀 UI 개편)
   const SHOP_ITEMS = ['shield', 'gatling', 'ant', 'human', 'blackhole', 'lightning', 'net']
   const SLOT_CHOICES = ['none', 'missile', 'shield', 'gatling', 'ant', 'human', 'blackhole', 'lightning', 'net']
   let owned = new Set()
@@ -289,9 +289,7 @@
       else { const b = document.createElement('button'); b.className = 'shop-buy'; b.textContent = `+1 🪙${price.toLocaleString()}`; b.disabled = tapCount < price; b.onclick = onBuy; row.appendChild(b) }
       el.appendChild(row)
     }
-    gaugeRow('🚀 미사일 최대', missileUp, `${5 + missileUp}개`, 3000, buyMissileUpgrade)
-    gaugeRow('🐜 개미 최대', antUp, `${antMax()}마리`, 1000, buyAntUpgrade)
-    gaugeRow('⚡ 낙뢰 충전', lightningUp, lightningUp < 1 ? '충전 불가' : `${lightningMax()}단계`, 3000, buyLightningUpgrade)
+    // (레거시 미사일/개미/낙뢰 게이지 제거 — 이제 보유 시 기본 최대로 작동)
     // 🩹 HP reset (consumable)
     const r2 = document.createElement('div'); r2.className = 'shop-row'
     const n2 = document.createElement('span'); n2.className = 'nm'; n2.textContent = '🩹 체력 리셋'; r2.appendChild(n2)
@@ -1108,11 +1106,11 @@
   const MAX_PROJECTILES = 40, MAX_EFFECTS = 40
   // missile cap (also the merge cap): base 5, +1 per shop upgrade → up to 10 (a fully merged 10 = nuke)
   let missileUp = parseInt(localStorage.getItem('missileUp') || '0', 10) || 0   // 0..5 purchased upgrades
-  function missileMax() { return 5 + Math.min(5, Math.max(0, missileUp)) }
+  function missileMax() { return 10 }   // 획득=디폴트: 최대 10(합체 10 = ☢핵)
   let antUp = parseInt(localStorage.getItem('antUp') || '0', 10) || 0            // 0..5 → ant cap 5..10
-  function antMax() { return 5 + Math.min(5, Math.max(0, antUp)) }
+  function antMax() { return 10 }        // 획득=디폴트: 최대 10마리
   let lightningUp = parseInt(localStorage.getItem('lightningUp') || '0', 10) || 0 // 0..5 → charge ceiling (0 = no charge)
-  function lightningMax() { return Math.min(5, Math.max(0, lightningUp)) }
+  function lightningMax() { return 5 }   // 획득=디폴트: 최대 5단계 충전
   const MISSILE_LIFE = 14000  // how long a missile lives before fizzling out (ms)
 
   // fire a missile from the bottom-left corner that then chases the mouse cursor and
