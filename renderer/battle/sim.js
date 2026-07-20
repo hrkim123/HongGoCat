@@ -8,7 +8,7 @@
   const D = window.BattleData
   const U = window.BattleUpgrade
 
-  const DEFAULTS = { baseHp: 100, manaCap: 10, manaRegen: 0.5, baseRange: 0.03 }
+  const DEFAULTS = { baseHp: 100, manaCap: 10, manaRegen: 0.5, baseRange: 0.03, speedScale: 1 }
 
   function statsFor(type) {
     if (U && U.computeUnitStats) { const s = U.computeUnitStats(type); if (s) return s }
@@ -111,7 +111,7 @@
 
         // 근접 유닛이 적과 접촉하면 멈춰 교전(전진 X). 그 외엔 전진.
         const blocked = tgt && td <= Math.max(range, 0.02)
-        if (!acting && !blocked) u.L = clamp(u.L + u.dir * u.stats.speed * dt, 0, 1)
+        if (!acting && !blocked) u.L = clamp(u.L + u.dir * u.stats.speed * (cfg.speedScale || 1) * dt, 0, 1)
       }
 
       // 사망 제거

@@ -3345,7 +3345,7 @@
   function startBattleSolo() {
     if (!(window.BattleSim && window.BattleData)) { showToast('배틀 모듈 로드 안 됨'); return }
     if (window.BattleGacha && window.BattleGacha.deckReady && !window.BattleGacha.deckReady()) { showToast('덱 구성을 완료하세요 — 소환체 3개 이상, 무기 1개 이상'); return }
-    battle = window.BattleSim.newBattle({})
+    battle = window.BattleSim.newBattle({ speedScale: 0.55 })   // 냥코풍 느린 행군
     battleAI = battle.makeAI(1, ['ant', 'rifleman', 'grenadier', 'mechaAnt', 'mechaHuman'].filter((id) => window.BattleData.UNITS[id]), 1.4)
     battleOpp = Object.assign({ id: 'battleOpp', animal: 'cat', name: '상대', skin: 'gray', pattern: 'solid', hat: 'none', ear: 'pointed', eye: 'oval', mouth: 'smile', tail: 'curl', shape: {}, hp: CAT_HP }, newAnimState())
     battleAtkAt = {}; battleDead = []; battleResultAt = 0; battleLastT = performance.now(); battleActive = true
@@ -3364,13 +3364,35 @@
       '<div class="bhdeck" style="display:flex;gap:5px"></div>'
     const segs = h.querySelector('.bhsegs'); for (let i = 0; i < 10; i++) { const s = document.createElement('div'); s.style.cssText = 'flex:1;height:9px;border-radius:2px;background:rgba(255,255,255,.14)'; segs.appendChild(s) }
     const dk = h.querySelector('.bhdeck')
-    deck.forEach((id) => { const u = window.BattleData.UNITS[id]; if (!u) return; const b = document.createElement('div'); b.dataset.id = id; b.style.cssText = 'flex:1;text-align:center;padding:6px 2px;border-radius:8px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);color:#e8ebf0;font-size:11px;cursor:pointer;user-select:none'; b.innerHTML = `${u.name}<br><span style="color:#8fd3ff;font-weight:600">${u.cost}</span>`; b.onclick = () => { if (battle && battle.spawn(0, id)) updateBattleHud() }; dk.appendChild(b) })
+    deck.forEach((id) => {
+      const u = window.BattleData.UNITS[id]; if (!u) return
+      const b = document.createElement('div'); b.dataset.id = id; b.title = u.name
+      b.style.cssText = 'flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:5px 2px;border-radius:8px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);cursor:pointer;user-select:none'
+      const icon = window.BattleArt ? window.BattleArt.icon(id, 30) : ''
+      b.innerHTML = `<div style="pointer-events:none">${icon}</div><div style="color:#8fd3ff;font-weight:600;font-size:11px">${u.cost}</div>`
+      b.onclick = () => { if (battle && battle.spawn(0, id)) updateBattleHud() }; dk.appendChild(b)
+    })
+    // 무기(덱) — 아이콘 표시 (전투 개편에서 실제 발사 연결)
+    const wdeck = (window.BattleGacha && window.BattleGacha.getDeck) ? window.BattleGacha.getDeck().weapons : []
+    wdeck.forEach((id) => {
+      const w = window.BattleData.WEAPONS[id]; if (!w) return
+      const b = document.createElement('div'); b.title = w.name + ' (무기)'
+      b.style.cssText = 'flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:5px 2px;border-radius:8px;background:rgba(74,163,255,.12);border:1px solid rgba(74,163,255,.35);cursor:pointer;user-select:none'
+      b.innerHTML = `<div style="pointer-events:none">${window.BattleArt ? window.BattleArt.icon(id, 30) : ''}</div><div style="color:#8fd3ff;font-weight:600;font-size:10px">${w.mana != null ? w.mana : '무기'}</div>`
+      b.onclick = () => showToast('무기 발사는 전투 개편(오버레이 투사체 재사용)에서 연결됩니다')
+      dk.appendChild(b)
+    })
     h.querySelector('.bhx').onclick = () => stopBattle()
-    // drag
-    const grip = h.querySelector('.bhgrip'); let dx = 0, dy = 0, on = false
-    grip.addEventListener('mousedown', (e) => { if (e.target.classList.contains('bhx')) return; on = true; dx = e.clientX - h.offsetLeft; dy = e.clientY - h.offsetTop; e.preventDefault() })
-    window.addEventListener('mousemove', (e) => { if (!on) return; h.style.left = (e.clientX - dx) + 'px'; h.style.top = (e.clientY - dy) + 'px' })
-    window.addEventListener('mouseup', () => { if (!on) return; on = false; localStorage.setItem('battle.hudpos', JSON.stringify({ x: h.offsetLeft, y: h.offsetTop })) })
+    // drag (pointer capture — 견고)
+    const grip = h.querySelector('.bhgrip'); grip.style.touchAction = 'none'
+    grip.addEventListener('pointerdown', (e) => {
+      if (e.target.classList.contains('bhx')) return
+      const dx = e.clientX - h.offsetLeft, dy = e.clientY - h.offsetTop
+      try { grip.setPointerCapture(e.pointerId) } catch (_) {}
+      const mv = (ev) => { h.style.left = (ev.clientX - dx) + 'px'; h.style.top = (ev.clientY - dy) + 'px' }
+      const up = () => { grip.removeEventListener('pointermove', mv); grip.removeEventListener('pointerup', up); localStorage.setItem('battle.hudpos', JSON.stringify({ x: h.offsetLeft, y: h.offsetTop })) }
+      grip.addEventListener('pointermove', mv); grip.addEventListener('pointerup', up); e.preventDefault()
+    })
     document.body.appendChild(h); battleHud = h
   }
   function updateBattleHud() {
@@ -3396,14 +3418,14 @@
       const x = battleLaneX(u.L), def = window.BattleData.UNITS[u.type] || {}
       const y = antGroundY(x) - (def.flying ? 34 * view.scale : 0)
       const facing = u.side === 0 ? 1 : -1, atk = battleAtkAt[u.uid] && now - battleAtkAt[u.uid] < 380
-      const s = view.scale * 1.3 * (def.size || 1)
+      const s = view.scale * 2.2 * (def.size || 1)
       window.BattleSprites.draw(ctx, u.type, { x, y, scale: s, facing, state: atk ? 'attack' : 'walk', t: u.uid * 0.37 + now / 1000, flash: atk })
       if (u.shHp > 0) { ctx.strokeStyle = 'rgba(120,200,255,.7)'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(x, y - 22 * s, 15 * s, Math.PI, 0); ctx.stroke() }
       const w = 24 * s, f = u.hp / u.maxHp
       ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(x - w / 2, y - 44 * s, w, 3.5)
       ctx.fillStyle = f > 0.4 ? '#7ecb7e' : '#e24b4a'; ctx.fillRect(x - w / 2, y - 44 * s, w * f, 3.5)
     }
-    for (const d of battleDead) { const p = Math.min(1, (now - d.born) / 900); window.BattleSprites.draw(ctx, d.id, { x: battleLaneX(d.L), y: antGroundY(battleLaneX(d.L)), scale: view.scale * 1.3, facing: d.side === 0 ? 1 : -1, state: 'death', t: 0, deathT: p }) }
+    for (const d of battleDead) { const p = Math.min(1, (now - d.born) / 900); window.BattleSprites.draw(ctx, d.id, { x: battleLaneX(d.L), y: antGroundY(battleLaneX(d.L)), scale: view.scale * 2.2, facing: d.side === 0 ? 1 : -1, state: 'death', t: 0, deathT: p }) }
     // 기지 HP 바 (양 끝 고양이 위)
     drawBattleBaseHp(battleLaneX(0), 0); drawBattleBaseHp(battleLaneX(1), 1)
   }
@@ -4198,7 +4220,7 @@
   function sendHotzone() {
     if (wx == null) return
     const extra = peerDimBtns.map((b) => ({ x: b.x - b.r - 2, y: b.y - b.r - 2, w: (b.r + 2) * 2, h: (b.r + 2) * 2 }))
-    inputSource.setHotzone({ rect: { x: wx, y: wy, w: cellPxW, h: cellPxH + BAR_SPACE }, extra, force: chatOpenFlag || editing || shopOpenFlag || achvOpenFlag || platformMode || me.netAiming || me.netActive || updateNotesOpen || !!document.querySelector('.bg-back, .bm-root') })
+    inputSource.setHotzone({ rect: { x: wx, y: wy, w: cellPxW, h: cellPxH + BAR_SPACE }, extra, force: chatOpenFlag || editing || shopOpenFlag || achvOpenFlag || platformMode || me.netAiming || me.netActive || updateNotesOpen || battleActive || !!document.querySelector('.bg-back, .bm-root') })
   }
 
   // cursor for missile homing + dragging comes from main's poll (window-relative)
