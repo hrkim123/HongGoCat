@@ -226,8 +226,11 @@
 ### 구현 파일 구조 (배틀 모드는 `renderer/battle/`로 분리)
 기존 `app.js`(~4,100줄)에 섞지 않고 별도 모듈로 둔다. dev 게이트일 때만 로드.
 - `renderer/battle/units.js` — 유닛/무기 **데이터**(UNITS/WEAPONS) + 레어도 가중치 + 헬퍼. `window.BattleData`로 노출. ✅ (Phase 1)
+- `renderer/battle/art.js` — 아이콘 아트(SVG). **개미 베이스 + 유닛별 액세서리**(총/수류탄/방패/부스터 등)로 조금씩 다르게. `window.BattleArt.icon(e,px)`. ✅
+- `renderer/battle/gacha.js` — 젬/강화부품/보유 영속, 가중 tier 뽑기, 중복→강화부품, 카운트 치환. `window.BattleGacha`. ✅ (Phase 2)
+- `renderer/battle/gacha-ui.js` — 소환 팝업 + 희귀도별 연출 + 컬렉션 UI. `window.BattleGachaUI`. ✅ (Phase 2)
+- `renderer/battle/harness.html` — dev 테스트 하버스(브라우저 검증용). ✅
 - (예정) `renderer/battle/sim.js` — 범용 유닛 시뮬레이터(이동·타겟·공격).
-- (예정) `renderer/battle/gacha.js` — 뽑기·컬렉션·덱.
 - (예정) `renderer/battle/mode.js` — 매치 흐름·HUD·릴레이 연동.
 
 **진행 상태:** Phase 1 데이터 모듈 착수(units.js 생성). 아직 앱에 미연결.
@@ -253,3 +256,4 @@
 - 2026-07-20: 배틀에서도 땅 파임/구멍 낙하 유지(전략 요소), 지상=낙하·공중(`flying`)=무시. 구멍 위치·크기도 `L`로 공유해 해상도 무관 동일 판정, 낙하 판정=소유자 권한.
 - 2026-07-20: 메카 인간폼 = 공중 타입(`flying`) 지정(부스터 상시 분사·부양 전진). 개요 문서에 오버레이 종횡비 특성 1줄 기록.
 - 2026-07-20: Phase 2 착수 — 가챠 로직/UI/컬렉션 + dev 테스트 하버스.
+- 2026-07-20: 소환체 아이콘 아트(art.js) — 개미 베이스 + 유닛별 액세서리(총/수류탄/방패/부스터/로켓 등)로 구분. 8종 전부 고유 SVG 확인.

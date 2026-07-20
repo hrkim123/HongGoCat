@@ -64,11 +64,11 @@
     document.head.appendChild(st)
   }
 
-  function iconFor(e) {
-    // 무기는 WEAPONS 라벨에 이모지가 있음. 유닛은 개미 컨셉이라 기본 🐜, 특수 표기.
-    const m = { mechaAnt: '🤖', mechaHuman: '🦾', shielder: '🛡', rifleman: '🐜', grenadier: '🐜', ant: '🐜' }
-    if (e.cat === 'weapon') { const lbl = (D.WEAPONS[e.id] || {}).name || ''; const mt = lbl.match(/\p{Emoji}/u); if (mt) return mt[0] }
-    return m[e.id] || '🐜'
+  function iconFor(e, size) {
+    // 개미 베이스 + 유닛별 액세서리 SVG(art.js). 로드 안 됐으면 이모지 폴백.
+    if (window.BattleArt) return window.BattleArt.icon(e, size || 30)
+    const m = { mechaAnt: '🤖', mechaHuman: '🦾', shielder: '🛡', rifleman: '🐜', grenadier: '🐜', ant: '🐜', missile: '🚀', gatling: '🔫' }
+    return `<span style="font-size:${Math.round((size || 30) * 0.9)}px">${m[e.id] || '🐜'}</span>`
   }
 
   function makeBack(onClose) {
@@ -145,7 +145,7 @@
     const delay = anim === 'flash' ? 260 : anim === 'beam' ? 420 : anim === 'swirl' ? 620 : 780
     const reveal = document.createElement('div'); reveal.className = 'bg-card-reveal'
     const badgeColor = res.rarity.color
-    reveal.innerHTML = `<div class="bg-emoji">${iconFor(res.entry)}</div>
+    reveal.innerHTML = `<div class="bg-emoji">${iconFor(res.entry, 56)}</div>
       <div class="bg-name">${res.entry.name}</div>
       <div class="bg-badge" style="background:${badgeColor}22;color:${badgeColor};border:1px solid ${badgeColor}66">${res.rarity.name}</div>
       <div class="bg-sub">${res.dup ? `중복 · 🔩 강화 부품 +${res.material}` : '✨ 신규 획득!'}</div>`
@@ -173,7 +173,7 @@
         const cell = document.createElement('div'); cell.className = 'bg-cell' + (e.owned ? '' : ' locked')
         cell.style.borderColor = e.owned ? info.color + '66' : '#2b2f39'
         const tag = e.cat === 'weapon' ? '무기' : `코스트 ${e.cost}`
-        cell.innerHTML = `<div class="e">${iconFor(e)}</div><div class="n">${e.name}</div>` +
+        cell.innerHTML = `<div class="e">${iconFor(e, 36)}</div><div class="n">${e.name}</div>` +
           (e.owned ? `<div class="lv">${tag} · Lv.${e.level}</div>` : `<div class="lk">🔒 미획득</div>`)
         grid.appendChild(cell)
       })
