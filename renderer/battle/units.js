@@ -61,6 +61,11 @@
       speed: 0.12, atk: { type: 'proj', dmg: 15, range: 0.28, cd: 0.7 },
       art: 'human', size: 1.7, flying: true, // 공중 타입: 구멍 무시. 발밑 부스터 상시 분사 + 바닥에서 살짝 뜬 채 전진
     },
+    human: {
+      name: '인간', cat: 'unit', rarity: 'rare', cost: 4, hp: 55,
+      speed: 0.13, atk: { type: 'melee', dmg: 8, range: 0.03, cd: 0.7 },
+      art: 'human', size: 1.3, // 배틀에선 근접 브루저(오버레이에선 WASD 조종·무기 장착). 아도겐은 인간의 기본 기능.
+    },
   }
 
   // ── 무기 (cat:'weapon') — 가챠로 획득. 오버레이(재미용)에서도 사용. battle:true = 배틀 덱 가능.
@@ -70,10 +75,9 @@
     shield:    { name: '쉴드',   cat: 'weapon', rarity: 'common' },
     net:       { name: '그물',   cat: 'weapon', rarity: 'uncommon' },
     gatling:   { name: '게틀링건', cat: 'weapon', rarity: 'uncommon', battle: true, mana: 7, place: 'base-fixed', aim: 'cursor' },
-    human:     { name: '인간',   cat: 'weapon', rarity: 'rare' },
     lightning: { name: '낙뢰',   cat: 'weapon', rarity: 'rare' },
-    adogen:    { name: '아도겐', cat: 'weapon', rarity: 'rare' },
     blackhole: { name: '블랙홀', cat: 'weapon', rarity: 'legend', battle: true }, // 배틀: 1게임 1회
+    // (인간은 유닛으로 이동, 아도겐은 인간의 기본 기능으로 편입 — 무기 목록에서 제외)
   }
 
   // ── 헬퍼 ──────────────────────────────────────────────────────────────────

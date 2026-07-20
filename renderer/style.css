@@ -99,6 +99,7 @@ html, body {
   font-size: 13px; line-height: 1; display: flex; align-items: center; justify-content: center;
 }
 #btn-count-toggle:hover { background: #3d3d4c; color: #fff; }
+#counter.total-mode { background: #1f3a2b; color: #9be5b0; box-shadow: inset 0 0 0 1px rgba(126,203,126,0.5); }
 
 #chatbar {
   position: absolute;

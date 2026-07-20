@@ -67,17 +67,17 @@
   if (isDev) setTimeout(() => { try { showToast('🛠️ 개발자 모드 — 상점에서 카운트 무한 획득') } catch {} }, 900)
   let bhNotified = localStorage.getItem('bhNotified') === '1'
   // achievement: hit ENEMY cats with missiles 500 times → reward 10,000 counts (once)
-  const CAT_HIT_GOAL = 500, CAT_HIT_REWARD = 10000
+  const CAT_HIT_GOAL = Infinity, CAT_HIT_REWARD = 10000   // (구 업적 비활성 — 누적 카운트 업적으로 대체)
   let catHits = parseInt(localStorage.getItem('catHits') || '0', 10) || 0
   let catHitRewarded = localStorage.getItem('catHitRewarded') === '1'
   // character HP: weapon damage chips it; desk/keyboard/mouse break in stages + face worsens as it drops.
   // achievement: reach 0 HP (완전 파괴) 5 times → 20,000 counts. HP is reset in the shop (500).
-  const CAT_HP = 100, DESTROY_GOAL = 5, DESTROY_REWARD = 20000
+  const CAT_HP = 100, DESTROY_GOAL = Infinity, DESTROY_REWARD = 20000   // (구 업적 비활성)
   let destroyCount = parseInt(localStorage.getItem('destroys') || '0', 10) || 0
   let destroyRewarded = localStorage.getItem('destroyRewarded') === '1'
   // achievements: destroy an enemy's gatling / human 10 times → 10,000 counts each
-  const GAT_KILL_GOAL = 10, HUMAN_KILL_GOAL = 10, KILL_REWARD = 10000
-  const MECHA_KILL_GOAL = 10, MECHA_KILL_REWARD = 15000                      // destroy 10 enemy ant mechas → 15,000
+  const GAT_KILL_GOAL = Infinity, HUMAN_KILL_GOAL = Infinity, KILL_REWARD = 10000   // (구 업적 비활성)
+  const MECHA_KILL_GOAL = Infinity, MECHA_KILL_REWARD = 15000                       // (구 업적 비활성)
   let gatKills = parseInt(localStorage.getItem('gatKills') || '0', 10) || 0
   let gatKillRewarded = localStorage.getItem('gatKillRewarded') === '1'
   let humanKills = parseInt(localStorage.getItem('humanKills') || '0', 10) || 0
@@ -200,10 +200,11 @@
   function fmtCount(n) { n = Math.max(0, Math.floor(n || 0)); if (n >= 1e6) return (n / 1e6).toFixed(2).replace(/\.?0+$/, '') + 'M'; if (n >= 1e4) return (n / 1e3).toFixed(1).replace(/\.0$/, '') + 'K'; return n.toLocaleString() }
   function renderCounter() {
     const total = countMode === 'total'
-    counterEl.textContent = total ? fmtCount(totalCount) : tapCount.toLocaleString()
+    counterEl.textContent = (total ? 'Σ ' : '🪙 ') + (total ? fmtCount(totalCount) : tapCount.toLocaleString())
     const broken = me.hp <= 0
     counterEl.classList.toggle('penalty', broken && !total)
-    counterEl.title = total ? `총 누적 카운트 ${totalCount.toLocaleString()}` : (broken ? '완전 파괴 패널티 — 입력 2번당 +1' : '현재 재화 카운트')
+    counterEl.classList.toggle('total-mode', total)
+    counterEl.title = total ? `총 누적 카운트 ${totalCount.toLocaleString()} (Σ)` : (broken ? '완전 파괴 패널티 — 입력 2번당 +1' : '현재 재화 카운트 (🪙)')
   }
   function toggleCountMode() { countMode = countMode === 'cur' ? 'total' : 'cur'; localStorage.setItem('countMode', countMode); renderCounter() }
   function floatPenalty() {   // faint red "+1" so you can tell you're earning at half rate
@@ -411,24 +412,30 @@
   const achvEl = document.getElementById('achv')
   const achvListEl = document.getElementById('achv-list')
   let achvOpenFlag = false, achvPos = null
-  const ACHIEVEMENTS = [
-    { key: 'cathit', name: '🎯 저격수', desc: '상대 고양이를 미사일로 500회 타격', reward: CAT_HIT_REWARD, cur: () => catHits, goal: CAT_HIT_GOAL, done: () => catHitRewarded },
-    { key: 'destroy', name: '💥 완전 파괴', desc: '내 캐릭터 체력이 0이 되어 완전 파괴 5회', reward: DESTROY_REWARD, cur: () => destroyCount, goal: DESTROY_GOAL, done: () => destroyRewarded },
-    { key: 'gat', name: '🔫 게틀링 파괴자', desc: '상대 게틀링건 10회 파괴', reward: KILL_REWARD, cur: () => gatKills, goal: GAT_KILL_GOAL, done: () => gatKillRewarded },
-    { key: 'human', name: '🕺 인간 사냥꾼', desc: '상대 인간 10회 파괴', reward: KILL_REWARD, cur: () => humanKills, goal: HUMAN_KILL_GOAL, done: () => humanKillRewarded },
-    { key: 'mecha', name: '🐜🤖 메카 파괴자', desc: '상대 메카 개미(개미형·인간형) 10회 처치', reward: MECHA_KILL_REWARD, cur: () => mechaKills, goal: MECHA_KILL_GOAL, done: () => mechaKillRewarded }
-  ]
+  // 누적 카운트 업적(티어): 10,000 → 50,000 → 100,000 → 이후 +50,000마다. 보상 = 💎 소환 재화 3.
+  const CUM_ACH_GEMS = 3
+  let cumAchCleared = parseInt(localStorage.getItem('cumAchCleared') || '0', 10) || 0
+  function cumTarget(c) { return c <= 0 ? 10000 : c === 1 ? 50000 : 100000 + (c - 2) * 50000 }
+  function checkCumAch() {
+    let target = cumTarget(cumAchCleared), gained = 0
+    while (totalCount >= target) {
+      cumAchCleared++; localStorage.setItem('cumAchCleared', String(cumAchCleared)); gained += CUM_ACH_GEMS
+      if (window.BattleGacha) window.BattleGacha.addGems(CUM_ACH_GEMS)
+      showToast(`🏆 누적 ${target.toLocaleString()}회 달성! 💎 소환 재화 +${CUM_ACH_GEMS}`)
+      target = cumTarget(cumAchCleared)
+    }
+    if (gained && achvOpenFlag) renderAchv()
+  }
   function renderAchv() {
     if (!achvListEl) return
     achvListEl.innerHTML = ''
-    for (const a of ACHIEVEMENTS) {
-      const cur = a.cur(), done = a.done(), pct = Math.min(100, (cur / a.goal) * 100)
-      const card = document.createElement('div'); card.className = 'ach' + (done ? ' done' : '')
-      card.innerHTML = `<div class="ach-top"><span class="ach-name">${a.name}</span><span class="ach-reward">🎁 🪙 ${a.reward.toLocaleString()}</span></div>` +
-        `<p class="ach-desc">${a.desc}</p><div class="ach-bar"><div class="ach-fill" style="width:${pct}%"></div></div>` +
-        `<div class="ach-status">${done ? `달성! ${cur} / ${a.goal} ✓ (보상 지급됨)` : `${cur} / ${a.goal}`}</div>`
-      achvListEl.appendChild(card)
-    }
+    const target = cumTarget(cumAchCleared), pct = Math.min(100, (totalCount / target) * 100)
+    const card = document.createElement('div'); card.className = 'ach'
+    card.innerHTML = `<div class="ach-top"><span class="ach-name">🏆 누적 카운트 ${target.toLocaleString()}회</span><span class="ach-reward">🎁 💎 ${CUM_ACH_GEMS}</span></div>` +
+      `<p class="ach-desc">키보드·마우스 누적 입력 ${target.toLocaleString()}회 달성 시 소환 재화 지급 (달성하면 다음 목표가 자동으로 나타나요)</p>` +
+      `<div class="ach-bar"><div class="ach-fill" style="width:${pct}%"></div></div>` +
+      `<div class="ach-status">${totalCount.toLocaleString()} / ${target.toLocaleString()} · 지금까지 ${cumAchCleared}단계 달성</div>`
+    achvListEl.appendChild(card)
   }
   function positionAchv() {
     if (wx == null || !achvBtn) return
@@ -709,7 +716,7 @@
       penaltyAcc++
       if (penaltyAcc % 2 === 0) { tapCount++; totalCount++; counterDirty = true; floatPenalty() }
     } else { tapCount++; totalCount++; counterDirty = true }
-    renderCounter()
+    renderCounter(); checkCumAch()
     if (net && net.readyState === WebSocket.OPEN) {
       const now = performance.now()
       sendBudget = Math.min(25, sendBudget + (now - budgetRefill) * 0.025); budgetRefill = now
@@ -1366,7 +1373,7 @@
   // ---------- 🕸️ 그물 (net) — cast (투망) from the hotkey spot, spread open to trap collidables, then a cursor pendulum ----------
   const NET_LEN = 130                                   // rope length (held phase; long → big swings)
   const NET_GRAV = 0.5, NET_DAMP = 0.97, NET_COUPLE = 0.17   // cursor motion couples into the bob (light + builds momentum); damping caps the top speed
-  const NET_R = 40, NET_CAP = 20                        // held pouch radius + capacity
+  const NET_R = 40, NET_CAP = 5                         // held pouch radius + capacity (그물 담기 제한 5)
   const NET_MAX_PULL = 260, NET_FLING = 1.35, NET_KILL_SPEED = 9   // fling strength; ≥ NET_KILL_SPEED (×scale) → dies on ground impact
   const NET_MIN_RANGE = 60, NET_RANGE_SPAN = 360        // cast distance (px, pre-scale) scaled by pull power
   const NET_SPREAD = 82                                 // fully-open cast canopy radius (pre-scale)
@@ -1688,7 +1695,7 @@
     if (humanTryPickup()) return                 // near a ground weapon → pick it up
     const now = performance.now(), wk = me.humanWeapon
     if (wk === 'sword') { me.charging = true; me.chargeKind = 'sword'; me.chargeStart = now; me.charge = 0; return }  // hold to charge
-    if (!wk && isOwned('adogen')) { me.charging = true; me.chargeKind = 'adogen'; me.chargeStart = now; me.charge = 0; return }  // 아도겐 기 모으기
+    if (!wk && isOwned('human')) { me.charging = true; me.chargeKind = 'adogen'; me.chargeStart = now; me.charge = 0; return }  // 아도겐 = 인간의 기본 기능(인간 보유 시)
     if (wk === 'rifle') return                    // full-auto handled in stepHuman while held
     if (!wk) { humanPunch(); return }             // bare fists
     if (now < (me.humanAtkCd || 0)) return
