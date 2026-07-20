@@ -212,15 +212,15 @@
   function drawBubble(ctx, text, cx, headTopY, now, until) {
     const alpha = Math.max(0, Math.min(1, (until - now) / 400))
     ctx.save(); ctx.globalAlpha = alpha
-    ctx.font = '600 16px "Segoe UI", "Malgun Gothic", sans-serif'
-    const lines = wrapText(ctx, text, 190, 2); const lineH = 20
-    const w = Math.max(...lines.map(l => ctx.measureText(l).width)) + 26
-    const h = lines.length * lineH + 14
-    const x = Math.max(4, Math.min(cx - w / 2, 236 - w)); const y = headTopY - h - 14  // sit just above the head
-    ctx.fillStyle = '#fff'; ctx.strokeStyle = 'rgba(60,55,70,0.25)'; ctx.lineWidth = 1.5
-    rr(ctx, x, y, w, h, 12); ctx.fill(); ctx.stroke()
-    const tailTip = Math.min(headTopY - 2, y + h + 10)
-    ctx.beginPath(); ctx.moveTo(cx - 8, y + h - 1); ctx.lineTo(cx, tailTip); ctx.lineTo(cx + 8, y + h - 1); ctx.closePath(); ctx.fill()
+    ctx.font = '600 32px "Segoe UI", "Malgun Gothic", sans-serif'   // 2배 크게
+    const lines = wrapText(ctx, text, 380, 2); const lineH = 40
+    const w = Math.max(...lines.map(l => ctx.measureText(l).width)) + 52
+    const h = lines.length * lineH + 28
+    const x = cx - w / 2; const y = headTopY - h - 28  // 머리 위 중앙
+    ctx.fillStyle = '#fff'; ctx.strokeStyle = 'rgba(60,55,70,0.25)'; ctx.lineWidth = 2
+    rr(ctx, x, y, w, h, 24); ctx.fill(); ctx.stroke()
+    const tailTip = Math.min(headTopY - 2, y + h + 20)
+    ctx.beginPath(); ctx.moveTo(cx - 16, y + h - 1); ctx.lineTo(cx, tailTip); ctx.lineTo(cx + 16, y + h - 1); ctx.closePath(); ctx.fill()
     ctx.fillStyle = '#33313a'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
     const cyB = y + h / 2  // vertically center the text block inside the bubble
     lines.forEach((l, i) => ctx.fillText(l, x + w / 2, cyB + (i - (lines.length - 1) / 2) * lineH))
