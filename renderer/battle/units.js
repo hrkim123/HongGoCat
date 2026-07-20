@@ -67,6 +67,43 @@
       speed: 0.12, atk: { type: 'proj', dmg: 10, range: 0.24, cd: 1.0 },
       art: 'human', size: 1.3, // 배틀: 자동 조작 · 기본 공격 = 아도겐(원거리). 오버레이: WASD 수동 조종.
     },
+    // ── 신규 소환체 (밸런스 초안 v1) ──
+    scout: {
+      name: '정찰 개미', cat: 'unit', rarity: 'common', cost: 1, hp: 12,
+      speed: 0.30, atk: { type: 'melee', dmg: 3, range: 0.02, cd: 0.7 }, art: 'scout', size: 0.9,
+    },
+    kamikaze: {
+      name: '폭탄 개미', cat: 'unit', rarity: 'uncommon', cost: 3, hp: 20,
+      speed: 0.22, atk: { type: 'suicide', dmg: 25, aoeR: 0.05, range: 0.03, cd: 0.1 }, suicide: true, art: 'kamikaze', size: 1.1,
+    },
+    medic: {
+      name: '의무 개미', cat: 'unit', rarity: 'uncommon', cost: 3, hp: 24,
+      speed: 0.10, atk: { type: 'heal', heal: 4, range: 0.10, cd: 1.0 }, art: 'medic', size: 1.0,
+    },
+    drone: {
+      name: '말벌 드론', cat: 'unit', rarity: 'uncommon', cost: 4, hp: 30,
+      speed: 0.16, atk: { type: 'proj', dmg: 6, range: 0.22, cd: 1.0 }, flying: true, art: 'drone', size: 1.0,
+    },
+    freezer: {
+      name: '얼음 개미', cat: 'unit', rarity: 'rare', cost: 4, hp: 28,
+      speed: 0.11, atk: { type: 'proj', dmg: 3, range: 0.20, cd: 1.5, slow: 0.4, slowDur: 2 }, art: 'freezer', size: 1.0,
+    },
+    worker: {
+      name: '일개미', cat: 'unit', rarity: 'rare', cost: 4, hp: 30,
+      speed: 0.02, atk: { type: 'none' }, manaBuff: 0.1, art: 'worker', size: 1.0, // 배틀: 정지형·마나 회복 +0.1/s. 오버레이: 배회만.
+    },
+    commander: {
+      name: '지휘 개미', cat: 'unit', rarity: 'rare', cost: 6, hp: 70,
+      speed: 0.10, atk: { type: 'melee', dmg: 5, range: 0.03, cd: 1.0 }, aura: { range: 0.12, atk: 0.2, speed: 0.2 }, art: 'commander', size: 1.4,
+    },
+    sniper: {
+      name: '저격 개미', cat: 'unit', rarity: 'rare', cost: 5, hp: 18,
+      speed: 0.08, atk: { type: 'proj', dmg: 20, range: 0.40, cd: 2.5 }, art: 'sniper', size: 1.0,
+    },
+    boss: {
+      name: '여왕 개미', cat: 'unit', rarity: 'legend', cost: 10, hp: 300,
+      speed: 0.06, atk: { type: 'aoe', dmg: 30, range: 0.15, aoeR: 0.08, cd: 1.2 }, art: 'boss', size: 2.0,
+    },
   }
 
   // ── 무기 (cat:'weapon') — 가챠로 획득. 오버레이(재미용)에서도 사용. battle:true = 배틀 덱 가능.

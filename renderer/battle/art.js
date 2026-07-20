@@ -73,7 +73,8 @@
   }
 
   const EMOJI = { ant: '🐜', rifleman: '🐜', grenadier: '🐜', shielder: '🛡', mechaAnt: '🤖', mechaHuman: '🦾',
-    missile: '🚀', gatling: '🔫', shield: '🛡', net: '🕸️', human: '🕺', lightning: '⚡', adogen: '🔵', blackhole: '🕳' }
+    missile: '🚀', gatling: '🔫', shield: '🛡', net: '🕸️', human: '🕺', lightning: '⚡', adogen: '🔵', blackhole: '🕳',
+    scout: '🐜', kamikaze: '💣', medic: '🩹', drone: '🐝', freezer: '❄️', worker: '🐜', commander: '🚩', sniper: '🎯', boss: '👑' }
 
   function icon(e, size) {
     const id = typeof e === 'string' ? e : (e && e.id)

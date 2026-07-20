@@ -174,7 +174,8 @@
     const mana = B.state.mana[sideMe]
     const segs = hud.querySelectorAll('.bm-mana .seg')
     segs.forEach((s, i) => s.classList.toggle('on', i < Math.floor(mana)))
-    const mv = hud.querySelector('.mval'); if (mv) mv.textContent = `${mana.toFixed(1)} / ${B.state.cfg.manaCap}`
+    const buff = B.state.manaBuff ? (B.state.manaBuff[sideMe] || 0) : 0
+    const mv = hud.querySelector('.mval'); if (mv) mv.textContent = `${mana.toFixed(1)}/${B.state.cfg.manaCap}` + (buff > 0 ? ` ⚡+${buff.toFixed(1)}/s` : '')
     hud.querySelectorAll('.bm-card').forEach((c) => {
       const u = D.UNITS[c.dataset.id]; c.classList.toggle('cant', !u || mana < (u.cost || 1))
     })

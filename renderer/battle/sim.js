@@ -60,8 +60,10 @@
     function step(dt) {
       if (st.winner != null) return
       st.t += dt
-      // 마나
-      for (let s = 0; s < 2; s++) st.mana[s] = clamp(st.mana[s] + cfg.manaRegen * dt, 0, cfg.manaCap)
+      // 마나 (기본 회복 + 일개미(워커) 버프: 살아있는 워커 1마리당 +manaBuff/s)
+      st.manaBuff = [0, 0]
+      for (const u of st.units) { if (u.hp <= 0) continue; const mb = D.UNITS[u.type] && D.UNITS[u.type].manaBuff; if (mb) st.manaBuff[u.side] += mb }
+      for (let s = 0; s < 2; s++) st.mana[s] = clamp(st.mana[s] + (cfg.manaRegen + st.manaBuff[s]) * dt, 0, cfg.manaCap)
 
       for (const u of st.units) {
         if (u.hp <= 0) continue
