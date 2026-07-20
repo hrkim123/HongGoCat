@@ -90,15 +90,25 @@
     return { back, close }
   }
 
+  // 큰 숫자 축약: 10,000 이상 → k, 1,000,000 이상 → m
+  function fmtNum(n) {
+    n = Math.floor(n || 0)
+    if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'm'
+    if (n >= 1e4) return (n / 1e3).toFixed(1).replace(/\.0$/, '') + 'k'
+    return String(n)
+  }
   function walletRow() {
     const w = document.createElement('div'); w.className = 'bg-wallet'
-    w.innerHTML = `<div class="bg-chip">💎 젬 <b class="w-gem">${G.getGems()}</b></div>
-                   <div class="bg-chip">🔩 강화 부품 <b class="w-mat">${G.getMaterials()}</b></div>`
+    const cnt = countBridge ? countBridge.get() : 0
+    w.innerHTML = `<div class="bg-chip" title="카운트">🪙 <b class="w-cnt">${fmtNum(cnt)}</b></div>
+                   <div class="bg-chip" title="젬">💎 <b class="w-gem">${fmtNum(G.getGems())}</b></div>
+                   <div class="bg-chip" title="강화 부품">🔩 <b class="w-mat">${fmtNum(G.getMaterials())}</b></div>`
     return w
   }
   function refreshWallet(root) {
-    const g = root.querySelector('.w-gem'), m = root.querySelector('.w-mat')
-    if (g) g.textContent = G.getGems(); if (m) m.textContent = G.getMaterials()
+    const c = root.querySelector('.w-cnt'), g = root.querySelector('.w-gem'), m = root.querySelector('.w-mat')
+    if (c) c.textContent = fmtNum(countBridge ? countBridge.get() : 0)
+    if (g) g.textContent = fmtNum(G.getGems()); if (m) m.textContent = fmtNum(G.getMaterials())
   }
 
   // ── 가챠 팝업 ───────────────────────────────────────────────────────────
@@ -106,7 +116,7 @@
     const { back, close } = makeBack()
     const card = document.createElement('div'); card.className = 'bg-card'; back.appendChild(card)
     card.innerHTML = `
-      <div class="bg-head"><div class="bg-title">🎰 소환 (가챠)</div><button class="bg-x">✕</button></div>`
+      <div class="bg-head"><div class="bg-title">🎰 소환</div><button class="bg-x">✕</button></div>`
     card.querySelector('.bg-x').onclick = close
     const wallet = walletRow(); card.appendChild(wallet)
 
@@ -200,8 +210,17 @@
     card.querySelector('.bg-x').onclick = close
     const body = document.createElement('div'); card.appendChild(body)
 
-    let fCat = 'all', fRar = 'all'
+    let fCat = 'unit', fRar = 'all'   // 기본: 소환체 카테고리, 전체 희귀도
     const lim = G.deckLimits()
+    const RORDER = ['legend', 'rare', 'uncommon', 'common']
+
+    function cellHtml(e) {
+      const info = D.RARITY[e.rarity], indeck = G.inDeck(e.id)
+      const tag = e.cat === 'weapon' ? '무기' : `코스트 ${e.cost}`
+      return `<div class="bg-cell ${e.owned ? '' : 'locked'} ${indeck ? 'indeck' : ''}" data-id="${e.id}" title="${e.name} — ${DESC[e.id] || ''} [${info.name}]" style="border-color:${e.owned ? info.color : '#2b2f39'};background:${e.owned ? info.color + '18' : '#1c2029'}">
+        <div class="e">${iconFor(e, 36)}</div><div class="n">${e.name}</div>` +
+        (e.owned ? `<div class="lv">${tag} · Lv.${e.level}</div>${indeck ? '<div class="dk">덱 ✓</div>' : ''}` : `<div class="lk">🔒 미획득</div>`) + `</div>`
+    }
 
     function render() {
       const deck = G.getDeck()
@@ -210,32 +229,33 @@
       const slotHtml = (id) => id
         ? `<div class="bg-slot filled" title="${(D.UNITS[id] || D.WEAPONS[id]).name}">${iconFor(id, 34)}<button class="rm" data-rm="${id}">✕</button></div>`
         : `<div class="bg-slot"></div>`
-      const catBtns = [['all', '전체'], ['unit', '소환체'], ['weapon', '무기']]
+      const catBtns = [['unit', '🐜 소환체'], ['weapon', '⚔ 무기']]
         .map(([k, n]) => `<button class="bg-fbtn ${fCat === k ? 'on' : ''}" data-fc="${k}">${n}</button>`).join('')
       const rarBtns = [['all', '전체'], ['common', '일반'], ['uncommon', '고급'], ['rare', '희귀'], ['legend', '전설']]
-        .map(([k, n]) => `<button class="bg-fbtn ${fRar === k ? 'on' : ''}" data-fr="${k}">${n}</button>`).join('')
+        .map(([k, n]) => `<button class="bg-fbtn ${fRar === k ? 'on' : ''}" data-fr="${k}" style="${fRar === k && k !== 'all' ? 'border-color:' + D.RARITY[k].color : ''}">${n}</button>`).join('')
 
-      let items = G.catalog()
-      if (fCat !== 'all') items = items.filter((e) => e.cat === fCat)
-      if (fRar !== 'all') items = items.filter((e) => e.rarity === fRar)
-      const order = { legend: 0, rare: 1, uncommon: 2, common: 3 }
-      items.sort((a, b) => (order[a.rarity] - order[b.rarity]) || (a.cat === b.cat ? 0 : a.cat === 'unit' ? -1 : 1))
-
-      const cells = items.map((e) => {
-        const info = D.RARITY[e.rarity], indeck = G.inDeck(e.id)
-        const tag = e.cat === 'weapon' ? '무기' : `코스트 ${e.cost}`
-        return `<div class="bg-cell ${e.owned ? '' : 'locked'} ${indeck ? 'indeck' : ''}" data-id="${e.id}" title="${e.name} — ${DESC[e.id] || ''}${e.rarityInfo ? ' [' + e.rarityInfo.name + ']' : ''}" style="border-color:${e.owned ? info.color + '66' : '#2b2f39'}">
-          <div class="e">${iconFor(e, 36)}</div><div class="n">${e.name}</div>` +
-          (e.owned ? `<div class="lv">${tag} · Lv.${e.level}</div>${indeck ? '<div class="dk">덱 ✓</div>' : ''}` : `<div class="lk">🔒 미획득</div>`) + `</div>`
-      }).join('')
+      const items = G.catalog().filter((e) => e.cat === fCat)
+      let listHtml
+      if (fRar === 'all') {
+        listHtml = RORDER.map((rk) => {
+          const info = D.RARITY[rk], gi = items.filter((e) => e.rarity === rk)
+          if (!gi.length) return ''
+          return `<div class="bg-rgroup" style="color:${info.color};font-weight:600;margin-top:10px">${info.name} · ${gi.filter((i) => i.owned).length}/${gi.length}</div>` +
+            `<div class="bg-grid">${gi.map(cellHtml).join('')}</div>`
+        }).join('')
+      } else {
+        const gi = items.filter((e) => e.rarity === fRar)
+        listHtml = gi.length ? `<div class="bg-grid">${gi.map(cellHtml).join('')}</div>` : '<div class="bg-sub">해당 희귀도 없음</div>'
+      }
 
       body.innerHTML = `
         <div class="bg-deck"><h4>배틀 덱 — 소환체 ${deck.units.length}/${lim.units} · 무기 ${deck.weapons.length}/${lim.weapons}</h4>
           <div class="bg-slots" style="margin-bottom:6px">${unitSlots.map(slotHtml).join('')}</div>
           <div class="bg-slots">${wpnSlots.map(slotHtml).join('')}</div>
         </div>
-        <div class="bg-filters">${catBtns}<span style="width:8px"></span>${rarBtns}</div>
-        <div class="bg-grid">${cells}</div>`
+        <div class="bg-filters">${catBtns}</div>
+        <div class="bg-filters">${rarBtns}</div>
+        ${listHtml}`
 
       body.querySelectorAll('[data-fc]').forEach((b) => b.onclick = () => { fCat = b.dataset.fc; render() })
       body.querySelectorAll('[data-fr]').forEach((b) => b.onclick = () => { fRar = b.dataset.fr; render() })

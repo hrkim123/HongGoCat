@@ -14,10 +14,10 @@
   //   → 같은 희귀도에 항목이 늘면 개별 확률 = weight ÷ 개수 로 자동 분배.
   // anim = 희귀도별 가챠 연출 키.
   const RARITY = {
-    common:   { key: 'common',   name: '일반', weight: 45, color: '#b8c0cc', anim: 'flash'   },
-    uncommon: { key: 'uncommon', name: '고급', weight: 40, color: '#4aa3ff', anim: 'beam'    },
-    rare:     { key: 'rare',     name: '희귀', weight: 13, color: '#b06bff', anim: 'swirl'   },
-    legend:   { key: 'legend',   name: '전설', weight:  2, color: '#ffcf3a', anim: 'burst'   },
+    common:   { key: 'common',   name: '일반', weight: 45, color: '#e8ecf2', anim: 'flash'   }, // 흰색
+    uncommon: { key: 'uncommon', name: '고급', weight: 40, color: '#4ec36a', anim: 'beam'    }, // 녹색
+    rare:     { key: 'rare',     name: '희귀', weight: 13, color: '#c98bff', anim: 'swirl'   }, // 밝은 보라
+    legend:   { key: 'legend',   name: '전설', weight:  2, color: '#ff9d3a', anim: 'burst'   }, // 주황
   }
 
   // ── 가챠 재화(💎 젬) ───────────────────────────────────────────────────────
