@@ -442,6 +442,9 @@
   // Compares the last-seen version (localStorage) to the current app version; lists every changelog
   // entry between them (first run just shows the current version). Add newest versions at the TOP.
   const CHANGELOG = {
+    '0.6.5': [
+      '☢ 리틀보이 폭탄 디자인 개선 — 아래 탄두가 뚱뚱한 형태로, 크기 2배',
+    ],
     '0.6.4': [
       '☢ 핵미사일 2개가 부딪히면 리틀보이 폭탄으로 합쳐져 땅에 떨어짐 (데미지 30, 폭발 범위 3배)',
       '캐릭터 체력 10초당 1 자연회복',
@@ -3619,16 +3622,31 @@
     if (me.humanActive && Math.hypot(x - me.humanX, y - me.humanY) <= R) humanTakeDmg(dmg, now)
     for (const [pid, h] of remoteHumans) if (Math.hypot(x - h.nx * W, y - h.ny * H) <= R && connected()) net.send(JSON.stringify({ t: 'human-hit', target: pid, dmg, hx: +(x / W).toFixed(4), hy: +(y / H).toFixed(4) }))
   }
-  function drawLittleBoy(b, now) {   // classic Little Boy bomb, falling nose-down
-    const s = view.scale * 2.2, x = b.x, y = b.y
-    ctx.save(); ctx.translate(x, y); ctx.lineJoin = 'round'
-    ctx.fillStyle = '#6b7043'   // olive body
-    ctx.beginPath(); ctx.roundRect(-4 * s, -18 * s, 8 * s, 26 * s, 3 * s); ctx.fill()
-    ctx.fillStyle = '#565b34'; ctx.beginPath(); ctx.moveTo(-4 * s, 6 * s); ctx.quadraticCurveTo(0, 14 * s, 4 * s, 6 * s); ctx.closePath(); ctx.fill()   // rounded nose (bottom)
-    ctx.strokeStyle = 'rgba(20,22,14,0.5)'; ctx.lineWidth = 0.8 * s; ctx.beginPath(); ctx.moveTo(-4 * s, -6 * s); ctx.lineTo(4 * s, -6 * s); ctx.moveTo(-4 * s, 0); ctx.lineTo(4 * s, 0); ctx.stroke()   // banding
-    ctx.fillStyle = '#4a4e2c'   // 4 box tail fins (top)
-    for (const sx of [-1, 1]) { ctx.beginPath(); ctx.moveTo(sx * 4 * s, -18 * s); ctx.lineTo(sx * 8 * s, -22 * s); ctx.lineTo(sx * 8 * s, -14 * s); ctx.lineTo(sx * 4 * s, -12 * s); ctx.closePath(); ctx.fill() }
-    ctx.fillStyle = '#3a3d24'; ctx.fillRect(-1.2 * s, -22 * s, 2.4 * s, 8 * s)
+  function drawLittleBoy(b, now) {   // Little Boy bomb, falling nose-down — narrow tail, FAT bulbous warhead
+    const s = view.scale * 4.4, x = b.x, y = b.y   // 2× the old size
+    ctx.save(); ctx.translate(x, y); ctx.lineJoin = 'round'; ctx.lineCap = 'round'
+    const olive = '#6b7043', dark = '#565b34', darker = '#4a4e2c'
+    // fat rounded warhead (lower / bottom) — much wider than the tail
+    ctx.fillStyle = olive
+    ctx.beginPath()
+    ctx.moveTo(-4 * s, -12 * s)
+    ctx.quadraticCurveTo(-7.5 * s, -8 * s, -7.5 * s, 0)          // bulge out
+    ctx.quadraticCurveTo(-7.5 * s, 9 * s, 0, 13 * s)             // rounded bottom nose
+    ctx.quadraticCurveTo(7.5 * s, 9 * s, 7.5 * s, 0)
+    ctx.quadraticCurveTo(7.5 * s, -8 * s, 4 * s, -12 * s)
+    ctx.closePath(); ctx.fill()
+    // narrow tail cylinder (upper)
+    ctx.fillStyle = dark; ctx.beginPath(); ctx.roundRect(-4 * s, -24 * s, 8 * s, 13 * s, 2.5 * s); ctx.fill()
+    ctx.fillStyle = olive; ctx.beginPath(); ctx.ellipse(0, -12 * s, 4 * s, 2 * s, 0, 0, Math.PI * 2); ctx.fill()   // seam
+    // banding rings on the fat warhead
+    ctx.strokeStyle = 'rgba(20,22,14,0.5)'; ctx.lineWidth = 1 * s
+    ctx.beginPath(); ctx.moveTo(-7 * s, -1 * s); ctx.quadraticCurveTo(0, 3 * s, 7 * s, -1 * s); ctx.stroke()
+    ctx.beginPath(); ctx.moveTo(-5.5 * s, 6 * s); ctx.quadraticCurveTo(0, 9.5 * s, 5.5 * s, 6 * s); ctx.stroke()
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.beginPath(); ctx.ellipse(-2.5 * s, 0, 1.6 * s, 6 * s, 0.2, 0, Math.PI * 2); ctx.stroke()   // sheen
+    // 4 box tail fins at the very top
+    ctx.fillStyle = darker
+    for (const sx of [-1, 1]) { ctx.beginPath(); ctx.moveTo(sx * 4 * s, -26 * s); ctx.lineTo(sx * 9 * s, -32 * s); ctx.lineTo(sx * 9 * s, -19 * s); ctx.lineTo(sx * 4 * s, -17 * s); ctx.closePath(); ctx.fill() }
+    ctx.fillStyle = '#3a3d24'; ctx.fillRect(-1.6 * s, -32 * s, 3.2 * s, 12 * s)
     ctx.restore()
   }
   function mergeMissiles() {
