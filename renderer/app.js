@@ -93,6 +93,17 @@
   const USE_COST = {}   // 소환 추가비용 폐지 — 보유하면 무료 소환 (배틀 UI 개편)
   const SHOP_ITEMS = ['shield', 'gatling', 'ant', 'human', 'blackhole', 'lightning', 'net']
   const SLOT_CHOICES = ['none', 'missile', 'shield', 'gatling', 'ant', 'human', 'blackhole', 'lightning', 'net']
+  // 배틀 UI 개편: 최신 버전 최초 실행 시 1회 초기화 — 카운트·레거시 무기·업그레이드·가챠를
+  // 전부 리셋하고 스타터(개미·미사일)만 남긴다. (플래그로 1회만)
+  try {
+    if (!localStorage.getItem('hgbattle.migrated')) {
+      localStorage.setItem('taps', '0')
+      localStorage.setItem('owned', '[]')
+      localStorage.removeItem('missileUp'); localStorage.removeItem('antUp'); localStorage.removeItem('lightningUp')
+      if (window.BattleGacha && window.BattleGacha._devReset) window.BattleGacha._devReset()
+      localStorage.setItem('hgbattle.migrated', '1')
+    }
+  } catch (e) {}
   let owned = new Set()
   try { const a = JSON.parse(localStorage.getItem('owned') || '[]'); if (Array.isArray(a)) owned = new Set(a) } catch {}
   // 보유 판정 통합: 호스트 / 레거시 구매(owned) / 가챠 보유(BattleGacha) 중 하나면 보유.
@@ -894,12 +905,34 @@
   })
   if (inputSource.onChatOpen) inputSource.onChatOpen(openChat)
 
+  // ---------- ⚔ 무기 설정 팝업 (오버레이 단축키 3슬롯) — 배틀 UI 룩(.bg-back) 재사용 ----------
+  function openWeaponLoadout() {
+    const back = document.createElement('div'); back.className = 'bg-back'
+    const card = document.createElement('div'); card.className = 'bg-card'; card.style.width = 'min(360px,92vw)'; back.appendChild(card)
+    const close = () => { back.remove(); sendHotzone() }
+    back.addEventListener('mousedown', (ev) => { if (ev.target === back) close() })
+    card.innerHTML = `<div class="bg-head"><div class="bg-title">⚔ 무기 설정</div><button class="bg-x">✕</button></div>` +
+      `<div class="bg-sub" style="margin-bottom:10px">오버레이(재미용) 단축키로 쓸 무기를 고르세요. 🔒 = 미획득(가챠로 획득).</div>`
+    card.querySelector('.bg-x').onclick = close
+    const keys = ['Alt+Z', 'Alt+X', 'Alt+C']
+    for (let i = 0; i < 3; i++) {
+      const row = document.createElement('div'); row.style.cssText = 'display:flex;align-items:center;gap:10px;margin-bottom:8px'
+      const lb = document.createElement('span'); lb.textContent = keys[i]; lb.style.cssText = 'width:56px;color:#aeb4c0;font-size:13px'
+      const sel = document.createElement('select'); sel.style.cssText = 'flex:1;padding:7px;border-radius:8px;background:#242a36;color:#e8ebf0;border:1px solid #3a4150;font-size:14px'
+      for (const id of SLOT_CHOICES) { const opt = document.createElement('option'); opt.value = id; opt.textContent = (weaponUsable(id) ? '' : '🔒 ') + (WEAPONS[id] || id); sel.appendChild(opt) }
+      sel.value = me.slots[i] || 'none'
+      sel.onchange = () => { const v = sel.value; if (!weaponUsable(v)) { sel.value = me.slots[i] || 'none'; return } me.slots[i] = v; localStorage.setItem('slots', JSON.stringify(me.slots)); pushState() }
+      row.append(lb, sel); card.appendChild(row)
+    }
+    document.body.appendChild(back); sendHotzone()
+  }
+
   // ---------- 통합 햄버거 메뉴 (배틀 UI + 기존 기능 브리지) ----------
   const menuBtn = document.getElementById('btn-menu')
   if (window.BattleGachaUI && window.BattleGacha) {
     window.BattleGachaUI.setCountBridge({ get: () => tapCount, spend: (n) => { spendCoins(n) } })
     window.BattleGachaUI.setBridges({
-      weapon: () => openShop(),                 // ⚔ 무기 설정: (임시) 기존 상점 = 슬롯 선택 포함
+      weapon: () => openWeaponLoadout(),         // ⚔ 무기 설정: 전용 팝업(오버레이 단축키 슬롯)
       achievements: () => openAchv(),            // 🏆 업적: 기존 팝업
       settings: () => inputSource.openSettings(), // ⚙ 설정: 기존 설정 창
     })
