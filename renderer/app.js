@@ -931,6 +931,10 @@
   const menuBtn = document.getElementById('btn-menu')
   if (window.BattleGachaUI && window.BattleGacha) {
     window.BattleGachaUI.setCountBridge({ get: () => tapCount, spend: (n) => { spendCoins(n) } })
+    window.BattleGachaUI.setHpBridge({
+      get: () => me.hp, max: CAT_HP, cost: 500,
+      heal: () => { if (me.hp >= CAT_HP || !spendCoins(500)) return false; resetCatHp(); pushState(); return true },
+    })
     window.BattleGachaUI.setBridges({
       weapon: () => openWeaponLoadout(),         // ⚔ 무기 설정: 전용 팝업(오버레이 단축키 슬롯)
       achievements: () => openAchv(),            // 🏆 업적: 기존 팝업

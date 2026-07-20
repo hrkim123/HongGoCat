@@ -10,6 +10,8 @@
 
   let countBridge = null
   function setCountBridge(b) { countBridge = b }
+  let hpBridge = null   // { get, max, cost, heal } — 앱이 제공(체력 리셋)
+  function setHpBridge(b) { hpBridge = b }
   // 호스트 앱에 팝업 열림/닫힘 통지(오버레이 hotzone 갱신용)
   function hostSync() { try { if (window.__bgModalChanged) window.__bgModalChanged() } catch (e) {} }
   function mount(back) { document.body.appendChild(back); hostSync() }
@@ -67,6 +69,13 @@
     document.head.appendChild(st)
   }
 
+  const DESC = {
+    ant: '기본 근접 물량 소환체', rifleman: '3연발 원거리 사격', grenadier: '수류탄 광역 공격',
+    shielder: '방패로 앞을 막는 탱커(공격 없음)', mechaAnt: '개미 대포를 쏘는 중장 딜탱', mechaHuman: '공중 부양·고화력 최상위',
+    missile: '커서 유도 폭발 · 합치면 핵', shield: '커서 방향 방패로 탄 막기', net: '발사체를 잡아 되던지기',
+    gatling: '커서 방향 연사 터렛', human: 'WASD 이동 · 무기 장착 전투', lightning: '커서→작업표시줄 낙뢰',
+    adogen: '기 모아 쏘는 기공파', blackhole: '주변 물체를 빨아들여 소멸(배틀 1회)',
+  }
   function iconFor(e, size) {
     // 개미 베이스 + 유닛별 액세서리 SVG(art.js). 로드 안 됐으면 이모지 폴백.
     if (window.BattleArt) return window.BattleArt.icon(e, size || 30)
@@ -215,7 +224,7 @@
       const cells = items.map((e) => {
         const info = D.RARITY[e.rarity], indeck = G.inDeck(e.id)
         const tag = e.cat === 'weapon' ? '무기' : `코스트 ${e.cost}`
-        return `<div class="bg-cell ${e.owned ? '' : 'locked'} ${indeck ? 'indeck' : ''}" data-id="${e.id}" style="border-color:${e.owned ? info.color + '66' : '#2b2f39'}">
+        return `<div class="bg-cell ${e.owned ? '' : 'locked'} ${indeck ? 'indeck' : ''}" data-id="${e.id}" title="${e.name} — ${DESC[e.id] || ''}${e.rarityInfo ? ' [' + e.rarityInfo.name + ']' : ''}" style="border-color:${e.owned ? info.color + '66' : '#2b2f39'}">
           <div class="e">${iconFor(e, 36)}</div><div class="n">${e.name}</div>` +
           (e.owned ? `<div class="lv">${tag} · Lv.${e.level}</div>${indeck ? '<div class="dk">덱 ✓</div>' : ''}` : `<div class="lk">🔒 미획득</div>`) + `</div>`
       }).join('')
@@ -259,9 +268,16 @@
 
     function render() {
       const cnt = countBridge ? countBridge.get() : 0
-      const buyRow = `<div style="display:flex;gap:8px;align-items:center;margin-bottom:14px">
+      const buyRow = `<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
         <div class="bg-chip" style="flex:1">💎 젬 구매 — ${D.GEM.countPerGem.toLocaleString()} 카운트 = 💎1</div>
         <button class="bg-btn primary" id="buygem" ${cnt < D.GEM.countPerGem ? 'disabled' : ''}>💎1 구매</button></div>`
+      let hpRow = ''
+      if (hpBridge) {
+        const hp = Math.round(hpBridge.get() * 10) / 10, full = hp >= hpBridge.max, canHeal = !full && cnt >= hpBridge.cost
+        hpRow = `<div style="display:flex;gap:8px;align-items:center;margin-bottom:14px">
+          <div class="bg-chip" style="flex:1">🩹 체력 리셋 — HP ${hp}/${hpBridge.max}</div>
+          ${full ? '<span class="bg-fbtn" style="cursor:default">가득</span>' : `<button class="bg-btn" id="healhp" ${canHeal ? '' : 'disabled'}>🪙${hpBridge.cost.toLocaleString()}</button>`}</div>`
+      }
       let ups = ''
       if (U) {
         const owned = G.catalog().filter((e) => e.owned && U.spec(e.id))
@@ -274,11 +290,13 @@
             <div class="ue">${U.effectSummary(e.id)}</div></div>${btn}</div>`
         }).join('')
       }
-      body.innerHTML = walletRow().outerHTML + buyRow +
+      body.innerHTML = walletRow().outerHTML + buyRow + hpRow +
         `<div class="bg-rgroup" style="margin:6px 0">🔩 업그레이드</div>${ups || '<div class="bg-sub">보유한 소환체/무기가 없어요</div>'}`
 
       const bg = body.querySelector('#buygem')
       if (bg) bg.onclick = () => { if (countBridge && countBridge.get() >= D.GEM.countPerGem) { countBridge.spend(D.GEM.countPerGem); G.addGems(1); render() } }
+      const hb = body.querySelector('#healhp')
+      if (hb) hb.onclick = () => { if (hpBridge && hpBridge.heal()) render() }
       body.querySelectorAll('[data-up]').forEach((b) => b.onclick = () => { if (U) { U.upgrade(b.dataset.up); render() } })
     }
     render()
@@ -307,5 +325,5 @@
     mount(back)
   }
 
-  window.BattleGachaUI = { openGacha, openCollection, openShop, openMenu, setCountBridge, setBridges }
+  window.BattleGachaUI = { openGacha, openCollection, openShop, openMenu, setCountBridge, setHpBridge, setBridges }
 })()
