@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>소환체 애니메이션 미리보기 (dev)</title>
+<style>
+  body{margin:0;background:#0f1218;color:#e8ebf0;font-family:system-ui,'맑은 고딕',sans-serif;padding:16px}
+  h1{font-size:15px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+  button{background:#242a36;color:#e8ebf0;border:1px solid #3a4150;border-radius:8px;padding:8px 12px;cursor:pointer}
+  canvas{background:#1b1d22;border:1px solid #2b2f39;border-radius:8px;display:block}
+  .cap{font-size:12px;color:#9aa0ab;margin:6px 0}
+</style>
+</head>
+<body>
+  <h1>🐜 솔저 개미 — 애니메이션 미리보기</h1>
+  <div class="cap">필름스트립(정지 포즈): 걷기 4프레임 · 공격 · 피격 · 사망 2프레임</div>
+  <canvas id="strip" width="680" height="150"></canvas>
+  <div class="cap">라이브 (실제 브라우저에서 모션 재생) — 상태 전환 버튼</div>
+  <div class="row">
+    <button data-s="idle">idle</button>
+    <button data-s="walk">walk</button>
+    <button data-s="attack">attack</button>
+    <button data-s="hit">hit</button>
+    <button data-s="death">death</button>
+  </div>
+  <canvas id="live" width="220" height="150"></canvas>
+
+  <script src="sprites.js"></script>
+  <script>
+    const UNIT = 'rifleman';
+    // 필름스트립
+    const strip = document.getElementById('strip'), sc = strip.getContext('2d');
+    const cells = [
+      { label: '걷기 0', state: 'walk', t: 0.00 },
+      { label: '걷기 1', state: 'walk', t: 0.11 },
+      { label: '걷기 2', state: 'walk', t: 0.22 },
+      { label: '걷기 3', state: 'walk', t: 0.34 },
+      { label: '공격', state: 'attack', t: 0.05, flash: true },
+      { label: '피격', state: 'hit', t: 0 },
+      { label: '사망 1', state: 'death', t: 0, deathT: 0.35 },
+      { label: '사망 2', state: 'death', t: 0, deathT: 0.8 },
+    ];
+    function renderStrip() {
+      sc.clearRect(0, 0, strip.width, strip.height);
+      const cw = strip.width / cells.length;
+      cells.forEach((c, i) => {
+        const cx = i * cw + cw / 2, feetY = 120;
+        sc.strokeStyle = '#232833'; sc.beginPath(); sc.moveTo(i * cw, 20); sc.lineTo(i * cw, strip.height); sc.stroke();
+        sc.strokeStyle = 'rgba(255,255,255,.12)'; sc.beginPath(); sc.moveTo(i * cw + 8, feetY); sc.lineTo(i * cw + cw - 8, feetY); sc.stroke();
+        BattleSprites.draw(sc, UNIT, { x: cx, y: feetY, scale: 2.2, facing: 1, state: c.state, t: c.t, flash: c.flash, deathT: c.deathT });
+        sc.fillStyle = '#9aa0ab'; sc.font = '11px system-ui'; sc.textAlign = 'center'; sc.fillText(c.label, cx, 16);
+      });
+    }
+    renderStrip();
+
+    // 라이브 루프
+    const live = document.getElementById('live'), lc = live.getContext('2d');
+    let state = 'walk', t0 = null;
+    document.querySelectorAll('button[data-s]').forEach(b => b.onclick = () => { state = b.dataset.s; t0 = null; });
+    function loop(ts) {
+      if (t0 == null) t0 = ts;
+      const t = (ts - t0) / 1000;
+      lc.clearRect(0, 0, live.width, live.height);
+      lc.strokeStyle = 'rgba(255,255,255,.12)'; lc.beginPath(); lc.moveTo(20, 120); lc.lineTo(200, 120); lc.stroke();
+      const deathT = state === 'death' ? Math.min(1, t / 1.2) : 0;
+      const flash = state === 'attack';
+      BattleSprites.draw(lc, UNIT, { x: 110, y: 120, scale: 2.6, facing: 1, state, t, flash, deathT });
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+
+    // dev 검증용: 필름스트립 각 셀이 비어있지 않은지 픽셀 카운트
+    window.__probe = () => {
+      const cw = Math.floor(strip.width / cells.length);
+      return cells.map((c, i) => {
+        const d = sc.getImageData(i * cw + 4, 20, cw - 8, 110).data;
+        let n = 0; for (let p = 3; p < d.length; p += 4) if (d[p] > 10) n++;
+        return { label: c.label, drawnPixels: n };
+      });
+    };
+  </script>
+</body>
+</html>
