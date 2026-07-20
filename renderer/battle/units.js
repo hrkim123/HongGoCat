@@ -21,6 +21,11 @@
   // ── 가챠 재화(💎 젬) ───────────────────────────────────────────────────────
   const GEM = { countPerGem: 10000, pullCost: 1 } // 카운트 10,000 → 💎1, 1회 뽑기 = 💎1
 
+  // ── 강화 재료(중복 획득 시 지급) ───────────────────────────────────────────
+  // 가챠에서 "이미 보유한" 소환체/무기가 또 나오면, 그 대신 강화 재료를 지급.
+  // 이 재료로 유닛/무기를 업그레이드(구체 내용은 추후 전달). 이름은 임시.
+  const UPGRADE = { name: '강화 부품', emoji: '🔩', perDuplicate: 1 }
+
   // ── 덱에 넣는 소환체 (cat:'unit') ──────────────────────────────────────────
   // starter:true = 기본 지급(가챠 풀 제외). rarity 키는 RARITY 참고.
   const UNITS = {
@@ -72,5 +77,5 @@
   }
   function countToGems(count) { return Math.floor(count / GEM.countPerGem) }
 
-  window.BattleData = { RARITY, GEM, UNITS, WEAPONS, unitList, weaponList, gachaPool, countToGems }
+  window.BattleData = { RARITY, GEM, UPGRADE, UNITS, WEAPONS, unitList, weaponList, gachaPool, countToGems }
 })()
