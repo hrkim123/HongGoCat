@@ -192,14 +192,20 @@
   // ---------- counter ----------
   const counterEl = document.getElementById('counter')
   let tapCount = parseInt(localStorage.getItem('taps') || '0', 10) || 0
+  let totalCount = parseInt(localStorage.getItem('totalTaps') || '0', 10) || 0   // 누적(타이핑) — 소비되지 않음
+  let countMode = localStorage.getItem('countMode') || 'cur'                       // 'cur'(재화) | 'total'(누적)
   let counterDirty = false
   let penaltyAcc = 0   // while 완전 파괴, only every 2nd input counts (half rate)
+  // 큰 수 축약: 100만↑ M, 1만↑ K
+  function fmtCount(n) { n = Math.max(0, Math.floor(n || 0)); if (n >= 1e6) return (n / 1e6).toFixed(2).replace(/\.?0+$/, '') + 'M'; if (n >= 1e4) return (n / 1e3).toFixed(1).replace(/\.0$/, '') + 'K'; return n.toLocaleString() }
   function renderCounter() {
-    counterEl.textContent = tapCount.toLocaleString() // no animation
+    const total = countMode === 'total'
+    counterEl.textContent = total ? fmtCount(totalCount) : tapCount.toLocaleString()
     const broken = me.hp <= 0
-    counterEl.classList.toggle('penalty', broken)
-    counterEl.title = broken ? '완전 파괴 패널티 — 입력 2번당 +1' : '내 상호작용 횟수'
+    counterEl.classList.toggle('penalty', broken && !total)
+    counterEl.title = total ? `총 누적 카운트 ${totalCount.toLocaleString()}` : (broken ? '완전 파괴 패널티 — 입력 2번당 +1' : '현재 재화 카운트')
   }
+  function toggleCountMode() { countMode = countMode === 'cur' ? 'total' : 'cur'; localStorage.setItem('countMode', countMode); renderCounter() }
   function floatPenalty() {   // faint red "+1" so you can tell you're earning at half rate
     const bar = document.getElementById('hud-bar'); if (!bar) return
     const f = document.createElement('div'); f.className = 'pen-float'; f.textContent = '+1'
@@ -230,9 +236,9 @@
     net.send(JSON.stringify({ t: 'kill', kind, by: byId, amt: n }))
   }
   renderCounter()
-  setInterval(() => { if (counterDirty) { localStorage.setItem('taps', String(tapCount)); counterDirty = false } }, 1000)
+  setInterval(() => { if (counterDirty) { localStorage.setItem('taps', String(tapCount)); localStorage.setItem('totalTaps', String(totalCount)); counterDirty = false } }, 1000)
   setInterval(() => { if (carveDirty) { try { localStorage.setItem('bardig', JSON.stringify((carve || []).map((v) => Math.round(v)))); localStorage.setItem('bardmg', String(barDamage)) } catch {} carveDirty = false } }, 1500)
-  window.addEventListener('beforeunload', () => localStorage.setItem('taps', String(tapCount)))
+  window.addEventListener('beforeunload', () => { localStorage.setItem('taps', String(tapCount)); localStorage.setItem('totalTaps', String(totalCount)) })
 
   // ---------- shop popup (buy weapons with the counter as currency) ----------
   const shopEl = document.getElementById('shop')
@@ -701,8 +707,8 @@
     me.lastInput = performance.now(); me.away = false   // any input clears 자리비움
     if (me.hp <= 0) {                    // 완전 파괴 패널티: 입력 2번당 카운트 +1
       penaltyAcc++
-      if (penaltyAcc % 2 === 0) { tapCount++; counterDirty = true; floatPenalty() }
-    } else { tapCount++; counterDirty = true }
+      if (penaltyAcc % 2 === 0) { tapCount++; totalCount++; counterDirty = true; floatPenalty() }
+    } else { tapCount++; totalCount++; counterDirty = true }
     renderCounter()
     if (net && net.readyState === WebSocket.OPEN) {
       const now = performance.now()
@@ -934,6 +940,9 @@
     }
     document.body.appendChild(back); sendHotzone()
   }
+
+  // 카운트 표시 전환(재화 ↔ 누적)
+  { const ct = document.getElementById('btn-count-toggle'); if (ct) ct.onclick = toggleCountMode }
 
   // ---------- 통합 햄버거 메뉴 (배틀 UI + 기존 기능 브리지) ----------
   const menuBtn = document.getElementById('btn-menu')
@@ -3929,9 +3938,9 @@
       const W = canvas.clientWidth || 1, H = canvas.clientHeight || 1
       const nx = +(wx / W).toFixed(4), ny = +(wy / H).toFixed(4), aw = me.away ? 1 : 0, sf = me.safeMode ? 1 : 0
       // only send when something changed; heartbeat every 1s so late joiners still place my cat
-      if (nx !== lastPos.nx || ny !== lastPos.ny || tapCount !== lastPos.taps || me.hp !== lastPos.hp || aw !== lastPos.away || sf !== lastPos.safe || now - lastPos.at > 1000) {
-        net.send(JSON.stringify({ t: 'pos', nx, ny, taps: tapCount, hp: me.hp, away: aw, safe: sf }))
-        lastPos = { nx, ny, taps: tapCount, hp: me.hp, away: aw, safe: sf, at: now }
+      if (nx !== lastPos.nx || ny !== lastPos.ny || totalCount !== lastPos.taps || me.hp !== lastPos.hp || aw !== lastPos.away || sf !== lastPos.safe || now - lastPos.at > 1000) {
+        net.send(JSON.stringify({ t: 'pos', nx, ny, taps: totalCount, hp: me.hp, away: aw, safe: sf }))   // 상대에겐 누적 카운트만 보여줌
+        lastPos = { nx, ny, taps: totalCount, hp: me.hp, away: aw, safe: sf, at: now }
       }
     }
   }, 50)   // ~20 updates/s — higher rate so remote missiles/ants move smoother
@@ -4046,7 +4055,7 @@
     ctx.fillStyle = '#2a2a34'; ctx.fill()
     ctx.fillStyle = '#fff'; ctx.font = '700 13px "Segoe UI", "Malgun Gothic", sans-serif'
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-    ctx.fillText((taps || 0).toLocaleString(), x + barW / 2, y + h / 2 + 0.5)
+    ctx.fillText(fmtCount(taps || 0), x + barW / 2, y + h / 2 + 0.5)
     ctx.restore()
   }
 

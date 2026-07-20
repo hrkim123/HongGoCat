@@ -92,6 +92,13 @@ html, body {
 }
 #btn-menu span { display: block; width: 15px; height: 2px; border-radius: 2px; background: #eee; }
 #btn-menu:hover { background: #3d3d4c; }
+#btn-count-toggle {
+  width: 24px; height: 24px;
+  border: none; border-radius: 6px;
+  background: #2a2a34; color: #cfd4de; cursor: pointer;
+  font-size: 13px; line-height: 1; display: flex; align-items: center; justify-content: center;
+}
+#btn-count-toggle:hover { background: #3d3d4c; color: #fff; }
 
 #chatbar {
   position: absolute;
