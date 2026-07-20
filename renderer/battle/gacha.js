@@ -8,7 +8,8 @@
   'use strict'
   if (!window.BattleData) { console.error('[battle/gacha] BattleData(units.js) 먼저 로드 필요'); return }
   const D = window.BattleData
-  const K = { gems: 'hgbattle.gems', mat: 'hgbattle.mat', owned: 'hgbattle.owned', lvl: 'hgbattle.lvl' }
+  const K = { gems: 'hgbattle.gems', mat: 'hgbattle.mat', owned: 'hgbattle.owned', lvl: 'hgbattle.lvl', deck: 'hgbattle.deck' }
+  const DECK_UNITS = 5, DECK_WEAPONS = 2
 
   function loadNum(k) { const n = parseInt(localStorage.getItem(k) || '0', 10); return Number.isFinite(n) ? n : 0 }
   function loadObj(k) { try { const o = JSON.parse(localStorage.getItem(k) || '{}'); return o && typeof o === 'object' ? o : {} } catch { return {} } }
@@ -16,7 +17,13 @@
   let gems = loadNum(K.gems)
   let materials = loadNum(K.mat)
   let owned = loadObj(K.owned)   // { id: true }
-  let levels = loadObj(K.lvl)    // { id: n }  (업그레이드 수치, 내용 추후. 기본 1)
+  let levels = loadObj(K.lvl)    // { id: n }  (업그레이드 레벨. 보유 시 기본 1)
+  let deck = loadDeck()          // { units:[ids], weapons:[ids] }
+
+  function loadDeck() {
+    try { const d = JSON.parse(localStorage.getItem(K.deck) || 'null'); if (d && Array.isArray(d.units) && Array.isArray(d.weapons)) return d } catch {}
+    return { units: [], weapons: [] }
+  }
 
   // 기본지급(starter)은 처음부터 보유로 seed
   ;[...D.unitList(), ...D.weaponList()].forEach((e) => {
@@ -35,6 +42,24 @@
 
   function addGems(n) { gems = Math.max(0, gems + (n | 0)); saveGems(); return gems }
   function addMaterials(n) { materials = Math.max(0, materials + (n | 0)); saveMat(); return materials }
+  function spendMaterials(n) { n = n | 0; if (materials < n) return false; materials -= n; saveMat(); return true }
+  function setLevel(id, n) { if (!owned[id]) return false; levels[id] = Math.max(1, n | 0); saveOwned(); return true }
+
+  // ── 덱 (배틀용): 소환체 5 + 무기 2 ──
+  function saveDeck() { localStorage.setItem(K.deck, JSON.stringify(deck)) }
+  function getDeck() { return { units: deck.units.slice(), weapons: deck.weapons.slice() } }
+  function deckLimits() { return { units: DECK_UNITS, weapons: DECK_WEAPONS } }
+  function inDeck(id) { return deck.units.includes(id) || deck.weapons.includes(id) }
+  function toggleDeck(id) {
+    const e = D.UNITS[id] ? { cat: 'unit' } : (D.WEAPONS[id] ? { cat: 'weapon' } : null)
+    if (!e || !owned[id]) return { ok: false, reason: 'not-owned' }
+    const arr = e.cat === 'unit' ? deck.units : deck.weapons
+    const cap = e.cat === 'unit' ? DECK_UNITS : DECK_WEAPONS
+    const i = arr.indexOf(id)
+    if (i >= 0) { arr.splice(i, 1); saveDeck(); return { ok: true, on: false } }
+    if (arr.length >= cap) return { ok: false, reason: 'full' }
+    arr.push(id); saveDeck(); return { ok: true, on: true }
+  }
 
   // 카운트 amount 로 만들 수 있는 젬 수(차감/적립은 호출측). 남는 카운트는 버리지 않도록 정수 젬만 반환.
   function gemsFromCount(count) { return D.countToGems(count) }
@@ -82,13 +107,14 @@
 
   // 개발용 리셋(테스트 편의). 실제 앱의 1회 초기화 마이그레이션과는 별개.
   function _devReset() {
-    gems = 0; materials = 0; owned = {}; levels = {}
+    gems = 0; materials = 0; owned = {}; levels = {}; deck = { units: [], weapons: [] }
     ;[...D.unitList(), ...D.weaponList()].forEach((e) => { if (e.starter) { owned[e.id] = true; levels[e.id] = 1 } })
-    saveGems(); saveMat(); saveOwned()
+    saveGems(); saveMat(); saveOwned(); saveDeck()
   }
 
   window.BattleGacha = {
-    getGems, getMaterials, isOwned, getLevel, addGems, addMaterials,
+    getGems, getMaterials, isOwned, getLevel, addGems, addMaterials, spendMaterials, setLevel,
     gemsFromCount, catalog, roll, setRandom, _devReset,
+    getDeck, deckLimits, inDeck, toggleDeck,
   }
 })()

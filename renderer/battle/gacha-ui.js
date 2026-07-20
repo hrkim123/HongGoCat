@@ -153,34 +153,156 @@
     setTimeout(() => reveal.classList.add('show'), delay)
   }
 
-  // ── 컬렉션 UI ───────────────────────────────────────────────────────────
+  // 추가 스타일(덱/필터/메뉴) 1회 주입
+  function ensureStyle2() {
+    if (document.getElementById('bg-gacha-style2')) return
+    const st = document.createElement('style'); st.id = 'bg-gacha-style2'
+    st.textContent = `
+    .bg-deck{background:#12151b;border:1px solid #2b2f39;border-radius:10px;padding:10px;margin-bottom:12px}
+    .bg-deck h4{margin:0 0 6px;font-size:12px;color:#aeb4c0;font-weight:600}
+    .bg-slots{display:flex;gap:6px;flex-wrap:wrap}
+    .bg-slot{width:52px;height:52px;border-radius:9px;border:1px dashed #3a4150;background:#191d25;display:flex;align-items:center;justify-content:center;position:relative}
+    .bg-slot.filled{border-style:solid}
+    .bg-slot .rm{position:absolute;top:-6px;right:-6px;width:16px;height:16px;border-radius:50%;background:#c0392b;color:#fff;font-size:11px;border:none;cursor:pointer;line-height:1}
+    .bg-filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+    .bg-fbtn{cursor:pointer;border:1px solid #2b2f39;background:#1c2029;color:#cfd4de;border-radius:999px;padding:4px 11px;font-size:12px}
+    .bg-fbtn.on{background:#2f6bd8;border-color:#3f7ce8;color:#fff}
+    .bg-cell{cursor:pointer}
+    .bg-cell.indeck{outline:2px solid #4aa3ff;outline-offset:-1px}
+    .bg-cell .dk{font-size:9px;margin-top:1px;color:#8fd3ff}
+    .bg-up{display:flex;align-items:center;gap:10px;background:#1c2029;border:1px solid #2b2f39;border-radius:10px;padding:8px 10px;margin-bottom:6px}
+    .bg-up .ui{flex:1;min-width:0}
+    .bg-up .un{font-size:13px;color:#e8ebf0}
+    .bg-up .ue{font-size:11px;color:#9aa0ab;margin-top:2px}
+    .bg-up .ul{font-size:12px;color:#ffcf3a;white-space:nowrap}
+    `
+    document.head.appendChild(st)
+  }
+
+  // ── 컬렉션 UI (상단 덱 편성 + 필터 + 하단 컬렉션) ────────────────────────
   function openCollection() {
+    ensureStyle2()
     const { back, close } = makeBack()
     const card = document.createElement('div'); card.className = 'bg-card'; back.appendChild(card)
-    card.innerHTML = `<div class="bg-head"><div class="bg-title">📚 컬렉션</div><button class="bg-x">✕</button></div>`
+    card.innerHTML = `<div class="bg-head"><div class="bg-title">📚 컬렉션 · 덱 편성</div><button class="bg-x">✕</button></div>`
     card.querySelector('.bg-x').onclick = close
+    const body = document.createElement('div'); card.appendChild(body)
 
-    const order = ['legend', 'rare', 'uncommon', 'common']
-    const all = G.catalog()
-    order.forEach((rk) => {
-      const info = D.RARITY[rk]; const items = all.filter((e) => e.rarity === rk)
-      if (!items.length) return
-      const h = document.createElement('div'); h.className = 'bg-rgroup'
-      h.innerHTML = `<span style="color:${info.color};font-weight:600">${info.name}</span> · ${items.filter((i) => i.owned).length}/${items.length}`
-      card.appendChild(h)
-      const grid = document.createElement('div'); grid.className = 'bg-grid'
-      items.forEach((e) => {
-        const cell = document.createElement('div'); cell.className = 'bg-cell' + (e.owned ? '' : ' locked')
-        cell.style.borderColor = e.owned ? info.color + '66' : '#2b2f39'
+    let fCat = 'all', fRar = 'all'
+    const lim = G.deckLimits()
+
+    function render() {
+      const deck = G.getDeck()
+      const unitSlots = Array.from({ length: lim.units }, (_, i) => deck.units[i] || null)
+      const wpnSlots = Array.from({ length: lim.weapons }, (_, i) => deck.weapons[i] || null)
+      const slotHtml = (id) => id
+        ? `<div class="bg-slot filled" title="${(D.UNITS[id] || D.WEAPONS[id]).name}">${iconFor(id, 34)}<button class="rm" data-rm="${id}">✕</button></div>`
+        : `<div class="bg-slot"></div>`
+      const catBtns = [['all', '전체'], ['unit', '소환체'], ['weapon', '무기']]
+        .map(([k, n]) => `<button class="bg-fbtn ${fCat === k ? 'on' : ''}" data-fc="${k}">${n}</button>`).join('')
+      const rarBtns = [['all', '전체'], ['common', '일반'], ['uncommon', '고급'], ['rare', '희귀'], ['legend', '전설']]
+        .map(([k, n]) => `<button class="bg-fbtn ${fRar === k ? 'on' : ''}" data-fr="${k}">${n}</button>`).join('')
+
+      let items = G.catalog()
+      if (fCat !== 'all') items = items.filter((e) => e.cat === fCat)
+      if (fRar !== 'all') items = items.filter((e) => e.rarity === fRar)
+      const order = { legend: 0, rare: 1, uncommon: 2, common: 3 }
+      items.sort((a, b) => (order[a.rarity] - order[b.rarity]) || (a.cat === b.cat ? 0 : a.cat === 'unit' ? -1 : 1))
+
+      const cells = items.map((e) => {
+        const info = D.RARITY[e.rarity], indeck = G.inDeck(e.id)
         const tag = e.cat === 'weapon' ? '무기' : `코스트 ${e.cost}`
-        cell.innerHTML = `<div class="e">${iconFor(e, 36)}</div><div class="n">${e.name}</div>` +
-          (e.owned ? `<div class="lv">${tag} · Lv.${e.level}</div>` : `<div class="lk">🔒 미획득</div>`)
-        grid.appendChild(cell)
+        return `<div class="bg-cell ${e.owned ? '' : 'locked'} ${indeck ? 'indeck' : ''}" data-id="${e.id}" style="border-color:${e.owned ? info.color + '66' : '#2b2f39'}">
+          <div class="e">${iconFor(e, 36)}</div><div class="n">${e.name}</div>` +
+          (e.owned ? `<div class="lv">${tag} · Lv.${e.level}</div>${indeck ? '<div class="dk">덱 ✓</div>' : ''}` : `<div class="lk">🔒 미획득</div>`) + `</div>`
+      }).join('')
+
+      body.innerHTML = `
+        <div class="bg-deck"><h4>배틀 덱 — 소환체 ${deck.units.length}/${lim.units} · 무기 ${deck.weapons.length}/${lim.weapons}</h4>
+          <div class="bg-slots" style="margin-bottom:6px">${unitSlots.map(slotHtml).join('')}</div>
+          <div class="bg-slots">${wpnSlots.map(slotHtml).join('')}</div>
+        </div>
+        <div class="bg-filters">${catBtns}<span style="width:8px"></span>${rarBtns}</div>
+        <div class="bg-grid">${cells}</div>`
+
+      body.querySelectorAll('[data-fc]').forEach((b) => b.onclick = () => { fCat = b.dataset.fc; render() })
+      body.querySelectorAll('[data-fr]').forEach((b) => b.onclick = () => { fRar = b.dataset.fr; render() })
+      body.querySelectorAll('[data-rm]').forEach((b) => b.onclick = (ev) => { ev.stopPropagation(); G.toggleDeck(b.dataset.rm); render() })
+      body.querySelectorAll('.bg-cell[data-id]').forEach((c) => c.onclick = () => {
+        const id = c.dataset.id; if (!G.isOwned(id)) return
+        const r = G.toggleDeck(id); if (!r.ok && r.reason === 'full') flashMsg(card, '덱이 가득 찼어요')
+        render()
       })
-      card.appendChild(grid)
-    })
+    }
+    render()
     document.body.appendChild(back)
   }
 
-  window.BattleGachaUI = { openGacha, openCollection, setCountBridge }
+  function flashMsg(card, msg) {
+    const t = document.createElement('div'); t.textContent = msg
+    t.style.cssText = 'position:absolute;left:50%;top:12px;transform:translateX(-50%);background:#c0392b;color:#fff;padding:6px 12px;border-radius:8px;font-size:12px;z-index:5'
+    card.style.position = 'relative'; card.appendChild(t); setTimeout(() => t.remove(), 1200)
+  }
+
+  // ── 상점 UI (재화 + 젬 구매 + 업그레이드) ────────────────────────────────
+  function openShop() {
+    ensureStyle2()
+    const U = window.BattleUpgrade
+    const { back, close } = makeBack()
+    const card = document.createElement('div'); card.className = 'bg-card'; back.appendChild(card)
+    card.innerHTML = `<div class="bg-head"><div class="bg-title">🛒 상점</div><button class="bg-x">✕</button></div>`
+    card.querySelector('.bg-x').onclick = close
+    const body = document.createElement('div'); card.appendChild(body)
+
+    function render() {
+      const cnt = countBridge ? countBridge.get() : 0
+      const buyRow = `<div style="display:flex;gap:8px;align-items:center;margin-bottom:14px">
+        <div class="bg-chip" style="flex:1">💎 젬 구매 — ${D.GEM.countPerGem.toLocaleString()} 카운트 = 💎1</div>
+        <button class="bg-btn primary" id="buygem" ${cnt < D.GEM.countPerGem ? 'disabled' : ''}>💎1 구매</button></div>`
+      let ups = ''
+      if (U) {
+        const owned = G.catalog().filter((e) => e.owned && U.spec(e.id))
+        ups = owned.map((e) => {
+          const lv = G.getLevel(e.id), cost = U.costToNext(e.id), can = U.canUpgrade(e.id)
+          const btn = cost == null ? `<span class="bg-fbtn" style="cursor:default">MAX</span>`
+            : `<button class="bg-btn" data-up="${e.id}" ${can ? '' : 'disabled'}>강화 🔩${cost}</button>`
+          return `<div class="bg-up"><div style="width:34px">${iconFor(e, 30)}</div>
+            <div class="ui"><div class="un">${e.name} <span class="ul">Lv.${lv}/${U.maxLevel()}</span></div>
+            <div class="ue">${U.effectSummary(e.id)}</div></div>${btn}</div>`
+        }).join('')
+      }
+      body.innerHTML = walletRow().outerHTML + buyRow +
+        `<div class="bg-rgroup" style="margin:6px 0">🔩 업그레이드</div>${ups || '<div class="bg-sub">보유한 소환체/무기가 없어요</div>'}`
+
+      const bg = body.querySelector('#buygem')
+      if (bg) bg.onclick = () => { if (countBridge && countBridge.get() >= D.GEM.countPerGem) { countBridge.spend(D.GEM.countPerGem); G.addGems(1); render() } }
+      body.querySelectorAll('[data-up]').forEach((b) => b.onclick = () => { if (U) { U.upgrade(b.dataset.up); render() } })
+    }
+    render()
+    document.body.appendChild(back)
+  }
+
+  // ── 햄버거 통합 메뉴 ─────────────────────────────────────────────────────
+  let bridges = {}
+  function setBridges(b) { bridges = Object.assign(bridges, b || {}) }
+  function openMenu() {
+    const { back, close } = makeBack()
+    const card = document.createElement('div'); card.className = 'bg-card'; card.style.width = 'min(300px,90vw)'; back.appendChild(card)
+    card.innerHTML = `<div class="bg-head"><div class="bg-title">☰ 메뉴</div><button class="bg-x">✕</button></div>`
+    card.querySelector('.bg-x').onclick = close
+    const items = [
+      ['🛒 상점', () => openShop()],
+      ['🎰 소환', () => openGacha()],
+      ['📚 컬렉션 · 덱', () => openCollection()],
+      ['⚔ 무기 설정', () => (bridges.weapon ? bridges.weapon() : flashMsg(card, '무기 설정 연결 예정'))],
+      ['🏆 업적', () => (bridges.achievements ? bridges.achievements() : flashMsg(card, '업적 연결 예정'))],
+      ['⚙ 설정', () => (bridges.settings ? bridges.settings() : flashMsg(card, '설정 연결 예정'))],
+    ]
+    const wrap = document.createElement('div'); wrap.style.cssText = 'display:flex;flex-direction:column;gap:8px'
+    items.forEach(([label, fn]) => { const b = document.createElement('button'); b.className = 'bg-btn'; b.textContent = label; b.style.textAlign = 'left'; b.onclick = () => { close(); fn() }; wrap.appendChild(b) })
+    card.appendChild(wrap)
+    document.body.appendChild(back)
+  }
+
+  window.BattleGachaUI = { openGacha, openCollection, openShop, openMenu, setCountBridge, setBridges }
 })()

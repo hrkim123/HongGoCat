@@ -23,9 +23,12 @@
     <span class="stat">🔩 부품 <b id="s-mat">0</b></span>
   </div>
   <div class="row">
+    <button id="b-menu">☰ 메뉴 열기</button>
     <button id="b-count">+ 카운트 50,000</button>
-    <button id="b-gacha">🎰 소환 팝업 열기</button>
-    <button id="b-col">📚 컬렉션 열기</button>
+    <button id="b-gacha">🎰 소환</button>
+    <button id="b-col">📚 컬렉션·덱</button>
+    <button id="b-shop">🛒 상점</button>
+    <button id="b-mat">+ 🔩 부품 20</button>
     <button id="b-reset">개발 리셋</button>
   </div>
   <div id="log"></div>
@@ -33,6 +36,7 @@
   <script src="units.js"></script>
   <script src="art.js"></script>
   <script src="gacha.js"></script>
+  <script src="upgrade.js"></script>
   <script src="gacha-ui.js"></script>
   <script>
     // 시뮬레이션 카운트 지갑(하버스 전용). 실제 앱에선 tapCount 브리지로 대체.
@@ -46,9 +50,12 @@
     // 팝업 지갑과 하버스 지갑 동기화용: 팝업 닫힐 때/주기적으로 갱신
     setInterval(refresh, 400)
 
+    $('b-menu').onclick = () => BattleGachaUI.openMenu()
     $('b-count').onclick = () => { simCount += 50000; saveCount(); refresh(); log('카운트 +50,000') }
     $('b-gacha').onclick = () => BattleGachaUI.openGacha()
     $('b-col').onclick = () => BattleGachaUI.openCollection()
+    $('b-shop').onclick = () => BattleGachaUI.openShop()
+    $('b-mat').onclick = () => { BattleGacha.addMaterials(20); refresh(); log('부품 +20') }
     $('b-reset').onclick = () => { BattleGacha._devReset(); simCount = 0; saveCount(); refresh(); log('리셋 완료') }
 
     function log(m){ const el = $('log'); el.textContent = '· ' + m + '\n' + el.textContent }
