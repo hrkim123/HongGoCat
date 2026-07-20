@@ -57,7 +57,7 @@
     mechaHuman: {
       name: '메카 인간폼', cat: 'unit', rarity: 'legend', cost: 7, hp: 120,
       speed: 0.12, atk: { type: 'proj', dmg: 15, range: 0.28, cd: 0.7 },
-      art: 'human', size: 1.7, // 기존 인간폼 그림 재사용
+      art: 'human', size: 1.7, flying: true, // 공중 타입: 구멍 무시. 발밑 부스터 상시 분사 + 바닥에서 살짝 뜬 채 전진
     },
   }
 

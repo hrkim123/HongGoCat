@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>배틀 모드 가챠 하버스 (dev)</title>
+<style>
+  body{margin:0;font-family:system-ui,'맑은 고딕',sans-serif;background:#0c0e12;color:#e8ebf0;padding:24px}
+  h1{font-size:18px;font-weight:600}
+  .row{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0}
+  button{cursor:pointer;border:1px solid #3a4150;background:#242a36;color:#e8ebf0;border-radius:10px;padding:10px 14px;font-size:14px}
+  button:hover{background:#2c3342}
+  .stat{background:#171a20;border:1px solid #2b2f39;border-radius:10px;padding:10px 14px;font-size:14px}
+  .stat b{font-size:18px}
+  #log{margin-top:16px;font-size:12px;color:#9aa0ab;white-space:pre-wrap;line-height:1.7}
+</style>
+</head>
+<body>
+  <h1>🐜 배틀 모드 — 가챠/컬렉션 하버스 (dev 테스트)</h1>
+  <div class="row">
+    <span class="stat">카운트 <b id="s-count">0</b></span>
+    <span class="stat">💎 젬 <b id="s-gem">0</b></span>
+    <span class="stat">🔩 부품 <b id="s-mat">0</b></span>
+  </div>
+  <div class="row">
+    <button id="b-count">+ 카운트 50,000</button>
+    <button id="b-gacha">🎰 소환 팝업 열기</button>
+    <button id="b-col">📚 컬렉션 열기</button>
+    <button id="b-reset">개발 리셋</button>
+  </div>
+  <div id="log"></div>
+
+  <script src="units.js"></script>
+  <script src="gacha.js"></script>
+  <script src="gacha-ui.js"></script>
+  <script>
+    // 시뮬레이션 카운트 지갑(하버스 전용). 실제 앱에선 tapCount 브리지로 대체.
+    let simCount = parseInt(localStorage.getItem('hgbattle.simCount') || '0', 10) || 0
+    function saveCount(){ localStorage.setItem('hgbattle.simCount', String(simCount)) }
+    const $ = (id) => document.getElementById(id)
+    function refresh(){ $('s-count').textContent = simCount.toLocaleString(); $('s-gem').textContent = BattleGacha.getGems(); $('s-mat').textContent = BattleGacha.getMaterials() }
+
+    BattleGachaUI.setCountBridge({ get: () => simCount, spend: (n) => { simCount = Math.max(0, simCount - n); saveCount(); refresh() } })
+
+    // 팝업 지갑과 하버스 지갑 동기화용: 팝업 닫힐 때/주기적으로 갱신
+    setInterval(refresh, 400)
+
+    $('b-count').onclick = () => { simCount += 50000; saveCount(); refresh(); log('카운트 +50,000') }
+    $('b-gacha').onclick = () => BattleGachaUI.openGacha()
+    $('b-col').onclick = () => BattleGachaUI.openCollection()
+    $('b-reset').onclick = () => { BattleGacha._devReset(); simCount = 0; saveCount(); refresh(); log('리셋 완료') }
+
+    function log(m){ const el = $('log'); el.textContent = '· ' + m + '\n' + el.textContent }
+
+    // 자동 자가검증(콘솔): 데이터/로직 무결성
+    ;(function selfTest(){
+      const D = window.BattleData, G = window.BattleGacha
+      const res = []
+      res.push(['BattleData 로드', !!D])
+      res.push(['가챠 풀 비어있지 않음', D.gachaPool().length > 0])
+      res.push(['starter(개미) 기본 보유', G.isOwned('ant')])
+      res.push(['starter(미사일) 기본 보유', G.isOwned('missile')])
+      res.push(['카탈로그 = 유닛+무기 수', G.catalog().length === (D.unitList().length + D.weaponList().length)])
+      // 결정적 랜덤으로 1회 뽑기 동작 확인(젬 임시 지급)
+      G.addGems(1); G.setRandom(() => 0.001); const r = G.roll(); G.setRandom(null)
+      res.push(['뽑기 결과 반환', !!r && !!r.entry])
+      window.__selfTest = res
+      console.log('[selfTest]', res.map(([k,v]) => (v?'✅':'❌')+' '+k).join('\n'))
+      refresh()
+    })()
+  </script>
+</body>
+</html>
