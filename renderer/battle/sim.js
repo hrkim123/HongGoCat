@@ -84,34 +84,29 @@
         let acting = false
 
         if (hasAtk) {
-          if (tgt && td <= range) {
+          const isMelee = u.stats.atk.type === 'melee'
+          const inTgt = tgt && td <= range
+          const inBase = distBase <= Math.max(range, cfg.baseRange) && !inTgt
+          if (inTgt || inBase) {
             acting = true
             u.cdLeft -= dt
             if (u.cdLeft <= 0) {
               u.cdLeft = u.stats.atk.cd || 1
               const dmg = u.stats.atk.dmg || 1
-              if (u.stats.atk.type === 'aoe') {   // 광역: 타겟 주변 aoeR 내 전부
-                const r = u.stats.atk.aoeR || 0.05
-                for (const e of st.units) if (e.side !== u.side && e.hp > 0 && Math.abs(e.L - tgt.L) <= r) applyDamage(e, dmg, u.side)
-              } else { applyDamage(tgt, dmg, u.side) }
-              st.events.push({ type: 'hit', by: u.uid, target: tgt.uid, dmg })
-            }
-          } else if (distBase <= Math.max(range, cfg.baseRange) && !(tgt && td <= range)) {
-            acting = true
-            u.cdLeft -= dt
-            if (u.cdLeft <= 0) {
-              u.cdLeft = u.stats.atk.cd || 1
-              const dmg = u.stats.atk.dmg || 1
-              const es = u.side === 0 ? 1 : 0
-              st.baseHp[es] = Math.max(0, st.baseHp[es] - dmg)
-              st.events.push({ type: 'basehit', side: es, dmg })
+              if (isMelee) {   // 근접: 즉시(접촉)
+                if (inTgt) { applyDamage(tgt, dmg, u.side); st.events.push({ type: 'hit', by: u.uid, target: tgt.uid, dmg }) }
+                else { const es = u.side === 0 ? 1 : 0; st.baseHp[es] = Math.max(0, st.baseHp[es] - dmg); st.events.push({ type: 'basehit', side: es, dmg }) }
+              } else {   // 원거리: 실제 투사체 발사(컨트롤러가 처리) — 즉시 데미지 X
+                st.events.push({ type: 'fire', by: u.uid, side: u.side, fromL: u.L, dir: u.dir, dmg, atkType: u.stats.atk.type, aoeR: u.stats.atk.aoeR || 0, slow: u.stats.atk.slow || 0, slowDur: u.stats.atk.slowDur || 0, targetUid: inTgt ? tgt.uid : null, toL: inTgt ? tgt.L : (u.side === 0 ? 1 : 0) })
+              }
             }
           }
         }
 
         // 근접 유닛이 적과 접촉하면 멈춰 교전(전진 X). 그 외엔 전진.
         const blocked = tgt && td <= Math.max(range, 0.02)
-        if (!acting && !blocked) u.L = clamp(u.L + u.dir * u.stats.speed * (cfg.speedScale || 1) * dt, 0, 1)
+        const slowMul = (u.slowUntil && u.slowUntil > st.t) ? (u.slowMul || 1) : 1
+        if (!acting && !blocked) u.L = clamp(u.L + u.dir * u.stats.speed * (cfg.speedScale || 1) * slowMul * dt, 0, 1)
       }
 
       // 사망 제거
@@ -139,7 +134,16 @@
 
     function drainEvents() { const e = st.events; st.events = []; return e }
 
-    return { state: st, spawn, step, makeAI, drainEvents }
+    // 컨트롤러(오버레이 투사체)가 명중 시 호출 — 쉴드/사망은 여기서 처리
+    function hitUnit(uid, dmg, slow, slowDur) {
+      const u = st.units.find((x) => x.uid === uid); if (!u || u.hp <= 0) return
+      applyDamage(u, dmg)
+      if (slow) { u.slowUntil = st.t + (slowDur || 1); u.slowMul = 1 - slow }
+    }
+    function hitBase(side, dmg) { st.baseHp[side] = Math.max(0, st.baseHp[side] - dmg) }   // 승패는 step에서 판정
+    function unitByUid(uid) { return st.units.find((x) => x.uid === uid) }
+
+    return { state: st, spawn, step, makeAI, drainEvents, hitUnit, hitBase, unitByUid }
   }
 
   window.BattleSim = { newBattle }

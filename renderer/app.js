@@ -3340,6 +3340,7 @@
   // ---------- 배틀 모드 (오버레이 통합: 실제 작업표시줄 위 · 별도 캔버스 아님) ----------
   let battleActive = false, battle = null, battleAI = null, battleLastT = 0, battleResultAt = 0
   let battleAtkAt = {}, battleDead = [], battleOpp = null, battleHud = null
+  let battleSavedCarve, battleSavedBarDmg = 0
   const BATTLE_PAD = 90
   function battleLaneX(L) { const W = canvas.clientWidth; return BATTLE_PAD + L * (W - 2 * BATTLE_PAD) }   // side0 기지=좌
   function startBattleSolo() {
@@ -3348,10 +3349,15 @@
     battle = window.BattleSim.newBattle({ speedScale: 0.55 })   // 냥코풍 느린 행군
     battleAI = battle.makeAI(1, ['ant', 'rifleman', 'grenadier', 'mechaAnt', 'mechaHuman'].filter((id) => window.BattleData.UNITS[id]), 1.4)
     battleOpp = Object.assign({ id: 'battleOpp', animal: 'cat', name: '상대', skin: 'gray', pattern: 'solid', hat: 'none', ear: 'pointed', eye: 'oval', mouth: 'smile', tail: 'curl', shape: {}, hp: CAT_HP }, newAnimState())
-    battleAtkAt = {}; battleDead = []; battleResultAt = 0; battleLastT = performance.now(); battleActive = true
+    battleAtkAt = {}; battleDead = []; bproj.length = 0; battleResultAt = 0; battleLastT = performance.now(); battleActive = true
+    battleSavedCarve = carve ? carve.slice() : null; battleSavedBarDmg = barDamage; resetTaskbarDig(false)   // 배틀은 복원된(깨끗한) 작업표시줄로 시작
     buildBattleHud(); sendHotzone()
   }
-  function stopBattle() { battleActive = false; battle = null; if (battleHud) { battleHud.remove(); battleHud = null } sendHotzone() }
+  function stopBattle() {
+    battleActive = false; battle = null; bproj.length = 0
+    if (battleSavedCarve !== undefined) { carve = battleSavedCarve; barDamage = battleSavedBarDmg || 0; carveDirty = true; battleSavedCarve = undefined }   // 원래 작업표시줄 상태 복귀
+    if (battleHud) { battleHud.remove(); battleHud = null } sendHotzone()
+  }
   function buildBattleHud() {
     if (battleHud) battleHud.remove()
     const deck = (window.BattleGacha && window.BattleGacha.getDeck) ? window.BattleGacha.getDeck().units : []
@@ -3382,6 +3388,9 @@
       b.onclick = () => showToast('무기 발사는 전투 개편(오버레이 투사체 재사용)에서 연결됩니다')
       dk.appendChild(b)
     })
+    const rb = document.createElement('div'); rb.style.cssText = 'margin-top:6px;text-align:center;padding:5px;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);color:#cfd4de;font-size:11px;cursor:pointer;user-select:none'; rb.textContent = '🧱 작업표시줄 복원 (마나 2)'
+    rb.onclick = () => { if (battle && battle.state.mana[0] >= 2) { battle.state.mana[0] -= 2; resetTaskbarDig(false); updateBattleHud() } else showToast('마나 부족(2 필요)') }
+    h.appendChild(rb)
     h.querySelector('.bhx').onclick = () => stopBattle()
     // drag (pointer capture — 견고)
     const grip = h.querySelector('.bhgrip'); grip.style.touchAction = 'none'
@@ -3405,7 +3414,12 @@
   function stepBattle(now) {
     let dt = (now - (battleLastT || now)) / 1000; battleLastT = now; if (dt > 0.1) dt = 0.1
     if (battleAI) battleAI(dt); battle.step(dt)
-    for (const e of battle.drainEvents()) { if (e.type === 'hit') battleAtkAt[e.by] = now; else if (e.type === 'die') battleDead.push({ id: e.unit, L: e.L, side: e.side, born: now }) }
+    for (const e of battle.drainEvents()) {
+      if (e.type === 'hit') battleAtkAt[e.by] = now
+      else if (e.type === 'fire') { battleAtkAt[e.by] = now; battleFire(e) }   // 원거리 → 실제 투사체 발사
+      else if (e.type === 'die') battleDead.push({ id: e.unit, L: e.L, side: e.side, born: now })
+    }
+    stepBattleProj(now, dt)
     for (let i = battleDead.length - 1; i >= 0; i--) if (now - battleDead[i].born > 900) battleDead.splice(i, 1)
     updateBattleHud()
     if (battle.state.winner != null && !battleResultAt) { battleResultAt = now; const win = battle.state.winner === 0; showToast(win ? '🏆 승리!' : '💀 패배') }
@@ -3426,6 +3440,7 @@
       ctx.fillStyle = f > 0.4 ? '#7ecb7e' : '#e24b4a'; ctx.fillRect(x - w / 2, y - 44 * s, w * f, 3.5)
     }
     for (const d of battleDead) { const p = Math.min(1, (now - d.born) / 900); window.BattleSprites.draw(ctx, d.id, { x: battleLaneX(d.L), y: antGroundY(battleLaneX(d.L)), scale: view.scale * 2.2, facing: d.side === 0 ? 1 : -1, state: 'death', t: 0, deathT: p }) }
+    drawBattleProj()   // 투사체(총알·포탄·에너지·수류탄 등)
     // 기지 HP 바 (양 끝 고양이 위)
     drawBattleBaseHp(battleLaneX(0), 0); drawBattleBaseHp(battleLaneX(1), 1)
   }
@@ -3434,6 +3449,70 @@
     ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(x - w / 2, y, w, 8)
     ctx.fillStyle = side === 0 ? '#1D9E75' : '#D85A30'; ctx.fillRect(x - w / 2, y, w * f, 8)
     ctx.fillStyle = '#fff'; ctx.font = '11px system-ui'; ctx.textAlign = 'center'; ctx.fillText((side === 0 ? '내 기지 ' : '상대 ') + Math.ceil(hp), x, y - 4)
+  }
+
+  // ---------- 배틀 투사체 (오버레이 투사체 재사용: 이동·충돌·관통·땅파임) ----------
+  const bproj = []
+  function projKindFor(type) {
+    if (type === 'mechaAnt') return 'shell'
+    if (type === 'mechaHuman') return 'energy'
+    if (type === 'human') return 'adogen'
+    if (type === 'grenadier') return 'grenade'
+    if (type === 'sniper') return 'sniper'
+    if (type === 'boss') return 'shellbig'
+    return 'bullet'   // rifleman/drone/freezer/scout = 게틀링 총알 크기
+  }
+  const PROJ_SPD = { bullet: 560, sniper: 950, shell: 400, shellbig: 340, energy: 440, adogen: 320, grenade: 300 }
+  const PROJ_LIFE = { bullet: 1500, sniper: 1500, shell: 3000, shellbig: 3000, energy: 3000, adogen: 2200, grenade: 3000 }
+  const PROJ_DIG = { bullet: 0.15, sniper: 0.2, shell: 1.2, shellbig: 1.7, energy: 0.6, adogen: 0.9, grenade: 1.5 }
+  function battleFire(ev) {
+    const byU = battle.unitByUid(ev.by); const kind = projKindFor(byU ? byU.type : 'ant')
+    const fx = battleLaneX(ev.fromL), fy = antGroundY(fx) - 20 * view.scale
+    const tu = ev.targetUid != null ? battle.unitByUid(ev.targetUid) : null
+    const tx = tu ? battleLaneX(tu.L) : battleLaneX(ev.toL), ty = antGroundY(tx) - (tu ? 20 : 40) * view.scale
+    const spd = PROJ_SPD[kind] * view.scale
+    let vx, vy
+    if (kind === 'grenade') { const dx = tx - fx; vx = dx / 0.8; vy = -260 * view.scale }   // 포물선 던지기
+    else { const a = Math.atan2(ty - fy, tx - fx); vx = Math.cos(a) * spd; vy = Math.sin(a) * spd }
+    bproj.push({ x: fx, y: fy, vx, vy, bside: ev.side, dmg: ev.dmg, pow: ev.dmg, kind, aoe: (ev.atkType === 'aoe' || kind === 'grenade') ? (ev.aoeR || 0.05) : 0, slow: ev.slow, slowDur: ev.slowDur, born: performance.now(), life: PROJ_LIFE[kind] })
+  }
+  function stepBattleProj(now, dt) {
+    const W = canvas.clientWidth, grav = 900 * view.scale, hitR = 18 * view.scale
+    for (let i = bproj.length - 1; i >= 0; i--) {
+      const p = bproj[i]
+      if (p.kind === 'grenade') p.vy += grav * dt
+      p.x += p.vx * dt; p.y += p.vy * dt
+      let done = false
+      // 적 유닛 충돌
+      for (const u of battle.state.units) {
+        if (u.side === p.bside || u.hp <= 0) continue
+        const ux = battleLaneX(u.L), def = window.BattleData.UNITS[u.type] || {}
+        const uy = antGroundY(ux) - (def.flying ? 34 * view.scale : 0) - 18 * view.scale
+        if (Math.abs(p.x - ux) < hitR && Math.abs(p.y - uy) < 24 * view.scale) {
+          const before = u.hp
+          if (p.aoe) { for (const e of battle.state.units) if (e.side !== p.bside && e.hp > 0 && Math.abs(battleLaneX(e.L) - p.x) < p.aoe * W) battle.hitUnit(e.uid, p.dmg, p.slow, p.slowDur); addEffect(p.x, p.y, 1); done = true }
+          else { battle.hitUnit(u.uid, p.dmg, p.slow, p.slowDur); spawnSpark(p.x, p.y); if (p.pow > before) { p.pow -= before } else { done = true } }   // 관통: 파워 > 대상 HP면 뚫고 진행
+          break
+        }
+      }
+      if (done) { bproj.splice(i, 1); continue }
+      // 적 기지(고양이) 충돌
+      const bx = battleLaneX(p.bside === 0 ? 1 : 0)
+      if (Math.abs(p.x - bx) < 26 * view.scale && p.y > antGroundY(bx) - 92 * view.scale) { battle.hitBase(p.bside === 0 ? 1 : 0, p.dmg); if (p.aoe) addEffect(p.x, p.y, 1); else spawnSpark(p.x, p.y); bproj.splice(i, 1); continue }
+      // 땅 충돌 → 파임 (참호 전략)
+      if (inTaskbar(p.x, p.y)) { carveTaskbar(p.x, PROJ_DIG[p.kind], false); if (p.aoe || PROJ_DIG[p.kind] >= 1) addEffect(p.x, p.y, 1); else spawnSpark(p.x, p.y); bproj.splice(i, 1); continue }
+      if (now - p.born > p.life || p.x < -30 || p.x > W + 30 || p.y > canvas.clientHeight + 40) bproj.splice(i, 1)
+    }
+  }
+  function drawBattleProj() {
+    const s = view.scale
+    for (const p of bproj) {
+      if (p.kind === 'bullet' || p.kind === 'sniper') { ctx.fillStyle = '#ffe27a'; ctx.beginPath(); ctx.arc(p.x, p.y, (p.kind === 'sniper' ? 4 : 3) * s, 0, 7); ctx.fill() }
+      else if (p.kind === 'shell' || p.kind === 'shellbig') { ctx.fillStyle = '#c7ccd6'; ctx.beginPath(); ctx.arc(p.x, p.y, (p.kind === 'shellbig' ? 8 : 5.5) * s, 0, 7); ctx.fill(); ctx.fillStyle = '#8a90a0'; ctx.beginPath(); ctx.arc(p.x, p.y, 3 * s, 0, 7); ctx.fill() }
+      else if (p.kind === 'energy') { ctx.fillStyle = 'rgba(150,225,255,.92)'; ctx.beginPath(); ctx.arc(p.x, p.y, 6.5 * s, 0, 7); ctx.fill() }
+      else if (p.kind === 'adogen') { ctx.fillStyle = 'rgba(130,205,255,.88)'; ctx.beginPath(); ctx.arc(p.x, p.y, 7 * s, 0, 7); ctx.fill() }
+      else if (p.kind === 'grenade') { ctx.fillStyle = '#3f6b2a'; ctx.beginPath(); ctx.arc(p.x, p.y, 4.5 * s, 0, 7); ctx.fill(); ctx.fillStyle = '#2a4a1a'; ctx.fillRect(p.x - 1, p.y - 6 * s, 2, 3 * s) }
+    }
   }
   // peer ants: normalized X → my screen; pinned to MY taskbar line so they always crawl on it
   function remoteAntScreenPos(peerId, a) {
