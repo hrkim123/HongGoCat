@@ -372,6 +372,33 @@
     mount(back)
   }
 
+  // ── 스프라이트 미리보기 (dev·앱 실렌더 확인) ────────────────────────────
+  function openSpritePreview() {
+    if (!window.BattleSprites) return
+    const { back, close } = makeBack()
+    const card = document.createElement('div'); card.className = 'bg-card'; card.style.width = 'min(520px,94vw)'; back.appendChild(card)
+    card.innerHTML = `<div class="bg-head"><div class="bg-title">🎨 스프라이트 미리보기</div><button class="bg-x">✕</button></div>`
+    card.querySelector('.bg-x').onclick = close
+    const cv = document.createElement('canvas'); cv.width = 480; cv.height = 300; cv.style.cssText = 'width:100%;background:#1b1d22;border-radius:8px'; card.appendChild(cv)
+    const g = cv.getContext('2d')
+    const units = ['rifleman', 'grenadier', 'shielder', 'scout', 'kamikaze', 'medic']
+    const seq = ['walk', 'attack', 'hit', 'death']
+    let t0 = null
+    function loop(ts) {
+      if (!document.body.contains(back)) return   // 닫히면 정지
+      if (t0 == null) t0 = ts
+      const t = (ts - t0) / 1000
+      g.clearRect(0, 0, cv.width, cv.height)
+      units.forEach((u, i) => { const cx = 44 + i * 72; g.strokeStyle = 'rgba(255,255,255,.1)'; g.beginPath(); g.moveTo(cx - 26, 120); g.lineTo(cx + 32, 120); g.stroke(); window.BattleSprites.draw(g, u, { x: cx, y: 120, scale: 2.0, state: 'walk', t: t + i * 0.13 }) })
+      const st = seq[Math.floor(t / 1.2) % 4], lt = t % 1.2
+      units.forEach((u, i) => { const cx = 44 + i * 72; g.strokeStyle = 'rgba(255,255,255,.1)'; g.beginPath(); g.moveTo(cx - 26, 250); g.lineTo(cx + 32, 250); g.stroke(); window.BattleSprites.draw(g, u, { x: cx, y: 250, scale: 2.2, state: st, t: lt, flash: st === 'attack', deathT: st === 'death' ? Math.min(1, lt / 1.1) : 0 }) })
+      g.fillStyle = '#9aa0ab'; g.font = '11px system-ui'; g.fillText('걷기', 6, 60); g.fillText(st, 6, 190)
+      requestAnimationFrame(loop)
+    }
+    requestAnimationFrame(loop)
+    mount(back)
+  }
+
   // ── 개발자 재화 패널 ─────────────────────────────────────────────────────
   let dev = false
   function setDev(b) { dev = !!b }
@@ -398,9 +425,15 @@
       body.innerHTML = ''
       if (window.BattleMode) {
         const tb = document.createElement('button'); tb.className = 'bg-btn primary'; tb.textContent = '⚔ 솔로 배틀 테스트'
-        tb.style.cssText = 'width:100%;margin-bottom:10px'
+        tb.style.cssText = 'width:100%;margin-bottom:8px'
         tb.onclick = () => { close(); window.BattleMode.startSolo() }
         body.appendChild(tb)
+      }
+      if (window.BattleSprites) {
+        const sb = document.createElement('button'); sb.className = 'bg-btn'; sb.textContent = '🎨 스프라이트 미리보기'
+        sb.style.cssText = 'width:100%;margin-bottom:10px'
+        sb.onclick = () => { close(); openSpritePreview() }
+        body.appendChild(sb)
       }
       const meBox = document.createElement('div'); meBox.className = 'bg-deck'
       meBox.innerHTML = '<h4>내 재화</h4>'
@@ -463,5 +496,5 @@
     mount(back)
   }
 
-  window.BattleGachaUI = { openGacha, openCollection, openShop, openMenu, openDevPanel, setCountBridge, setHpBridge, setBridges, setDev, setDevContext }
+  window.BattleGachaUI = { openGacha, openCollection, openShop, openMenu, openDevPanel, openSpritePreview, setCountBridge, setHpBridge, setBridges, setDev, setDevContext }
 })()
