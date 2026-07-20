@@ -41,6 +41,7 @@
       const s = statsFor(type)
       const hp = s.hp + (s.shield ? s.shield.absorb : 0)   // 쉴드는 실효 HP로 단순화
       const u = { uid: uidSeq++, side, type, L: side === 0 ? 0 : 1, dir: side === 0 ? 1 : -1, hp, maxHp: hp, stats: s, cdLeft: 0 }
+      if (base.battleShield) { u.shMax = base.battleShield.absorb; u.shHp = u.shMax; u.shCd = 0; u.shCooldown = base.battleShield.cooldown } // 자동 쉴드
       st.units.push(u)
       st.events.push({ type: 'spawn', uid: u.uid, side, unit: type })
       return true
@@ -53,6 +54,12 @@
     }
 
     function applyDamage(target, dmg, killerSide) {
+      // 자동 쉴드: 남아있으면 먼저 흡수 → 소진 시 쿨다운(step에서 재생)
+      if (target.shHp != null && target.shHp > 0) {
+        const block = Math.min(target.shHp, dmg); target.shHp -= block; dmg -= block
+        if (target.shHp <= 0) { target.shCd = target.shCooldown; st.events.push({ type: 'shieldbreak', uid: target.uid }) }
+        if (dmg <= 0) { st.events.push({ type: 'shieldblock', uid: target.uid }); return }
+      }
       target.hp -= dmg
       if (target.hp <= 0) { target.hp = 0; st.events.push({ type: 'die', uid: target.uid, side: target.side }) }
     }
@@ -67,6 +74,7 @@
 
       for (const u of st.units) {
         if (u.hp <= 0) continue
+        if (u.shMax != null && u.shHp <= 0) { u.shCd -= dt; if (u.shCd <= 0) u.shHp = u.shMax } // 쉴드 재생
         const range = (u.stats.atk && u.stats.atk.range) || 0.02
         const enemyBaseL = u.side === 0 ? 1 : 0
         const { e: tgt, d: td } = nearestEnemy(u)
