@@ -30,7 +30,8 @@
   try { savedFeat = JSON.parse(localStorage.getItem('feat') || '{}') } catch {}
 
   // Weapons registry (extensible — add new weapons here + a case in fireWeapon()).
-  const WEAPONS = { none: '없음', missile: '🚀 미사일', shield: '🛡 쉴드', ant: '🐜 개미', blackhole: '🕳 블랙홀', gatling: '🔫 게틀링건', human: '🕺 인간', adogen: '🔵 아도겐', lightning: '⚡ 낙뢰', net: '🕸️ 그물' }
+  const WEAPONS = { none: '없음', missile: '🚀 미사일', shield: '🛡 쉴드', ant: '🐜 개미', blackhole: '🕳 블랙홀', gatling: '🔫 게틀링건', human: '🕺 인간', adogen: '🔵 아도겐', lightning: '⚡ 낙뢰', net: '🕸️ 그물',
+    rifleman: '🐜 라이플병', grenadier: '🐜 수류탄병', shielder: '🛡 쉴더', scout: '🐜 정찰병', kamikaze: '💣 카미카제', medic: '🩹 메딕' }
   // 🔫 Gatling: deploy a turret at the cursor (fixed). Hold LEFT-CLICK to spray bullets toward
   // the cursor. Overheats after ~5s continuous fire (3s lock). HP 10 — enemy missiles/bullets/
   // ants damage it; at 0 it's destroyed (60s cooldown). Bullets collide with everything.
@@ -92,7 +93,8 @@
   // per-summon cost: even after unlocking, these charge the counter EACH time you summon them
   const USE_COST = {}   // 소환 추가비용 폐지 — 보유하면 무료 소환 (배틀 UI 개편)
   const SHOP_ITEMS = ['shield', 'gatling', 'ant', 'human', 'blackhole', 'lightning', 'net']
-  const SLOT_CHOICES = ['none', 'missile', 'shield', 'gatling', 'ant', 'human', 'blackhole', 'lightning', 'net']
+  const SLOT_CHOICES = ['none', 'missile', 'shield', 'gatling', 'ant', 'human', 'blackhole', 'lightning', 'net',
+    'rifleman', 'grenadier', 'shielder', 'scout', 'kamikaze', 'medic']
   // 배틀 UI 개편: 최신 버전 최초 실행 시 1회 초기화 — 카운트·레거시 무기·업그레이드·가챠를
   // 전부 리셋하고 스타터(개미·미사일)만 남긴다. (플래그로 1회만)
   try {
@@ -1225,6 +1227,7 @@
     else if (id === 'human') deployHuman()
     else if (id === 'lightning') lightningPress()   // (release handled via fire-slot key-up)
     else if (id === 'net') toggleNetAim()
+    else if (window.BattleSprites && window.BattleSprites.has(id)) spawnFieldUnit(id)   // 신규 소환체(라이플병 등) — 커서에 소환
     // future: else if (id === 'rock') fireRock() ...
   }
 
@@ -3290,6 +3293,48 @@
     ants.push({ id: nextAntId++, x: cursor.x, y: cursor.y, vy: 0, onGround: false, hp: ANT_HP,
       dir: Math.random() < 0.5 ? -1 : 1, wanderUntil: 0, atkCd: 0, dead: false, deadAt: 0, step: Math.random() * 10 })
   }
+
+  // ---------- 오버레이 필드 유닛 (신규 소환체: BattleSprites 렌더 + 배회 AI) ----------
+  // 오버레이(장난용): 커서에 소환 → 작업표시줄 위 배회. 근접형은 배회, 원거리형은 이따금 공격 모션.
+  // 소환 제한: 자동형 종류 2개·합산 10마리(FIFO). (멀티 타겟 AI/전투는 이후 단계)
+  const fieldUnits = []
+  let nextFieldId = 1, fieldLastT = 0
+  function spawnFieldUnit(id) {
+    if (!(window.BattleData && window.BattleData.UNITS[id])) return
+    const typeOrder = [...new Set(fieldUnits.map((u) => u.id))]
+    if (!typeOrder.includes(id) && typeOrder.length >= 2) {   // 3번째 종류 → 가장 오래된 종류 제거
+      const drop = typeOrder[0]
+      for (let i = fieldUnits.length - 1; i >= 0; i--) if (fieldUnits[i].id === drop) fieldUnits.splice(i, 1)
+    }
+    const x = cursor.x
+    fieldUnits.push({ uid: nextFieldId++, id, x, y: antGroundY(x), dir: x < canvas.clientWidth / 2 ? 1 : -1, animT: Math.random() * 2, state: 'walk', turnAt: 0, atkAt: performance.now() + 1500, atkUntil: 0 })
+    while (fieldUnits.length > 10) fieldUnits.shift()   // 합산 10 초과 → 처음 소환한 것 제거
+  }
+  function stepFieldUnits(now) {
+    if (!fieldUnits.length) { fieldLastT = now; return }
+    const dt = Math.min(0.05, (now - (fieldLastT || now)) / 1000); fieldLastT = now
+    const W = canvas.clientWidth
+    for (const u of fieldUnits) {
+      const def = window.BattleData.UNITS[u.id] || {}
+      u.animT += dt
+      if (now > u.turnAt) { u.turnAt = now + 1200 + Math.random() * 2200; if (Math.random() < 0.35) u.dir *= -1 }
+      const spd = 22 + (def.speed || 0.12) * 150   // px/s (배회)
+      u.x += u.dir * spd * dt
+      if (u.x < 22) { u.x = 22; u.dir = 1 } else if (u.x > W - 22) { u.x = W - 22; u.dir = -1 }
+      u.y = antGroundY(u.x)
+      const ranged = def.atk && def.atk.type && def.atk.type !== 'none' && def.atk.type !== 'melee'
+      if (ranged) { if (now > u.atkAt) { u.atkAt = now + 2600 + Math.random() * 2200; u.atkUntil = now + 520 } u.state = now < u.atkUntil ? 'attack' : 'walk' }
+      else u.state = 'walk'
+    }
+  }
+  function drawFieldUnits(now) {
+    if (!window.BattleSprites || !fieldUnits.length) return
+    for (const u of fieldUnits) {
+      const def = window.BattleData.UNITS[u.id] || {}
+      const s = view.scale * 1.3 * (def.size || 1)
+      window.BattleSprites.draw(ctx, u.id, { x: u.x, y: u.y, scale: s, facing: u.dir, state: u.state, t: u.animT, flash: u.state === 'attack' })
+    }
+  }
   // peer ants: normalized X → my screen; pinned to MY taskbar line so they always crawl on it
   function remoteAntScreenPos(peerId, a) {
     const sx = (a.sx != null ? a.sx : a.nx) * canvas.clientWidth
@@ -4205,6 +4250,7 @@
     drawDebris(now)
     stepAnts(now)
     ctx.save(); drawRemoteAnts(now); ctx.restore()
+    stepFieldUnits(now); drawFieldUnits(now)   // 신규 소환체(오버레이)
     drawGatlings()
     stepGatling(now)
     drawGatSmoke(now)
