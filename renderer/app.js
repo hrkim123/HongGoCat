@@ -190,6 +190,10 @@
   let keybinds = DEFAULT_KEYBINDS
   try { const kb = JSON.parse(localStorage.getItem('keybinds') || 'null'); if (kb && Array.isArray(kb.keys) && kb.keys.length) keybinds = { mod: kb.mod || 'alt', keys: kb.keys.slice(0, 3) } } catch {}
   if (inputSource.setKeybinds) inputSource.setKeybinds(keybinds)   // tell main which physical keys to watch
+  // 단축키 라벨(현재 설정 기준) — 단축키가 보이는 모든 곳이 이 헬퍼를 쓰게 해서 설정 변경 시 자동 최신화
+  function modLabel(mod) { return mod === 'ctrl' ? 'Ctrl' : mod === 'shift' ? 'Shift' : mod === 'meta' ? 'Win' : 'Alt' }
+  function slotKeyLabel(i) { return `${modLabel(keybinds.mod)}+${String(keybinds.keys[i] || '?').toUpperCase()}` }
+  function keybindForWeapon(id) { const i = (me.slots || []).indexOf(id); return i >= 0 ? slotKeyLabel(i) : null }   // 무기가 배치된 슬롯의 단축키(없으면 null)
 
   // ---------- counter ----------
   const counterEl = document.getElementById('counter')
@@ -358,7 +362,7 @@
       sel.onchange = () => {
         const v = sel.value
         if (!weaponUsable(v)) { showToast(`🔒 ${WEAPONS[v] || '이 무기'}은(는) 상점에서 구매해야 슬롯에 넣을 수 있어요`); sel.value = me.slots[i] || 'none'; return }
-        me.slots[i] = v; localStorage.setItem('slots', JSON.stringify(me.slots)); pushState()
+        me.slots[i] = v; localStorage.setItem('slots', JSON.stringify(me.slots)); if (battleActive) buildBattleHud(); pushState()
       }
     }
   }
@@ -938,14 +942,13 @@
     card.innerHTML = `<div class="bg-head"><div class="bg-title">⚔ 무기 설정</div><button class="bg-x">✕</button></div>` +
       `<div class="bg-sub" style="margin-bottom:10px">오버레이(재미용) 단축키로 쓸 무기를 고르세요. 🔒 = 미획득(가챠로 획득).</div>`
     card.querySelector('.bg-x').onclick = close
-    const keys = ['Alt+Z', 'Alt+X', 'Alt+C']
     for (let i = 0; i < 3; i++) {
       const row = document.createElement('div'); row.style.cssText = 'display:flex;align-items:center;gap:10px;margin-bottom:8px'
-      const lb = document.createElement('span'); lb.textContent = keys[i]; lb.style.cssText = 'width:56px;color:#aeb4c0;font-size:13px'
+      const lb = document.createElement('span'); lb.textContent = slotKeyLabel(i); lb.style.cssText = 'width:66px;color:#aeb4c0;font-size:13px'
       const sel = document.createElement('select'); sel.style.cssText = 'flex:1;padding:7px;border-radius:8px;background:#242a36;color:#e8ebf0;border:1px solid #3a4150;font-size:14px'
       for (const id of SLOT_CHOICES) { const opt = document.createElement('option'); opt.value = id; opt.textContent = (weaponUsable(id) ? '' : '🔒 ') + (WEAPONS[id] || id); sel.appendChild(opt) }
       sel.value = me.slots[i] || 'none'
-      sel.onchange = () => { const v = sel.value; if (!weaponUsable(v)) { sel.value = me.slots[i] || 'none'; return } me.slots[i] = v; localStorage.setItem('slots', JSON.stringify(me.slots)); pushState() }
+      sel.onchange = () => { const v = sel.value; if (!weaponUsable(v)) { sel.value = me.slots[i] || 'none'; return } me.slots[i] = v; localStorage.setItem('slots', JSON.stringify(me.slots)); if (battleActive) buildBattleHud(); pushState() }
       row.append(lb, sel); card.appendChild(row)
     }
     document.body.appendChild(back); sendHotzone()
@@ -1041,6 +1044,7 @@
         keybinds = { mod: msg.mod || 'alt', keys: msg.keys.slice(0, 3) }
         localStorage.setItem('keybinds', JSON.stringify(keybinds))
         if (inputSource.setKeybinds) inputSource.setKeybinds(keybinds)
+        if (battleActive) buildBattleHud()   // 단축키 바뀌면 배틀 HUD 안내도 최신화
         pushState()
       }
     }
@@ -1064,11 +1068,12 @@
     else if (msg.t === 'fire-missile') { fireWeapon('missile') }
     else if (msg.t === 'fire-slot') {
       const id = me.slots[(msg.slot || 1) - 1] || 'none'
-      if (id === 'lightning') { if (msg.down === false) lightningRelease(); else lightningPress() }
+      if (battleActive && battle) { if (msg.down !== false) battleWeaponFire(id) }   // 배틀: 단축키 = 배틀 발사(마나 소모 + 오버레이 무기 그대로)
+      else if (id === 'lightning') { if (msg.down === false) lightningRelease(); else lightningPress() }
       else if (msg.down !== false) fireWeapon(id)   // other weapons fire once on press; ignore key-up
     }
     else if (msg.t === 'slots') {
-      if (Array.isArray(msg.slots)) { me.slots = msg.slots.slice(0, 3); while (me.slots.length < 3) me.slots.push('none'); localStorage.setItem('slots', JSON.stringify(me.slots)); pushState() }
+      if (Array.isArray(msg.slots)) { me.slots = msg.slots.slice(0, 3); while (me.slots.length < 3) me.slots.push('none'); localStorage.setItem('slots', JSON.stringify(me.slots)); if (battleActive) buildBattleHud(); pushState() }
     }
     else if (msg.t === 'update-ready') { showUpdateToast(msg.version) }
     else if (msg.t === 'achv-add') { for (let k = 0; k < (msg.n || 10); k++) addAntKill() }
@@ -3370,8 +3375,30 @@
     battleSavedCarve = carve ? carve.slice() : null; battleSavedBarDmg = barDamage; resetTaskbarDig(false)   // 배틀은 복원된(깨끗한) 작업표시줄로 시작
     buildBattleHud(); sendHotzone()
   }
+  // 나가기 확인 팝업 — 나가면 패배 처리(승패 판정과 연관). YES/NO.
+  function confirmExitBattle() {
+    if (document.querySelector('.bx-confirm')) return
+    if (battlePhase === 'result') { stopBattle(); return }   // 이미 결과 연출 중이면 그냥 종료
+    const back = document.createElement('div'); back.className = 'no-drag bx-confirm'
+    back.style.cssText = 'position:fixed;inset:0;z-index:2147483200;display:flex;align-items:center;justify-content:center;background:rgba(6,8,12,.55);font-family:system-ui,"맑은 고딕",sans-serif'
+    const card = document.createElement('div')
+    card.style.cssText = 'background:linear-gradient(180deg,#1a1f28,#12151b);border:1px solid #39414f;border-radius:14px;padding:20px 22px;width:min(320px,86vw);text-align:center;box-shadow:0 18px 50px rgba(0,0,0,.6)'
+    card.innerHTML = `<div style="font-size:16px;font-weight:700;color:#fff;margin-bottom:8px">정말 나가시겠습니까?</div>` +
+      `<div style="font-size:13px;color:#e0a0a0;margin-bottom:16px">나가면 <b style="color:#ff8a8a">패배 처리</b> 됩니다.</div>` +
+      `<div style="display:flex;gap:10px"><button class="bxno" style="flex:1;padding:10px;border-radius:9px;border:1px solid #3a4150;background:#242a36;color:#e8ebf0;font-size:14px;cursor:pointer">NO</button>` +
+      `<button class="bxyes" style="flex:1;padding:10px;border-radius:9px;border:1px solid #7a2b2b;background:#3a1e1e;color:#ff9a9a;font-weight:700;font-size:14px;cursor:pointer">YES</button></div>`
+    back.appendChild(card); document.body.appendChild(back); sendHotzone()
+    const closeC = () => { back.remove(); sendHotzone() }
+    card.querySelector('.bxno').onclick = closeC
+    card.querySelector('.bxyes').onclick = () => {   // 자발적 이탈 = 패배
+      closeC()
+      if (battle && battlePhase !== 'result') { battlePhase = 'result'; battleResultAt = performance.now(); battleWin = false; seedBattleConfetti() }
+      else stopBattle()
+    }
+  }
   function stopBattle() {
     battleActive = false; battle = null; bproj.length = 0; battlePhase = 'idle'; battleConfetti = []
+    { const c = document.querySelector('.bx-confirm'); if (c) c.remove() }
     if (battleSavedCarve !== undefined) { carve = battleSavedCarve; barDamage = battleSavedBarDmg || 0; carveDirty = true; battleSavedCarve = undefined }   // 원래 작업표시줄 상태 복귀
     if (battleHud) { battleHud.remove(); battleHud = null } sendHotzone()
   }
@@ -3387,7 +3414,7 @@
       `<div class="bhgrip" style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#9aa0ab;cursor:move;user-select:none;margin-bottom:7px"><span>⚔ 배틀 · ⠿ 이동</span><span class="bhx" style="color:#e57373;cursor:pointer">✕ 나가기</span></div>` +
       `<div style="display:flex;gap:4px;align-items:center"><span style="font-size:10px;color:#aeb4c0;width:26px">마나</span><div class="bhsegs" style="display:flex;gap:2px;flex:1"></div><span class="bhval" style="font-size:11px;color:#cfd4de;white-space:nowrap;width:70px;text-align:right"></span></div>` +
       lbl('🐜 소환체 (클릭 소환)') + `<div class="bhunits" style="display:flex;gap:5px"></div>` +
-      lbl('⚔ 무기 (마나 소모 발사)') + `<div class="bhweaps" style="display:flex;gap:5px"></div>` +
+      lbl('⚔ 무기 (단축키로 발사 · 마나 소모)') + `<div class="bhweaps" style="display:flex;gap:5px"></div>` +
       lbl('🛠 기능') + `<div class="bhfns" style="display:flex;gap:5px"></div>`
     const segs = h.querySelector('.bhsegs'); for (let i = 0; i < 10; i++) { const s = document.createElement('div'); s.style.cssText = 'flex:1;height:8px;border-radius:2px;background:rgba(255,255,255,.14)'; segs.appendChild(s) }
     const mkCard = (bg, bd) => { const b = document.createElement('div'); b.style.cssText = `flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:1px;padding:5px 2px;border-radius:9px;background:${bg};border:1px solid ${bd};cursor:pointer;user-select:none`; return b }
@@ -3395,13 +3422,24 @@
     deck.units.forEach((id) => { const u = window.BattleData.UNITS[id]; if (!u) return; const b = mkCard('rgba(255,255,255,.06)', 'rgba(255,255,255,.14)'); b.dataset.id = id; b.title = u.name; b.innerHTML = `<div style="pointer-events:none">${window.BattleArt ? window.BattleArt.icon(id, 32) : ''}</div><div style="color:#8fd3ff;font-weight:600;font-size:11px">💧${u.cost}</div>`; b.onclick = () => { if (battle && battle.spawn(0, id)) updateBattleHud() }; uw.appendChild(b) })
     if (!deck.units.length) uw.innerHTML = '<span style="font-size:11px;color:#7f8797">덱에 소환체 없음</span>'
     const ww = h.querySelector('.bhweaps')
-    deck.weapons.forEach((id) => { const w = window.BattleData.WEAPONS[id]; if (!w) return; const b = mkCard('rgba(74,163,255,.12)', 'rgba(74,163,255,.38)'); b.dataset.wid = id; b.title = w.name + ' (무기)'; b.innerHTML = `<div style="pointer-events:none">${window.BattleArt ? window.BattleArt.icon(id, 32) : ''}</div><div style="color:#8fd3ff;font-weight:600;font-size:10px">💧${w.mana != null ? w.mana : 2}</div>`; b.onclick = () => battleWeaponFire(id); ww.appendChild(b) })
+    deck.weapons.forEach((id) => {
+      const w = window.BattleData.WEAPONS[id]; if (!w) return
+      const key = keybindForWeapon(id)   // 현재 설정된 단축키(슬롯 배치 기준)
+      const b = mkCard('rgba(74,163,255,.12)', 'rgba(74,163,255,.38)'); b.dataset.wid = id
+      b.title = key ? `${w.name} — 단축키 ${key}` : `${w.name} — 슬롯 미지정 (⚔ 무기 설정에서 배치)`
+      const keyHtml = key
+        ? `<div style="color:#ffd86b;font-weight:700;font-size:10px;line-height:1.1">${key}</div>`
+        : `<div style="color:#e08a8a;font-size:9px;line-height:1.1">슬롯 미지정</div>`
+      b.innerHTML = `<div style="pointer-events:none">${window.BattleArt ? window.BattleArt.icon(id, 30) : ''}</div>${keyHtml}<div style="color:#8fd3ff;font-size:9px">💧${w.mana != null ? w.mana : 2}</div>`
+      b.onclick = () => showToast(key ? `${w.name}: 단축키 ${key} 로 사용` : `${w.name}: ⚔ 무기 설정에서 슬롯에 배치하면 단축키로 사용`)   // 클릭 발사 X — 단축키 안내만
+      ww.appendChild(b)
+    })
     if (!deck.weapons.length) ww.innerHTML = '<span style="font-size:11px;color:#7f8797">덱에 무기 없음</span>'
     const fw = h.querySelector('.bhfns')
     const rb = document.createElement('div'); rb.style.cssText = 'flex:1;text-align:center;padding:8px 2px;border-radius:9px;background:rgba(180,140,90,.14);border:1px solid rgba(180,140,90,.4);color:#e6d3b8;font-size:12px;cursor:pointer;user-select:none'; rb.innerHTML = '🧱 작업표시줄 복구 <span style="color:#ffd86b;font-weight:600">💧1</span>'
     rb.onclick = () => { if (battle && battle.state.mana[0] >= 1) { battle.state.mana[0] -= 1; resetTaskbarDig(false); updateBattleHud() } else showToast('마나 부족 (1 필요)') }
     fw.appendChild(rb)
-    h.querySelector('.bhx').onclick = () => stopBattle()
+    h.querySelector('.bhx').onclick = () => confirmExitBattle()
     const grip = h.querySelector('.bhgrip'); grip.style.touchAction = 'none'
     grip.addEventListener('pointerdown', (e) => {
       if (e.target.classList.contains('bhx')) return
@@ -3445,7 +3483,11 @@
       const y = antGroundY(x) - (def.flying ? 34 * view.scale : 0)
       const facing = u.side === 0 ? 1 : -1, atk = battleAtkAt[u.uid] && now - battleAtkAt[u.uid] < 380
       const s = view.scale * BATTLE_UNIT_SCALE * (def.size || 1)
-      window.BattleSprites.draw(ctx, u.type, { x, y, scale: s, facing, state: atk ? 'attack' : 'walk', t: u.uid * 0.37 + now / 1000, flash: atk })
+      // 메카/인간 = 기존 오버레이 아트 그대로 재사용(새로 안 만듦)
+      if (u.type === 'mechaAnt') drawOverlayMechaAt(x, y, 0.62 * (def.size || 1.6), facing, 0, now)
+      else if (u.type === 'mechaHuman') drawOverlayMechaAt(x, y, 0.66 * (def.size || 1.7), facing, 1, now)
+      else if (u.type === 'human') drawOverlayHumanAt(x, y, 1.15 * (def.size || 1.3), facing, now)
+      else window.BattleSprites.draw(ctx, u.type, { x, y, scale: s, facing, state: atk ? 'attack' : 'walk', t: u.uid * 0.37 + now / 1000, flash: atk })
       if (u.shHp > 0) { ctx.strokeStyle = 'rgba(120,200,255,.7)'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(x, y - 22 * s, 15 * s, Math.PI, 0); ctx.stroke() }
       const w = 24 * s, f = u.hp / u.maxHp
       ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(x - w / 2, y - 44 * s, w, 3.5)
@@ -3456,6 +3498,37 @@
     // 기지 HP 바 (양 끝 고양이 위)
     drawBattleBaseHp(battleLaneX(0), 0); drawBattleBaseHp(battleLaneX(1), 1)
     drawBattleFX(now)   // 카운트다운 / 승패 연출(화면 중앙)
+  }
+  // ── 기존 오버레이 메카/인간 아트를 배틀 유닛으로 재사용(새 그림 X) ──
+  // drawMecha/drawHuman은 me.* 전역에 묶여 있어, 값을 잠시 바꿔 그린 뒤 즉시 복구(try/finally 보장).
+  // 크기는 (x,y) 기준 스케일 변환으로 조절(원본 함수 수정 없이).
+  function drawOverlayMechaAt(x, y, k, facing, form, now) {
+    const sv = { x: me.mechaX, y: me.mechaY, f: me.mechaFace, form: me.mechaForm, thr: me.mechaThrust, chg: me.mechaCharging }
+    const cx = cursor.x, cy = cursor.y
+    ctx.save()
+    try {
+      ctx.translate(x, y); ctx.scale(k, k); ctx.translate(-x, -y)
+      me.mechaX = x; me.mechaY = y; me.mechaFace = facing; me.mechaForm = form; me.mechaThrust = form >= 1; me.mechaCharging = false
+      cursor.x = x + facing * 500; cursor.y = y - 40   // 전방 조준(대포 각도용)
+      drawMecha(now, true)
+    } finally {
+      me.mechaX = sv.x; me.mechaY = sv.y; me.mechaFace = sv.f; me.mechaForm = sv.form; me.mechaThrust = sv.thr; me.mechaCharging = sv.chg
+      cursor.x = cx; cursor.y = cy; ctx.restore()
+    }
+  }
+  function drawOverlayHumanAt(x, y, k, facing, now) {
+    const sv = { x: me.humanX, y: me.humanY, f: me.humanFace, w: me.humanWeapon, ch: me.charging }
+    const cx = cursor.x, cy = cursor.y
+    ctx.save()
+    try {
+      ctx.translate(x, y); ctx.scale(k, k); ctx.translate(-x, -y)
+      me.humanX = x; me.humanY = y; me.humanFace = facing; me.humanWeapon = ''; me.charging = false
+      cursor.x = x + facing * 500; cursor.y = y - 30
+      drawHuman(now, true)
+    } finally {
+      me.humanX = sv.x; me.humanY = sv.y; me.humanFace = sv.f; me.humanWeapon = sv.w; me.charging = sv.ch
+      cursor.x = cx; cursor.y = cy; ctx.restore()
+    }
   }
   function seedBattleConfetti() {
     battleConfetti = []
