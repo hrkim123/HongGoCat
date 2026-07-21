@@ -3654,11 +3654,12 @@
     const mkCard = (bg, bd) => { const b = document.createElement('div'); b.style.cssText = `flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:1px;padding:5px 2px;border-radius:9px;background:${bg};border:1px solid ${bd};cursor:pointer;user-select:none`; return b }
     const uw = h.querySelector('.bhunits'), bw = h.querySelector('.bhbench')
     if (!battleUnitOrder.length) battleUnitOrder = (deck.units || []).slice(0, 10)
-    // 앞줄(활성) 카드 + 뒷줄(벤치·실루엣) 카드를 열 단위로 렌더. 벤치 탭 → 같은 열 앞뒤 스왑.
+    // 앞줄(활성 5) + 뒷줄(벤치 5·실루엣). 뒷줄을 누르면 5개 통째로 앞뒤 교체(슬라이드 연출).
+    let deckSwapping = false
     function renderDeckRows(uwEl, bwEl) {
       uwEl.innerHTML = ''; bwEl.innerHTML = ''
       const front = battleUnitOrder.slice(0, 5), bench = battleUnitOrder.slice(5, 10)
-      const cols = front.length
+      const cols = Math.max(front.length, bench.length)
       // 앞줄: 활성 소환 카드
       front.forEach((id) => {
         const u = window.BattleData.UNITS[id]; if (!u) return
@@ -3672,22 +3673,43 @@
         }
         uwEl.appendChild(b)
       })
-      // 뒷줄: 벤치(실루엣) — 앞줄 각 열 위에 정렬. 탭하면 같은 열 앞뒤 스왑.
+      // 뒷줄: 벤치(실루엣). 아무 칸이나 누르면 뒷줄 5개 전체가 앞으로, 앞줄 5개는 뒤로.
       for (let i = 0; i < cols; i++) {
         const benchId = bench[i], bu = benchId && window.BattleData.UNITS[benchId]
         const cell = document.createElement('div')
         cell.style.cssText = 'flex:1;min-width:0;display:flex;align-items:center;justify-content:center;height:26px;border-radius:7px'
         if (bu) {
-          cell.title = `${bu.name} · 탭하면 앞줄과 교체`; cell.style.cursor = 'pointer'
+          cell.title = `${bu.name} · 누르면 뒷줄 5개 전체가 앞으로 교체`; cell.style.cursor = 'pointer'
           cell.style.background = 'rgba(255,255,255,.03)'; cell.style.border = '1px dashed rgba(255,255,255,.14)'
           cell.innerHTML = `<div style="filter:grayscale(1);opacity:.5;pointer-events:none;transform:scale(.72)">${window.BattleArt ? window.BattleArt.icon(benchId, 24) : ''}</div>`
-          cell.onclick = () => {   // 같은 열 앞(i) ↔ 뒤(i+5) 스왑
-            const t = battleUnitOrder[i]; battleUnitOrder[i] = battleUnitOrder[i + 5]; battleUnitOrder[i + 5] = t
-            renderDeckRows(uwEl, bwEl); updateBattleHud(); showToast(`🔄 ${bu.name} 교체`)
-          }
+          cell.onclick = () => swapDeckGroup()
         } else { cell.style.visibility = 'hidden' }   // 벤치 없는 열은 폭 유지용 빈칸
         bwEl.appendChild(cell)
       }
+    }
+    // 5개 단위 그룹 스왑 + 슬라이드 연출: 앞줄↑(뒤로) · 뒷줄↓(앞으로) 나갔다가, 교체 후 반대에서 들어옴.
+    function swapDeckGroup() {
+      if (deckSwapping) return
+      if (battleUnitOrder.length <= 5) { showToast('교체할 뒷줄 덱이 없어요'); return }
+      deckSwapping = true
+      const T = 200
+      uw.style.transition = bw.style.transition = `transform ${T}ms ease, opacity ${T}ms ease`
+      uw.style.transform = 'translateY(-30px)'; uw.style.opacity = '.1'   // 앞줄 → 위(뒤로)
+      bw.style.transform = 'translateY(30px)'; bw.style.opacity = '.1'    // 뒷줄 → 아래(앞으로)
+      setTimeout(() => {
+        battleUnitOrder = battleUnitOrder.slice(5, 10).concat(battleUnitOrder.slice(0, 5))   // 5개 통째 교체
+        renderDeckRows(uw, bw)
+        uw.style.transition = bw.style.transition = 'none'
+        uw.style.transform = 'translateY(30px)'; uw.style.opacity = '.1'   // 새 앞줄은 아래에서 올라옴
+        bw.style.transform = 'translateY(-30px)'; bw.style.opacity = '.1'  // 새 뒷줄은 위에서 내려옴
+        requestAnimationFrame(() => {
+          uw.style.transition = bw.style.transition = `transform ${T}ms ease, opacity ${T}ms ease`
+          uw.style.transform = bw.style.transform = 'translateY(0)'; uw.style.opacity = bw.style.opacity = '1'
+          updateBattleHud()
+          setTimeout(() => { deckSwapping = false }, T + 20)
+        })
+        showToast('🔄 덱 교체(앞↔뒤 5개)')
+      }, T)
     }
     renderDeckRows(uw, bw)
     if (!battleUnitOrder.length) uw.innerHTML = '<span style="font-size:11px;color:#7f8797">덱에 소환체 없음</span>'
