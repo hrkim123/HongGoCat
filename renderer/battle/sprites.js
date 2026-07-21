@@ -91,6 +91,65 @@
     if (o.state === 'attack') { const yy = -40 - (((o.t || 0) * 22) % 14); c.fillStyle = 'rgba(120,220,140,0.95)'; c.fillRect(4, yy, 1.8, 5.4); c.fillRect(2.2, yy + 1.8, 5.4, 1.8) }  // 회복 십자
     c.restore()
   }
+  function drawDrone(c, o) {   // 말벌 드론 — 노랑·검정 줄무늬 + 파닥이는 날개 + 침(공중)
+    antLower(c, o, { body: '#e0a72a', bodyD: '#7a5a10' })
+    c.strokeStyle = '#2a2114'; c.lineWidth = 1.4
+    for (const yy of [-27, -24, -21]) { c.beginPath(); c.moveTo(-9, yy); c.lineTo(3, yy); c.stroke() }   // 줄무늬
+    c.fillStyle = '#3a2a14'; c.beginPath(); c.moveTo(-11, -19); c.lineTo(-16, -17); c.lineTo(-11, -22.5); c.closePath(); c.fill()   // 침
+    const wf = Math.sin((o.t || 0) * 40) * 0.15
+    c.globalAlpha = 0.5; c.fillStyle = '#dff2ff'; ell(c, -2, -31, 8, 3.4, -0.5 + wf); ell(c, 3, -31, 8, 3.4, 0.5 - wf); c.globalAlpha = 1   // 날개
+    antUpper(c, { body: '#e0a72a', bodyD: '#7a5a10', goggles: true })
+    c.restore()
+  }
+  function drawFreezer(c, o) {   // 얼음 개미 — 하늘색 몸 + 등 얼음결정 + 서리 총
+    const f = antLower(c, o, { body: '#8fd0e8', bodyD: '#4a8aa8', recoil: true })
+    c.fillStyle = '#dff4ff'; c.strokeStyle = '#a8e0ff'; c.lineWidth = 0.8
+    for (const dx of [-9, -6, -3]) { c.beginPath(); c.moveTo(dx, -22); c.lineTo(dx - 2, -30); c.lineTo(dx + 2, -30); c.closePath(); c.fill(); c.stroke() }   // 얼음 결정
+    c.strokeStyle = '#5a9ab8'; c.lineWidth = 2.4; c.beginPath(); c.moveTo(3, -25); c.lineTo(11, -22); c.stroke()   // 서리 총
+    c.fillStyle = '#bfefff'; circ(c, 13, -22, 2.6)
+    antUpper(c, { body: '#8fd0e8', bodyD: '#4a8aa8' })
+    if (f.atk && (o.flash || Math.floor((o.t || 0) * 20) % 3 === 0)) { c.fillStyle = '#eafcff'; star(c, 16, -22, 3.4) }
+    c.restore()
+  }
+  function drawWorker(c, o) {   // 일개미 — 노란 안전모 + 등 마나 배터리(발광)
+    antLower(c, o, { body: '#a8792e', bodyD: '#6a4a18' })
+    c.fillStyle = '#2a3a2a'; rpath(c, -11, -26, 7, 8, 1.4); c.fill()
+    const pulse = 0.5 + 0.5 * Math.sin((o.t || 0) * 4)
+    c.fillStyle = `rgba(120,230,140,${0.45 + pulse * 0.5})`; c.fillRect(-9.5, -24, 4, 4)
+    antUpper(c, { body: '#a8792e', bodyD: '#6a4a18', helmet: '#f2c53a', helmetD: '#b8901e' })
+    c.restore()
+  }
+  function drawCommander(c, o) {   // 지휘 개미 — 붉은 깃발 + 견장 + 지휘모
+    antLower(c, o, { body: '#5a4030', bodyD: '#33241a' })
+    c.fillStyle = '#e6c34a'; c.fillRect(-2, -27, 5, 2)   // 견장
+    c.strokeStyle = '#8a6a3a'; c.lineWidth = 1.6; c.beginPath(); c.moveTo(2, -24); c.lineTo(6, -42); c.stroke()   // 깃대
+    const fl = Math.sin((o.t || 0) * 5) * 2
+    c.fillStyle = '#d0402f'; c.beginPath(); c.moveTo(6, -42); c.quadraticCurveTo(13 + fl, -40, 18, -38); c.quadraticCurveTo(13, -36, 6, -35); c.closePath(); c.fill()
+    c.fillStyle = '#f2d23a'; star(c, 11, -38.5, 1.8)
+    antUpper(c, { body: '#5a4030', bodyD: '#33241a', helmet: '#3a4a6a', helmetD: '#28324a' })
+    c.restore()
+  }
+  function drawSniper(c, o) {   // 저격 개미 — 긴 저격총 + 스코프 글린트
+    const f = antLower(c, o, { body: '#4a5a3a', bodyD: '#2a3420', recoil: true })
+    c.strokeStyle = '#2b2b2b'; c.lineWidth = 2.6; c.beginPath(); c.moveTo(1, -25); c.lineTo(24, -21); c.stroke()   // 긴 총열
+    c.fillStyle = '#1a1a1a'; c.fillRect(22, -22.6, 4, 2.8)   // 총구
+    c.fillStyle = '#3a3a3a'; rpath(c, 6, -29.5, 8, 3, 1); c.fill()   // 스코프
+    const glint = Math.floor((o.t || 0) * 6) % 4 === 0
+    c.fillStyle = glint ? '#bfe8ff' : '#6a8a9a'; circ(c, 13, -28, 1.4)
+    antUpper(c, { body: '#4a5a3a', bodyD: '#2a3420', goggles: true })
+    if (f.atk && (o.flash || Math.floor(f.ph * 18) % 5 === 0)) { c.fillStyle = '#fff'; star(c, 28, -21, 5); c.fillStyle = '#ffd86b'; star(c, 28, -21, 2.6) }
+    c.restore()
+  }
+  function drawBoss(c, o) {   // 여왕 개미 — 왕관 + 거대 복부 + 위엄
+    antLower(c, o, { body: '#6a2a4a', bodyD: '#3a1428' })
+    c.fillStyle = '#7a3050'; ell(c, -8, -19, 13, 11, -0.2)   // 거대 복부
+    c.strokeStyle = '#c86a90'; c.lineWidth = 1
+    for (const yy of [-23, -19, -15]) { c.beginPath(); c.moveTo(-18, yy); c.lineTo(2, yy); c.stroke() }
+    antUpper(c, { body: '#6a2a4a', bodyD: '#3a1428' })
+    c.fillStyle = '#f2d23a'; c.beginPath(); c.moveTo(1.5, -38.5); c.lineTo(3, -44); c.lineTo(5, -40); c.lineTo(6.5, -45); c.lineTo(8, -40); c.lineTo(10, -44); c.lineTo(11, -38.5); c.closePath(); c.fill()   // 왕관
+    c.fillStyle = '#e24b6a'; circ(c, 6, -41, 1.1)
+    c.restore()
+  }
   // 기본 개미(사족 크롤러) — 'ant' + 미구현 폴백
   function drawAntBasic(c, o) {
     const ph = o.t || 0, sw = o.state === 'walk' ? Math.sin(ph * 8) * 3 : 0
@@ -105,8 +164,9 @@
   const DRAW = {
     rifleman: drawRifleman, grenadier: drawGrenadier, shielder: drawShielder,
     scout: drawScout, kamikaze: drawKamikaze, medic: drawMedic,
+    drone: drawDrone, freezer: drawFreezer, worker: drawWorker,
+    commander: drawCommander, sniper: drawSniper, boss: drawBoss,
     ant: drawAntBasic,
-    // TODO: drone, freezer, sniper, commander, worker, boss (다음 배치)
     _default: drawAntBasic,
   }
 
