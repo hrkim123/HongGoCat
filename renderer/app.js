@@ -4763,7 +4763,10 @@
     for (let i = summonProj.length - 1; i >= 0; i--) {
       const p = summonProj[i]
       if (p.kind === 'grenade') p.vy += grav * dt
+      const px0 = p.x, py0 = p.y   // 이동 전 위치(플랫폼 스윕 충돌용 — 빠른 탄 관통 방지)
       p.x += p.vx * dt; p.y += p.vy * dt
+      // 그려진 플랫폼 충돌 — 미사일과 동일하게 플랫폼에 맞고 깎임(통과 X)
+      { const psw = platformSweep(px0, py0, p.x, p.y); if (psw) { damagePlatform(psw.pl, p.dmg || 1); addEffect(psw.hx, psw.hy, 1); spawnSpark(psw.hx, psw.hy); summonProj.splice(i, 1); continue } }
       let done = false
       // 적 소환체(원격 ant) 충돌
       for (const [pid, rec] of remoteAnts) { if (now - rec.ts > 800) continue; for (const e of rec.items.values()) { if (e.dead) continue; const sp = remoteAntScreenPos(pid, e); if (!sp) continue; if (Math.hypot(sp.x - p.x, sp.y - p.y) < (p.aoe || 16 * view.scale)) { done = true; break } } if (done) break }
