@@ -9,7 +9,7 @@
   const U = window.BattleUpgrade
 
   const DEFAULTS = { baseHp: 100, manaCap: 10, manaRegen: 0.5, baseRange: 0.03, speedScale: 1 }
-  const KB_DUR = 0.45, KB_BACK = 0.16   // 넉백: 0.45초간 뒤로 밀림(레인비율/초). 밀리는 동안 공격 X
+  const KB_DUR = 0.30, KB_BACK = 0.09, KB_CD = 0.7   // 넉백: 0.30초간 살짝 뒤로(냥코풍 짧은 홉) + 재넉백 최소 간격 0.7s(락 방지)
 
   function statsFor(type) {
     if (U && U.computeUnitStats) { const s = U.computeUnitStats(type); if (s) return s }
@@ -88,7 +88,7 @@
       if (target.hp > 0 && target.kbList && target.kbList.length && !(target.frozenUntil && target.frozenUntil > st.t)) {
         let bumped = false
         while (target.kbList.length && target.hp <= target.kbList[0]) { target.kbList.shift(); bumped = true }
-        if (bumped) { target.kbUntil = st.t + KB_DUR; st.events.push({ type: 'knockback', uid: target.uid, L: target.L, side: target.side }) }
+        if (bumped && !(target.kbCdUntil && target.kbCdUntil > st.t)) { target.kbUntil = st.t + KB_DUR; target.kbCdUntil = st.t + KB_CD; st.events.push({ type: 'knockback', uid: target.uid, L: target.L, side: target.side }) }
       }
       if (target.hp <= 0) { target.hp = 0; st.events.push({ type: 'die', uid: target.uid, side: target.side, L: target.L, unit: target.type }) }
     }

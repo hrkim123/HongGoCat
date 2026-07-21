@@ -35,7 +35,7 @@
   // DPS = dmg×(burst||1)/cd. 실효HP = hp + battleShield.absorb. 사거리(range)·속도는 레인비율.
   const UNITS = {
     ant: {
-      name: '개미', cat: 'unit', rarity: 'common', starter: true, cost: 1, hp: 20,
+      name: '개미', cat: 'unit', rarity: 'common', starter: true, cost: 1, hp: 40,
       speed: 0.18, atk: { type: 'melee', dmg: 5, range: 0.02, cd: 0.6 }, kb: 3,
       art: 'ant', size: 1.0, // 기본 근접 물량 (근접 8.3dps)
     },
@@ -50,7 +50,7 @@
       art: 'ant-soldier', size: 1.0, // 범위 딜(광역 5dps)
     },
     shielder: {
-      name: '쉴더', cat: 'unit', rarity: 'uncommon', cost: 2, hp: 45,
+      name: '쉴더', cat: 'unit', rarity: 'uncommon', cost: 2, hp: 65,
       speed: 0.10, atk: { type: 'none' }, kb: 1,
       battleShield: { absorb: 30, cooldown: 4 }, // 실효HP 75. 앞면 자동 쉴드(30 흡수·4s 무피격 시 재충전). 순수 탱커
       art: 'ant-shield', size: 1.2,
@@ -74,11 +74,11 @@
     },
     // ── 신규 소환체 (밸런스 v2) ──
     scout: {
-      name: '정찰 개미', cat: 'unit', rarity: 'common', cost: 1, hp: 12,
+      name: '정찰 개미', cat: 'unit', rarity: 'common', cost: 1, hp: 22,
       speed: 0.30, atk: { type: 'melee', dmg: 3, range: 0.02, cd: 0.7 }, kb: 3, art: 'scout', size: 0.9, // 고속 러셔
     },
     kamikaze: {
-      name: '폭탄 개미', cat: 'unit', rarity: 'uncommon', cost: 3, hp: 22,
+      name: '폭탄 개미', cat: 'unit', rarity: 'uncommon', cost: 3, hp: 32,
       speed: 0.24, atk: { type: 'suicide', dmg: 28, aoeR: 0.05, range: 0.03, cd: 0.1 }, suicide: true, art: 'kamikaze', size: 1.1, // 1회성 자폭(구현 예정)
     },
     medic: {
@@ -98,7 +98,7 @@
       speed: 0.02, atk: { type: 'none' }, manaBuff: 0.1, support: true, art: 'worker', size: 1.0, // 정지형·마나 +0.1/s
     },
     commander: {
-      name: '지휘 개미', cat: 'unit', rarity: 'rare', cost: 6, hp: 75,
+      name: '지휘 개미', cat: 'unit', rarity: 'rare', cost: 6, hp: 95,
       speed: 0.10, atk: { type: 'melee', dmg: 6, range: 0.03, cd: 1.0 }, kb: 1, aura: { range: 0.12, atk: 0.2, speed: 0.2 }, art: 'commander', size: 1.4, // 주변 아군 +20% 오라(구현 예정)
     },
     sniper: {

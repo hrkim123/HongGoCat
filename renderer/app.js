@@ -3425,6 +3425,8 @@
   // 멀티 배틀: 상대와 1v1. battleMulti = { oppId, mySide(0=신청자/1=수락자), oppName } · null이면 솔로.
   let battleMulti = null, battleInvite = null, battleIncoming = null
   let battleGhosts = [], battleGhostBase = 100, bunitsLastSend = 0   // 상대(고스트) 유닛 + 상대 기지 HP
+  let unitReadyAt = {}   // 유닛별 재출격 쿨다운(냥코풍): 소환 후 일정 시간 재소환 불가
+  function redeployCd(id) { const u = window.BattleData.UNITS[id]; return 1500 + (u ? (u.cost || 1) : 1) * 900 }   // 코스트 비례(ms): 개미 2.4s ~ 여왕 10.5s
   let battleSavedCarve, battleSavedBarDmg = 0
   let battlePhase = 'idle', battlePhaseAt = 0, battleWin = false, battleConfetti = []   // 'countdown' | 'playing' | 'result'
   const BATTLE_CD_MS = 3200   // 3·2·1 (각 800ms) + START(800ms)
@@ -3464,7 +3466,7 @@
     littleBoys.length = 0; debris.length = 0; bloodStains.length = 0   // 낙하 폭탄·잔해도 정리
     battle = window.BattleSim.newBattle({ speedScale: 0.38 })   // 냥코풍 느린 행군(전략성). 0.44 → 0.38
     battleAtkAt = {}; battleShieldFlash = {}; battleHealFx = []; battleFalls = []; battleDead = []; bproj.length = 0
-    battleGhosts = []; battleGhostBase = battle.state.baseHpMax; bunitsLastSend = 0
+    battleGhosts = []; battleGhostBase = battle.state.baseHpMax; bunitsLastSend = 0; unitReadyAt = {}
     battleResultAt = 0; battleLastT = performance.now(); battleActive = true
     battlePhase = 'countdown'; battlePhaseAt = performance.now(); battleConfetti = []   // 3·2·1·START 후 시작
     battleSavedCarve = carve ? carve.slice() : null; battleSavedBarDmg = barDamage; resetTaskbarDig(false)   // 배틀은 복원된(깨끗한) 작업표시줄로 시작
@@ -3569,7 +3571,18 @@
     const segs = h.querySelector('.bhsegs'); for (let i = 0; i < 10; i++) { const s = document.createElement('div'); s.style.cssText = 'flex:1;height:8px;border-radius:2px;background:rgba(255,255,255,.14)'; segs.appendChild(s) }
     const mkCard = (bg, bd) => { const b = document.createElement('div'); b.style.cssText = `flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:1px;padding:5px 2px;border-radius:9px;background:${bg};border:1px solid ${bd};cursor:pointer;user-select:none`; return b }
     const uw = h.querySelector('.bhunits')
-    deck.units.forEach((id) => { const u = window.BattleData.UNITS[id]; if (!u) return; const b = mkCard('rgba(255,255,255,.06)', 'rgba(255,255,255,.14)'); b.dataset.id = id; b.title = u.name; b.innerHTML = `<div style="pointer-events:none">${window.BattleArt ? window.BattleArt.icon(id, 32) : ''}</div><div style="color:#8fd3ff;font-weight:600;font-size:11px">💧${u.cost}</div>`; b.onclick = () => { if (battle && battle.spawn(0, id)) updateBattleHud() }; uw.appendChild(b) })
+    deck.units.forEach((id) => {
+      const u = window.BattleData.UNITS[id]; if (!u) return
+      const b = mkCard('rgba(255,255,255,.06)', 'rgba(255,255,255,.14)'); b.dataset.id = id; b.title = u.name; b.style.position = 'relative'
+      b.innerHTML = `<div style="pointer-events:none">${window.BattleArt ? window.BattleArt.icon(id, 32) : ''}</div><div style="color:#8fd3ff;font-weight:600;font-size:11px">💧${u.cost}</div>` +
+        `<div class="bhcd" style="position:absolute;inset:0;border-radius:9px;background:rgba(10,14,20,.72);display:none;align-items:center;justify-content:center;color:#cfd4de;font-size:13px;font-weight:700;pointer-events:none"></div>`
+      b.onclick = () => {   // 냥코풍: 재출격 쿨다운 중이면 거부
+        const now = performance.now()
+        if (now < (unitReadyAt[id] || 0)) { showToast(`${u.name} 재출격 대기 ${((unitReadyAt[id] - now) / 1000).toFixed(1)}초`); return }
+        if (battle && battle.spawn(0, id)) { unitReadyAt[id] = now + redeployCd(id); updateBattleHud() }
+      }
+      uw.appendChild(b)
+    })
     if (!deck.units.length) uw.innerHTML = '<span style="font-size:11px;color:#7f8797">덱에 소환체 없음</span>'
     const ww = h.querySelector('.bhweaps')
     deck.weapons.forEach((id, wi) => {
@@ -3611,7 +3624,14 @@
     const mana = battle.state.mana[0], buff = battle.state.manaBuff ? (battle.state.manaBuff[0] || 0) : 0
     battleHud.querySelectorAll('.bhsegs div').forEach((s, i) => s.style.background = i < Math.floor(mana) ? '#4aa3ff' : 'rgba(255,255,255,.14)')
     const v = battleHud.querySelector('.bhval'); if (v) v.textContent = `${mana.toFixed(1)}/${battle.state.cfg.manaCap}` + (buff > 0 ? ` ⚡+${buff.toFixed(1)}` : '')
-    battleHud.querySelectorAll('.bhunits [data-id]').forEach((b) => { const u = window.BattleData.UNITS[b.dataset.id]; b.style.opacity = (u && mana >= (u.cost || 1)) ? '1' : '0.4' })
+    const nowH = performance.now()
+    battleHud.querySelectorAll('.bhunits [data-id]').forEach((b) => {
+      const id = b.dataset.id, u = window.BattleData.UNITS[id]
+      const cdLeft = (unitReadyAt[id] || 0) - nowH, onCd = cdLeft > 0
+      const cdEl = b.querySelector('.bhcd')
+      if (cdEl) { if (onCd) { cdEl.style.display = 'flex'; cdEl.textContent = (cdLeft / 1000).toFixed(1) } else cdEl.style.display = 'none' }
+      b.style.opacity = onCd ? '1' : ((u && mana >= (u.cost || 1)) ? '1' : '0.4')   // 쿨 중엔 오버레이로 표시(딤은 마나부족만)
+    })
     battleHud.querySelectorAll('.bhweaps [data-wid]').forEach((b) => { const w = window.BattleData.WEAPONS[b.dataset.wid]; b.style.opacity = (w && mana >= (w.mana != null ? w.mana : 2)) ? '1' : '0.4' })
   }
   function stepBattle(now) {
