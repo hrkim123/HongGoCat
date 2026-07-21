@@ -112,7 +112,7 @@ wss.on('connection', (ws, req) => {
     } else if (msg.t === 'human') {
       broadcast(joinedRoom, { t: 'human', id, active: msg.active, nx: msg.nx, ny: msg.ny, hp: msg.hp, weapon: msg.weapon, face: msg.face }, id)
     } else if (msg.t === 'mecha') {
-      broadcast(joinedRoom, { t: 'mecha', id, active: msg.active, nx: msg.nx, ny: msg.ny, hp: msg.hp, face: msg.face, shield: msg.shield, form: msg.form, thr: msg.thr, ch: msg.ch, chg: msg.chg, sdep: msg.sdep, snx: msg.snx, sny: msg.sny, sang: msg.sang }, id)
+      broadcast(joinedRoom, { t: 'mecha', id, active: msg.active, nx: msg.nx, ny: msg.ny, hp: msg.hp, face: msg.face, shield: msg.shield, form: msg.form, thr: msg.thr, ch: msg.ch, chg: msg.chg, mang: msg.mang, sdep: msg.sdep, snx: msg.snx, sny: msg.sny, sang: msg.sang }, id)
     } else if (msg.t === 'mecha-transform') {
       broadcast(joinedRoom, { t: 'mecha-transform', id }, id)
     } else if (msg.t === 'mshells' && Array.isArray(msg.list)) {
