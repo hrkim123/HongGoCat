@@ -82,7 +82,9 @@
       if (target.hp <= 0) return
       if (target.frozenUntil && target.frozenUntil > st.t) return   // 빙결 중엔 넉백 X
       if (!force && target.kbCdUntil && target.kbCdUntil > st.t) return
-      target.kbUntil = st.t + KB_DUR; target.kbCdUntil = st.t + KB_CD; st.events.push({ type: 'knockback', uid: target.uid, L: target.L, side: target.side })
+      target.kbUntil = st.t + KB_DUR; target.kbCdUntil = st.t + KB_CD
+      if (target.stats && target.stats.atk && target.stats.atk.cd) target.cdLeft = target.stats.atk.cd   // CC: 진행 중 공격/조준 취소 + 재장전(넉백 풀린 뒤 다시 cd 채워야 발사)
+      st.events.push({ type: 'knockback', uid: target.uid, L: target.L, side: target.side })
     }
     function upgradeMana(side) {   // 마나 강화 1레벨(마나 지불). 성공 시 true.
       const lv = st.manaLevel[side]; if (lv >= MANA_LEVELS.length) return false
@@ -103,7 +105,7 @@
       if (target.hp > 0 && target.kbList && target.kbList.length && !(target.frozenUntil && target.frozenUntil > st.t)) {
         let bumped = false
         while (target.kbList.length && target.hp <= target.kbList[0]) { target.kbList.shift(); bumped = true }
-        if (bumped && !(target.kbCdUntil && target.kbCdUntil > st.t)) { target.kbUntil = st.t + KB_DUR; target.kbCdUntil = st.t + KB_CD; st.events.push({ type: 'knockback', uid: target.uid, L: target.L, side: target.side }) }
+        if (bumped) applyKb(target, false)   // 임계 넉백도 공통 처리(공격 쿨 리셋 포함)
       }
       if (target.hp <= 0) { target.hp = 0; st.events.push({ type: 'die', uid: target.uid, side: target.side, L: target.L, unit: target.type }) }
     }

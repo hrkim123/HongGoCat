@@ -3737,7 +3737,8 @@
     for (const u of st.units) {
       const x = battleLaneX(u.L), def = window.BattleData.UNITS[u.type] || {}
       const y = battleUnitFeetY(x, def.flying)
-      const facing = u.side === 0 ? 1 : -1, atk = battleAtkAt[u.uid] && now - battleAtkAt[u.uid] < 380
+      const knocked = u.kbUntil && u.kbUntil > battle.state.t   // 넉백 중엔 공격 연출(총구 섬광·차지) 억제
+      const facing = u.side === 0 ? 1 : -1, atk = !knocked && battleAtkAt[u.uid] && now - battleAtkAt[u.uid] < 380
       const s = view.scale * BATTLE_UNIT_SCALE * (def.size || 1)
       // 커맨더 오라 링(바닥, 유닛 뒤) — 주변 아군 버프 범위 표시
       if (def.aura) { const rad = def.aura.range * (canvas.clientWidth - 2 * BATTLE_PAD); ctx.save(); ctx.globalAlpha = 0.5 + 0.2 * Math.sin(now / 300); ctx.strokeStyle = 'rgba(255,210,90,.5)'; ctx.lineWidth = 2 * view.scale; ctx.beginPath(); ctx.ellipse(x, antGroundY(x), rad, rad * 0.18, 0, 0, Math.PI * 2); ctx.stroke(); ctx.restore() }
@@ -3750,7 +3751,7 @@
         u._lean = (u._lean || 0) + (tgtLean - (u._lean || 0)) * 0.12
         // 에너지포 충전: 교전(_acting) 중이면 cdLeft 기준 0→1로 에너지볼이 커지는 연출
         const ecd = (def.atk && def.atk.cd) || 1
-        const charge = (u._acting && def.atk && def.atk.charge) ? Math.max(0, Math.min(1, 1 - (u.cdLeft || 0) / ecd)) : 0
+        const charge = (u._acting && !knocked && def.atk && def.atk.charge) ? Math.max(0, Math.min(1, 1 - (u.cdLeft || 0) / ecd)) : 0
         drawOverlayMechaAt(x, y, 0.46 * (def.size || 1.7), facing, 1, now, { walking: false, lean: u._lean, shHp01: sh01, charge })
       }
       else if (u.type === 'human') drawOverlayHumanAt(x, y, 0.80 * (def.size || 1.3), facing, now)
