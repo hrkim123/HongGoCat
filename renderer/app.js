@@ -191,7 +191,7 @@
   try { const kb = JSON.parse(localStorage.getItem('keybinds') || 'null'); if (kb && Array.isArray(kb.keys) && kb.keys.length) keybinds = { mod: kb.mod || 'alt', keys: kb.keys.slice(0, 3) } } catch {}
   if (inputSource.setKeybinds) inputSource.setKeybinds(keybinds)   // tell main which physical keys to watch
   // 단축키 라벨(현재 설정 기준) — 단축키가 보이는 모든 곳이 이 헬퍼를 쓰게 해서 설정 변경 시 자동 최신화
-  function modLabel(mod) { return mod === 'ctrl' ? 'Ctrl' : mod === 'shift' ? 'Shift' : mod === 'meta' ? 'Win' : 'Alt' }
+  function modLabel(mod) { return mod === 'ctrlalt' ? 'Ctrl+Alt' : mod === 'ctrlshift' ? 'Ctrl+Shift' : mod === 'caps' ? 'CapsLock' : 'Alt' }   // 설정 옵션(alt/ctrlalt/ctrlshift/caps)과 일치
   function slotKeyLabel(i) { return `${modLabel(keybinds.mod)}+${String(keybinds.keys[i] || '?').toUpperCase()}` }
   function keybindForWeapon(id) { const i = (me.slots || []).indexOf(id); return i >= 0 ? slotKeyLabel(i) : null }   // 무기가 배치된 슬롯의 단축키(없으면 null)
 
