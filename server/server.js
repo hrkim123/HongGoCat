@@ -70,7 +70,7 @@ wss.on('connection', (ws, req) => {
     if (!me) return
 
     if (msg.t === 'pos') {
-      broadcast(joinedRoom, { t: 'pos', id, nx: msg.nx, ny: msg.ny, taps: msg.taps, hp: msg.hp, away: msg.away, safe: msg.safe }, id)
+      broadcast(joinedRoom, { t: 'pos', id, nx: msg.nx, ny: msg.ny, taps: msg.taps, hp: msg.hp, away: msg.away, safe: msg.safe, bw: msg.bw, bp: msg.bp }, id)
     } else if (msg.t === 'pulse' && (msg.kind === 'key' || msg.kind === 'mouse')) {
       broadcast(joinedRoom, { t: 'pulse', id, kind: msg.kind }, id)
     } else if (msg.t === 'throw') {

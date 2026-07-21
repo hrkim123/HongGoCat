@@ -805,7 +805,7 @@
           for (const id of [...m.keys()]) if (!seen.has(id)) m.delete(id)
         pushState()   // reflect the new count in the settings window
       }
-      else if (msg.t === 'pos') { const p = peers.get(msg.id); if (p) { p.nx = msg.nx; p.ny = msg.ny; p.taps = msg.taps; if (msg.hp != null) p.hp = msg.hp; p.away = !!msg.away; p.safe = !!msg.safe } }
+      else if (msg.t === 'pos') { const p = peers.get(msg.id); if (p) { p.nx = msg.nx; p.ny = msg.ny; p.taps = msg.taps; if (msg.hp != null) p.hp = msg.hp; p.away = !!msg.away; p.safe = !!msg.safe; if (msg.bw != null) p.bw = msg.bw; if (msg.bp != null) p.bp = msg.bp } }
       else if (msg.t === 'pulse') { const p = peers.get(msg.id); if (p) pulse(p, msg.kind) }
       else if (msg.t === 'chat') { const p = peers.get(msg.id); if (p) showBubble(p, String(msg.text)) }
       else if (msg.t === 'throw') { const src = targetOf(msg.id); launch('me', src ? { from: src } : {}) }
@@ -1010,6 +1010,13 @@
     window.BattleGachaUI.setBridges({
       weapon: () => openWeaponLoadout(),         // ⚔ 무기 설정: 전용 팝업(오버레이 단축키 슬롯)
       achievements: () => openAchv(),            // 🏆 업적: 기존 팝업
+      // 📋 방 정보: 현재 멀티방 접속자(닉네임+누적 카운트+배틀 전적) + 배틀 신청 버튼
+      roomInfo: () => ({
+        connected: connected(),
+        me: { name: me.name || '나', count: totalCount, wins: battleWins, plays: battlePlays },
+        peers: [...peers.values()].map((p) => ({ id: p.id, name: p.name || ('#' + p.id), count: p.taps || 0, wins: p.bw || 0, plays: p.bp || 0 })),
+      }),
+      challenge: (id) => openBetDialog(id),      // 배틀 신청(베팅 다이얼로그)
       settings: () => inputSource.openSettings(), // ⚙ 설정: 기존 설정 창
       restoreBar: () => resetTaskbarDig(),       // 🧱 땅 복구: 파인 작업표시줄 복원(모두 함께)
       switchView: () => { try { window.bongo.toOverlay({ t: 'next-monitor' }) } catch (e) {} }, // 🖥 화면 전환: 다음 모니터
@@ -5187,7 +5194,7 @@
       const nx = +(wx / W).toFixed(4), ny = +(wy / H).toFixed(4), aw = me.away ? 1 : 0, sf = me.safeMode ? 1 : 0
       // only send when something changed; heartbeat every 1s so late joiners still place my cat
       if (nx !== lastPos.nx || ny !== lastPos.ny || totalCount !== lastPos.taps || me.hp !== lastPos.hp || aw !== lastPos.away || sf !== lastPos.safe || now - lastPos.at > 1000) {
-        net.send(JSON.stringify({ t: 'pos', nx, ny, taps: totalCount, hp: me.hp, away: aw, safe: sf }))   // 상대에겐 누적 카운트만 보여줌
+        net.send(JSON.stringify({ t: 'pos', nx, ny, taps: totalCount, hp: me.hp, away: aw, safe: sf, bw: battleWins, bp: battlePlays }))   // 상대에겐 누적 카운트 + 배틀 전적
         lastPos = { nx, ny, taps: totalCount, hp: me.hp, away: aw, safe: sf, at: now }
       }
     }

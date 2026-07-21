@@ -592,6 +592,36 @@
     mount(back)
   }
 
+  // ── 방 정보(멀티 접속자 목록 + 배틀 신청) ────────────────────────────────
+  function openRoomInfo() {
+    const { back, close } = makeBack()
+    const card = document.createElement('div'); card.className = 'bg-card'; card.style.width = 'min(420px,92vw)'; back.appendChild(card)
+    card.innerHTML = `<div class="bg-head"><div class="bg-title">📋 방 정보</div><button class="bg-x">✕</button></div>`
+    card.querySelector('.bg-x').onclick = close
+    const body = document.createElement('div'); card.appendChild(body)
+    function rec(w, p) { const l = Math.max(0, (p || 0) - (w || 0)); return `${w || 0}승 ${l}패` }
+    function row(e, isMe) {
+      const r = document.createElement('div')
+      r.style.cssText = `display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:10px;background:${isMe ? 'rgba(74,163,255,.1)' : '#1c2029'};border:1px solid ${isMe ? '#3f7ce8' : '#2b2f39'};margin-bottom:6px`
+      r.innerHTML = `<div style="flex:1;min-width:0">
+          <div style="font-size:14px;color:#e8ebf0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.name}${isMe ? ' <span style="color:#8fd3ff;font-size:11px">(나)</span>' : ''}</div>
+          <div style="font-size:11px;color:#9aa0ab;margin-top:2px">🪙 ${fmtNum(e.count)} · ⚔ ${rec(e.wins, e.plays)}</div>
+        </div>`
+      if (!isMe) { const b = document.createElement('button'); b.className = 'bg-btn'; b.textContent = '⚔ 배틀 신청'; b.style.cssText = 'padding:8px 12px;font-size:13px;background:#2f6bd8;border-color:#3f7ce8;white-space:nowrap'; b.onclick = () => { close(); if (bridges.challenge) bridges.challenge(e.id) }; r.appendChild(b) }
+      return r
+    }
+    function render() {
+      const info = bridges.roomInfo ? bridges.roomInfo() : null
+      body.innerHTML = ''
+      if (!info || !info.connected) { body.innerHTML = '<div class="bg-sub">멀티에 접속되어 있지 않아요. 방에 접속하면 참가자가 표시됩니다.</div>'; return }
+      body.appendChild(row(info.me, true))
+      if (!info.peers.length) { const d = document.createElement('div'); d.className = 'bg-sub'; d.style.marginTop = '4px'; d.textContent = '접속한 다른 유저가 없어요'; body.appendChild(d) }
+      else { const h = document.createElement('div'); h.className = 'bg-rgroup'; h.textContent = `상대 ${info.peers.length}명 — ⚔로 배틀 신청(베팅 선택)`; body.appendChild(h); info.peers.forEach((p) => body.appendChild(row(p, false))) }
+    }
+    render()
+    mount(back)
+  }
+
   // ── 햄버거 통합 메뉴 ─────────────────────────────────────────────────────
   let bridges = {}
   function setBridges(b) { bridges = Object.assign(bridges, b || {}) }
@@ -606,6 +636,7 @@
       ['📚 컬렉션 · 덱', () => openCollection()],
       ['⚔ 무기 설정', () => (bridges.weapon ? bridges.weapon() : flashMsg(card, '무기 설정 연결 예정'))],
       ['🏆 업적', () => (bridges.achievements ? bridges.achievements() : flashMsg(card, '업적 연결 예정'))],
+      ['📋 방 정보', () => openRoomInfo()],
       ['⚙ 설정', () => (bridges.settings ? bridges.settings() : flashMsg(card, '설정 연결 예정'))],
     ]
     if (dev) items.push(['🛠️ 개발자 (재화)', () => openDevPanel()])
@@ -628,5 +659,5 @@
     mount(back)
   }
 
-  window.BattleGachaUI = { openGacha, openCollection, openShop, openMenu, openDevPanel, openSpritePreview, setCountBridge, setHpBridge, setBridges, setDev, setDevContext }
+  window.BattleGachaUI = { openGacha, openCollection, openShop, openMenu, openRoomInfo, openDevPanel, openSpritePreview, setCountBridge, setHpBridge, setBridges, setDev, setDevContext }
 })()
