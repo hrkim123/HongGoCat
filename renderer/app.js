@@ -1228,7 +1228,7 @@
     else if (id === 'human') deployHuman()
     else if (id === 'lightning') lightningPress()   // (release handled via fire-slot key-up)
     else if (id === 'net') toggleNetAim()
-    else if (window.BattleSprites && window.BattleSprites.has(id)) spawnFieldUnit(id)   // 신규 소환체(라이플병 등) — 커서에 소환
+    else if (window.BattleSprites && window.BattleSprites.has(id)) summonSpriteUnit(id)   // 신규 소환체(라이플병 등) — 커서에 소환(체력·충돌 ants 시스템 재사용)
     // future: else if (id === 'rock') fireRock() ...
   }
 
@@ -3294,6 +3294,15 @@
     ants.push({ id: nextAntId++, x: cursor.x, y: cursor.y, vy: 0, onGround: false, hp: ANT_HP,
       dir: Math.random() < 0.5 ? -1 : 1, wanderUntil: 0, atkCd: 0, dead: false, deadAt: 0, step: Math.random() * 10 })
   }
+  // 신규 소환체(스프라이트)를 오버레이에 소환 — 기본 개미와 동일한 ants[] 시스템에 편입해
+  // 체력(HP)·충돌·사망·핵/그물/포탄 등 모든 상호작용을 그대로 재사용한다. (기본 규칙: 모든 소환체는 HP+충돌 보유)
+  function summonSpriteUnit(id) {
+    if (ants.filter((a) => !a.dead).length >= antMax()) { showToast('소환 최대치'); return }
+    const def = (window.BattleData && window.BattleData.UNITS[id]) || {}
+    const hp = Math.max(1, Math.round((def.hp || 20) / 8))   // 오버레이용 축약 HP(개미=1 기준 스케일)
+    ants.push({ id: nextAntId++, sprite: id, size: def.size || 1, x: cursor.x, y: cursor.y, vy: 0, onGround: false,
+      hp, maxHp: hp, dir: cursor.x < canvas.clientWidth / 2 ? 1 : -1, wanderUntil: 0, atkCd: 0, dead: false, deadAt: 0, step: Math.random() * 10 })
+  }
 
   // ---------- 오버레이 필드 유닛 (신규 소환체: BattleSprites 렌더 + 배회 AI) ----------
   // 오버레이(장난용): 커서에 소환 → 작업표시줄 위 배회. 근접형은 배회, 원거리형은 이따금 공격 모션.
@@ -3342,6 +3351,7 @@
   let battleAtkAt = {}, battleDead = [], battleOpp = null, battleHud = null
   let battleSavedCarve, battleSavedBarDmg = 0
   const BATTLE_PAD = 90
+  const BATTLE_UNIT_SCALE = 2.86   // 배틀 유닛 렌더 배율 (2.2 → ×1.3 확대)
   function battleLaneX(L) { const W = canvas.clientWidth; return BATTLE_PAD + L * (W - 2 * BATTLE_PAD) }   // side0 기지=좌
   function startBattleSolo() {
     if (!(window.BattleSim && window.BattleData)) { showToast('배틀 모듈 로드 안 됨'); return }
@@ -3425,24 +3435,57 @@
       const x = battleLaneX(u.L), def = window.BattleData.UNITS[u.type] || {}
       const y = antGroundY(x) - (def.flying ? 34 * view.scale : 0)
       const facing = u.side === 0 ? 1 : -1, atk = battleAtkAt[u.uid] && now - battleAtkAt[u.uid] < 380
-      const s = view.scale * 2.2 * (def.size || 1)
+      const s = view.scale * BATTLE_UNIT_SCALE * (def.size || 1)
       window.BattleSprites.draw(ctx, u.type, { x, y, scale: s, facing, state: atk ? 'attack' : 'walk', t: u.uid * 0.37 + now / 1000, flash: atk })
       if (u.shHp > 0) { ctx.strokeStyle = 'rgba(120,200,255,.7)'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(x, y - 22 * s, 15 * s, Math.PI, 0); ctx.stroke() }
       const w = 24 * s, f = u.hp / u.maxHp
       ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(x - w / 2, y - 44 * s, w, 3.5)
       ctx.fillStyle = f > 0.4 ? '#7ecb7e' : '#e24b4a'; ctx.fillRect(x - w / 2, y - 44 * s, w * f, 3.5)
     }
-    for (const d of battleDead) { const p = Math.min(1, (now - d.born) / 900); window.BattleSprites.draw(ctx, d.id, { x: battleLaneX(d.L), y: antGroundY(battleLaneX(d.L)), scale: view.scale * 2.2, facing: d.side === 0 ? 1 : -1, state: 'death', t: 0, deathT: p }) }
-    drawBattleProj()   // 투사체(총알·포탄·에너지·수류탄 등)
+    for (const d of battleDead) { const p = Math.min(1, (now - d.born) / 900); window.BattleSprites.draw(ctx, d.id, { x: battleLaneX(d.L), y: antGroundY(battleLaneX(d.L)), scale: view.scale * BATTLE_UNIT_SCALE, facing: d.side === 0 ? 1 : -1, state: 'death', t: 0, deathT: p }) }
+    drawBattleProj(now)   // 투사체(총알·포탄·에너지·수류탄 등)
     // 기지 HP 바 (양 끝 고양이 위)
     drawBattleBaseHp(battleLaneX(0), 0); drawBattleBaseHp(battleLaneX(1), 1)
   }
   function drawBattleBaseHp(x, side) {
-    const y = antGroundY(x) - 96 * view.scale, w = 60, hp = battle.state.baseHp[side], f = Math.max(0, hp / battle.state.baseHpMax)
-    ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(x - w / 2, y, w, 8)
-    ctx.fillStyle = side === 0 ? '#1D9E75' : '#D85A30'; ctx.fillRect(x - w / 2, y, w * f, 8)
-    ctx.fillStyle = '#fff'; ctx.font = '11px system-ui'; ctx.textAlign = 'center'; ctx.fillText((side === 0 ? '내 기지 ' : '상대 ') + Math.ceil(hp), x, y - 4)
+    const sc = Math.max(1, view.scale)
+    const w = 150 * sc, h = 17 * sc, r = h / 2
+    const y = antGroundY(x) - 128 * sc            // 고양이 위쪽으로 더 높이 배치(잘 보이게)
+    const hp = battle.state.baseHp[side], max = battle.state.baseHpMax, f = Math.max(0, hp / max)
+    const mine = side === 0
+    const x0 = x - w / 2
+    ctx.save()
+    ctx.font = `bold ${12 * sc}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'
+    // 라벨 배너
+    const label = mine ? '🐱 내 기지' : '😾 상대 기지'
+    ctx.fillStyle = 'rgba(0,0,0,.55)'
+    const lw = ctx.measureText(label).width + 14 * sc
+    roundRect(x - lw / 2, y - 20 * sc, lw, 16 * sc, 5 * sc); ctx.fill()
+    ctx.fillStyle = mine ? '#8ff0c8' : '#ffb499'; ctx.fillText(label, x, y - 8 * sc)
+    // 바 트랙 + 그림자
+    ctx.shadowColor = 'rgba(0,0,0,.5)'; ctx.shadowBlur = 6 * sc; ctx.shadowOffsetY = 2 * sc
+    ctx.fillStyle = 'rgba(14,16,22,.9)'; roundRect(x0, y, w, h, r); ctx.fill()
+    ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0
+    // HP 채움(그라디언트)
+    if (f > 0) {
+      const g = ctx.createLinearGradient(x0, y, x0, y + h)
+      if (mine) { g.addColorStop(0, '#38e39a'); g.addColorStop(1, '#149e6b') } else { g.addColorStop(0, '#ff8a5c'); g.addColorStop(1, '#d8481f') }
+      ctx.save(); roundRect(x0, y, w, h, r); ctx.clip()
+      ctx.fillStyle = g; ctx.fillRect(x0, y, w * f, h)
+      ctx.fillStyle = 'rgba(255,255,255,.25)'; ctx.fillRect(x0, y, w * f, h * 0.4)   // 상단 하이라이트
+      ctx.restore()
+    }
+    // 눈금(4등분)
+    ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = 1
+    for (let k = 1; k < 4; k++) { const gx = x0 + (w * k) / 4; ctx.beginPath(); ctx.moveTo(gx, y + 2 * sc); ctx.lineTo(gx, y + h - 2 * sc); ctx.stroke() }
+    // 테두리
+    ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 1.5 * sc; roundRect(x0, y, w, h, r); ctx.stroke()
+    // 수치
+    ctx.fillStyle = '#fff'; ctx.font = `bold ${11 * sc}px system-ui`; ctx.textBaseline = 'middle'
+    ctx.fillText(`${Math.ceil(hp)} / ${max}`, x, y + h / 2 + 0.5 * sc)
+    ctx.restore()
   }
+  function roundRect(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath() }
 
   // ---------- 배틀 투사체 (오버레이 투사체 재사용: 이동·충돌·관통·땅파임) ----------
   const bproj = []
@@ -3511,15 +3554,64 @@
       if (now - p.born > p.life || p.x < -30 || p.x > W + 30 || p.y > canvas.clientHeight + 40) bproj.splice(i, 1)
     }
   }
-  function drawBattleProj() {
-    const s = view.scale
+  function drawBattleProj(now) {
+    const s = view.scale * 1.5   // 투사체 전체 확대(가시성)
+    const t = (now || performance.now()) / 1000
     for (const p of bproj) {
-      if (p.kind === 'bullet' || p.kind === 'sniper') { ctx.fillStyle = '#ffe27a'; ctx.beginPath(); ctx.arc(p.x, p.y, (p.kind === 'sniper' ? 4 : 3) * s, 0, 7); ctx.fill() }
-      else if (p.kind === 'shell' || p.kind === 'shellbig') { ctx.fillStyle = '#c7ccd6'; ctx.beginPath(); ctx.arc(p.x, p.y, (p.kind === 'shellbig' ? 8 : 5.5) * s, 0, 7); ctx.fill(); ctx.fillStyle = '#8a90a0'; ctx.beginPath(); ctx.arc(p.x, p.y, 3 * s, 0, 7); ctx.fill() }
-      else if (p.kind === 'energy') { ctx.fillStyle = 'rgba(150,225,255,.92)'; ctx.beginPath(); ctx.arc(p.x, p.y, 6.5 * s, 0, 7); ctx.fill() }
-      else if (p.kind === 'adogen') { ctx.fillStyle = 'rgba(130,205,255,.88)'; ctx.beginPath(); ctx.arc(p.x, p.y, 7 * s, 0, 7); ctx.fill() }
-      else if (p.kind === 'grenade') { ctx.fillStyle = '#3f6b2a'; ctx.beginPath(); ctx.arc(p.x, p.y, 4.5 * s, 0, 7); ctx.fill(); ctx.fillStyle = '#2a4a1a'; ctx.fillRect(p.x - 1, p.y - 6 * s, 2, 3 * s) }
-      else if (p.kind === 'missile') { ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(Math.atan2(p.vy, p.vx)); ctx.fillStyle = '#d0d4da'; ctx.fillRect(-6 * s, -2 * s, 12 * s, 4 * s); ctx.fillStyle = '#e24b4a'; ctx.beginPath(); ctx.moveTo(6 * s, -2 * s); ctx.lineTo(10 * s, 0); ctx.lineTo(6 * s, 2 * s); ctx.fill(); ctx.fillStyle = '#ff9d3a'; ctx.beginPath(); ctx.arc(-7 * s, 0, 2.5 * s, 0, 7); ctx.fill(); ctx.restore() }
+      const ang = Math.atan2(p.vy, p.vx), spd = Math.hypot(p.vx, p.vy) || 1
+      const ux = p.vx / spd, uy = p.vy / spd   // 진행 방향 단위벡터(꼬리 그리기)
+      if (p.kind === 'bullet' || p.kind === 'sniper') {
+        // 라이플/저격: 발광 예광탄 — 긴 트레일 + 밝은 코어
+        const len = (p.kind === 'sniper' ? 26 : 15) * s, r = (p.kind === 'sniper' ? 3.4 : 2.6) * s
+        const col = p.kind === 'sniper' ? '150,225,255' : '255,226,120'
+        const g = ctx.createLinearGradient(p.x - ux * len, p.y - uy * len, p.x, p.y)
+        g.addColorStop(0, `rgba(${col},0)`); g.addColorStop(1, `rgba(${col},.85)`)
+        ctx.strokeStyle = g; ctx.lineWidth = r * 1.6; ctx.lineCap = 'round'
+        ctx.beginPath(); ctx.moveTo(p.x - ux * len, p.y - uy * len); ctx.lineTo(p.x, p.y); ctx.stroke()
+        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 7); ctx.fill()
+        ctx.fillStyle = `rgba(${col},.6)`; ctx.beginPath(); ctx.arc(p.x, p.y, r * 2.1, 0, 7); ctx.fill()
+      } else if (p.kind === 'shell' || p.kind === 'shellbig') {
+        // 메카 포탄: 금속 탄두 + 노즈 하이라이트 + 연기 꼬리
+        const R = (p.kind === 'shellbig' ? 9 : 6.5) * s
+        ctx.fillStyle = 'rgba(120,120,130,.25)'
+        for (let k = 1; k <= 3; k++) { ctx.beginPath(); ctx.arc(p.x - ux * R * k * 1.1, p.y - uy * R * k * 1.1, R * (1 - k * 0.22), 0, 7); ctx.fill() }
+        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(ang)
+        ctx.fillStyle = '#aeb4c0'; ctx.beginPath(); ctx.ellipse(0, 0, R * 1.3, R, 0, 0, 7); ctx.fill()
+        ctx.fillStyle = '#5a6070'; ctx.beginPath(); ctx.ellipse(-R * 0.5, 0, R * 0.5, R * 0.85, 0, 0, 7); ctx.fill()
+        ctx.fillStyle = '#eef1f6'; ctx.beginPath(); ctx.arc(R * 0.55, -R * 0.3, R * 0.34, 0, 7); ctx.fill()
+        if (p.kind === 'shellbig') { ctx.fillStyle = '#e24b4a'; ctx.fillRect(-R * 0.15, -R, R * 0.3, R * 2) }
+        ctx.restore()
+      } else if (p.kind === 'energy' || p.kind === 'adogen') {
+        // 에너지/아도겐: 글로우 오브 + 진동 링
+        const R = (p.kind === 'adogen' ? 8 : 7) * s, col = p.kind === 'adogen' ? '130,205,255' : '150,225,255'
+        const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, R * 2.2)
+        g.addColorStop(0, `rgba(${col},.95)`); g.addColorStop(0.5, `rgba(${col},.5)`); g.addColorStop(1, `rgba(${col},0)`)
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, R * 2.2, 0, 7); ctx.fill()
+        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(p.x, p.y, R * 0.5, 0, 7); ctx.fill()
+        ctx.strokeStyle = `rgba(${col},.9)`; ctx.lineWidth = 1.4 * s
+        ctx.beginPath(); ctx.arc(p.x, p.y, R * (1.1 + 0.12 * Math.sin(t * 18 + p.x)), 0, 7); ctx.stroke()
+      } else if (p.kind === 'grenade') {
+        // 수류탄: 파인애플 몸통(격자) + 상단 레버/핀 + 회전 연기 꼬리
+        const R = 6 * s
+        ctx.fillStyle = 'rgba(90,90,90,.22)'
+        for (let k = 1; k <= 3; k++) { ctx.beginPath(); ctx.arc(p.x - ux * R * k, p.y - uy * R * k, R * (0.7 - k * 0.16), 0, 7); ctx.fill() }
+        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(t * 6 + p.x)
+        ctx.fillStyle = '#3f6b2a'; ctx.beginPath(); ctx.ellipse(0, R * 0.15, R, R * 1.15, 0, 0, 7); ctx.fill()
+        ctx.strokeStyle = 'rgba(24,44,14,.85)'; ctx.lineWidth = 0.9 * s
+        for (let gx = -1; gx <= 1; gx++) { ctx.beginPath(); ctx.moveTo(gx * R * 0.5, -R); ctx.lineTo(gx * R * 0.5, R * 1.2); ctx.stroke() }
+        for (let gy = -1; gy <= 1; gy++) { ctx.beginPath(); ctx.moveTo(-R, gy * R * 0.55 + R * 0.15); ctx.lineTo(R, gy * R * 0.55 + R * 0.15); ctx.stroke() }
+        ctx.fillStyle = '#7a7f8a'; ctx.fillRect(-R * 0.4, -R * 1.5, R * 0.8, R * 0.5)   // 뚜껑
+        ctx.strokeStyle = '#d0a94a'; ctx.lineWidth = 1.3 * s; ctx.beginPath(); ctx.moveTo(R * 0.3, -R * 1.3); ctx.lineTo(R * 1.1, -R * 0.7); ctx.stroke()   // 레버
+        ctx.restore()
+      } else if (p.kind === 'missile') {
+        // 미사일: 큰 몸통 + 핀 + 화염 트레일
+        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(ang)
+        for (let k = 1; k <= 4; k++) { ctx.fillStyle = `rgba(255,${150 + k * 20},60,${0.5 - k * 0.1})`; ctx.beginPath(); ctx.arc(-9 * s - k * 4 * s, 0, (4 - k * 0.6) * s, 0, 7); ctx.fill() }
+        ctx.fillStyle = '#d7dbe1'; ctx.beginPath(); ctx.moveTo(11 * s, 0); ctx.lineTo(4 * s, -4 * s); ctx.lineTo(-8 * s, -4 * s); ctx.lineTo(-8 * s, 4 * s); ctx.lineTo(4 * s, 4 * s); ctx.closePath(); ctx.fill()
+        ctx.fillStyle = '#e24b4a'; ctx.beginPath(); ctx.moveTo(11 * s, 0); ctx.lineTo(4 * s, -4 * s); ctx.lineTo(4 * s, 4 * s); ctx.closePath(); ctx.fill()   // 빨간 노즈
+        ctx.fillStyle = '#5a6070'; ctx.beginPath(); ctx.moveTo(-8 * s, -4 * s); ctx.lineTo(-12 * s, -7 * s); ctx.lineTo(-8 * s, 0); ctx.closePath(); ctx.moveTo(-8 * s, 4 * s); ctx.lineTo(-12 * s, 7 * s); ctx.lineTo(-8 * s, 0); ctx.fill()   // 핀
+        ctx.restore()
+      }
     }
   }
   // peer ants: normalized X → my screen; pinned to MY taskbar line so they always crawl on it
@@ -3655,11 +3747,12 @@
         if (a.dead) continue
         a.sx += (a.nx - a.sx) * SMOOTH   // glide toward latest (normalized X)
         const ax = a.sx * W
-        drawAnt({ x: ax, y: antGroundY(ax), dir: a.dir || 1, step: now / 90, hp: a.hp }, now, false, col)  // dir from owner
+        drawAnt({ x: ax, y: antGroundY(ax), dir: a.dir || 1, step: now / 90, hp: a.hp, sprite: a.sp, maxHp: a.mhp, size: a.sz }, now, false, col)  // dir from owner
       }
     }
   }
   function drawAnt(a, now, fighting, color) {
+    if (a.sprite && window.BattleSprites && window.BattleSprites.has(a.sprite)) return drawSpriteAnt(a, now, fighting)
     const s = view.scale * ANT_DRAW, dir = a.dir || 1
     const body = color || '#5b5b66', leg = 'rgba(18,16,24,0.9)'   // body = owner color, dark legs
     const biting = a.atkFlash && now < a.atkFlash
@@ -3695,7 +3788,23 @@
       ctx.restore()
     }
   }
+  // 스프라이트 소환체(신규 유닛)를 오버레이에 렌더 — 걷기/공격 상태 + HP 바
+  function drawSpriteAnt(a, now, fighting) {
+    const s = view.scale * BATTLE_UNIT_SCALE * (a.size || 1)
+    const atk = fighting || (a.atkFlash && now < a.atkFlash)
+    window.BattleSprites.draw(ctx, a.sprite, { x: a.x, y: a.y, scale: s, facing: a.dir || 1, state: atk ? 'attack' : 'walk', t: (a.step || 0) * 0.12 + now / 1000, flash: atk })
+    const mh = a.maxHp || 1
+    if (a.hp < mh) {   // HP 바 (피해 입은 경우만)
+      const w = 22 * view.scale, f = Math.max(0, a.hp / mh), yy = a.y - 40 * view.scale
+      ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(a.x - w / 2, yy, w, 3.2 * view.scale)
+      ctx.fillStyle = f > 0.4 ? '#7ecb7e' : '#e24b4a'; ctx.fillRect(a.x - w / 2, yy, w * f, 3.2 * view.scale)
+    }
+  }
   function drawAntCorpse(a, now) {
+    if (a.sprite && window.BattleSprites && window.BattleSprites.has(a.sprite)) {
+      const p = Math.min(1, (now - a.deadAt) / 420)
+      window.BattleSprites.draw(ctx, a.sprite, { x: a.x, y: a.y, scale: view.scale * BATTLE_UNIT_SCALE * (a.size || 1), facing: a.dir || 1, state: 'death', t: 0, deathT: p }); return
+    }
     const s = view.scale * ANT_DRAW, t = (now - a.deadAt) / 420
     ctx.save(); ctx.translate(a.x, a.y); ctx.scale(s, s)
     ctx.globalAlpha = (1 - t) * 0.55; ctx.fillStyle = '#96101a'
@@ -4117,7 +4226,7 @@
     if (ants.length) {
       sentAnts = true
       // ants: normalized X only (peers pin them to THEIR taskbar line, see drawRemoteAnts)
-      net.send(JSON.stringify({ t: 'ants', list: ants.map((a) => ({ id: a.id, nx: +(a.x / NW).toFixed(4), hp: a.hp, dead: a.dead, dir: a.dir })) }))
+      net.send(JSON.stringify({ t: 'ants', list: ants.map((a) => ({ id: a.id, nx: +(a.x / NW).toFixed(4), hp: a.hp, dead: a.dead, dir: a.dir, sp: a.sprite, mhp: a.maxHp, sz: a.size })) }))
     } else if (sentAnts) { net.send(JSON.stringify({ t: 'ants', list: [] })); sentAnts = false }
 
     if (me.bhUntil && now < me.bhUntil) {

@@ -65,6 +65,19 @@
     .bg-cell .n{font-size:11px;margin-top:3px;color:#e8ebf0}
     .bg-cell .lv{font-size:10px;margin-top:2px;color:#9fd3ff}
     .bg-cell .lk{font-size:10px;margin-top:2px;color:#7f8797}
+    /* 10연 소환: SKIP · 진행 카운터 · 결과 그리드 */
+    .bg-skip{position:absolute;top:8px;right:12px;z-index:6;font-size:13px;font-weight:600;letter-spacing:.5px;color:#cfd4de;cursor:pointer;user-select:none;opacity:.8;transition:opacity .15s,transform .15s;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+    .bg-skip:hover{opacity:1;transform:translateX(2px);color:#fff}
+    .bg-pullcount{position:absolute;top:8px;left:12px;z-index:6;font-size:12px;color:#8fa0b4;user-select:none;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+    .bg-pull-grid{display:grid;grid-template-columns:repeat(5,1fr);grid-template-rows:repeat(2,1fr);gap:6px;width:100%;height:100%;padding:8px;box-sizing:border-box;animation:bgFade2 .4s ease-out}
+    @keyframes bgFade2{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}
+    .bg-pull-cell{border-radius:9px;border:1.5px solid #2b2f39;background:#161a21;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;padding:2px;min-width:0;position:relative;overflow:hidden}
+    .bg-pull-cell.isnew{box-shadow:0 0 0 1px rgba(255,255,255,.12) inset}
+    .bg-pull-cell .newtag{position:absolute;top:2px;right:3px;font-size:8px;font-weight:700;color:#ffe08a}
+    .bg-pull-ic{line-height:1}
+    .bg-pull-nm{font-size:10px;color:#e8ebf0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .bg-pull-bd{font-size:9px;font-weight:700}
+    .bg-pull-sub{font-size:9px;color:#9aa0ab}
     `
     document.head.appendChild(st)
   }
@@ -183,15 +196,19 @@
 
     const controls = document.createElement('div'); controls.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap'
     const pullBtn = document.createElement('button'); pullBtn.className = 'bg-btn primary'; pullBtn.textContent = `소환 (💎${D.GEM.pullCost})`
+    const pull10Cost = D.GEM.pullCost * 10
+    const pull10Btn = document.createElement('button'); pull10Btn.className = 'bg-btn primary'; pull10Btn.textContent = `10연 소환 (💎${pull10Cost})`
     const exBtn = document.createElement('button'); exBtn.className = 'bg-btn'; exBtn.textContent = `카운트 ${D.GEM.countPerGem.toLocaleString()} → 💎1`
     const colBtn = document.createElement('button'); colBtn.className = 'bg-btn'; colBtn.textContent = '📚 컬렉션'
     const rateBtn = document.createElement('button'); rateBtn.className = 'bg-btn'; rateBtn.textContent = '🎲 확률'
     rateBtn.onclick = () => openRates()
-    controls.append(pullBtn, exBtn, colBtn, rateBtn); card.appendChild(controls)
+    controls.append(pullBtn, pull10Btn, exBtn, colBtn, rateBtn); card.appendChild(controls)
 
+    let rolling = false
     function syncButtons() {
-      pullBtn.disabled = G.getGems() < D.GEM.pullCost
-      exBtn.disabled = !(countBridge && countBridge.get() >= D.GEM.countPerGem)
+      pullBtn.disabled = rolling || G.getGems() < D.GEM.pullCost
+      pull10Btn.disabled = rolling || G.getGems() < pull10Cost
+      exBtn.disabled = rolling || !(countBridge && countBridge.get() >= D.GEM.countPerGem)
     }
     syncButtons()
 
@@ -199,6 +216,15 @@
       const res = G.roll(); if (!res) { syncButtons(); return }
       refreshWallet(wallet); syncButtons()
       playReveal(stage, res)
+    }
+    pull10Btn.onclick = () => {
+      if (G.getGems() < pull10Cost) { syncButtons(); return }
+      const results = []
+      for (let i = 0; i < 10; i++) { const r = G.roll(); if (!r) break; results.push(r) }
+      if (!results.length) { syncButtons(); return }
+      refreshWallet(wallet)
+      rolling = true; syncButtons()
+      playReveal10(stage, results, () => { rolling = false; syncButtons() })
     }
     exBtn.onclick = () => {
       if (!(countBridge && countBridge.get() >= D.GEM.countPerGem)) return
@@ -232,6 +258,50 @@
       <div class="bg-sub">${res.dup ? `중복 · 🔩 강화 부품 +${res.material}` : '✨ 신규 획득!'}</div>`
     stage.appendChild(reveal)
     setTimeout(() => reveal.classList.add('show'), delay)
+  }
+
+  // 10연 소환: 개별 연출을 순차 재생 + SKIP(→ 결과 그리드 즉시). onDone 호출 시 버튼 재활성.
+  function playReveal10(stage, results, onDone) {
+    let idx = 0, timer = null, done = false
+    const skip = document.createElement('div'); skip.className = 'bg-skip'; skip.textContent = 'SKIP ⏭'
+    function finish() {
+      if (done) return; done = true
+      if (timer) { clearTimeout(timer); timer = null }
+      showResultGrid(stage, results)
+      if (onDone) onDone()
+    }
+    function stepOne() {
+      if (done) return
+      if (idx >= results.length) { finish(); return }
+      const res = results[idx++]
+      playReveal(stage, res)               // stage 를 비우고 이번 결과 연출
+      stage.appendChild(skip)              // SKIP 다시 부착(연출 위)
+      const cnt = document.createElement('div'); cnt.className = 'bg-pullcount'; cnt.textContent = `${idx} / ${results.length}`; stage.appendChild(cnt)
+      const anim = res.rarity.anim
+      const wait = (anim === 'flash' ? 260 : anim === 'beam' ? 420 : anim === 'swirl' ? 620 : 780) + 820
+      timer = setTimeout(stepOne, wait)
+    }
+    skip.onclick = finish
+    stepOne()
+  }
+
+  // 10개 획득 결과를 상단 5 / 하단 5 그리드로 한 번에 표시
+  function showResultGrid(stage, results) {
+    stage.innerHTML = ''
+    const grid = document.createElement('div'); grid.className = 'bg-pull-grid'
+    results.forEach((res) => {
+      const col = res.rarity.color
+      const cell = document.createElement('div'); cell.className = 'bg-pull-cell' + (res.dup ? '' : ' isnew')
+      cell.style.borderColor = col + '88'
+      cell.innerHTML =
+        (res.dup ? '' : '<div class="newtag">NEW</div>') +
+        `<div class="bg-pull-ic">${iconFor(res.entry, 30)}</div>` +
+        `<div class="bg-pull-nm">${res.entry.name}</div>` +
+        `<div class="bg-pull-bd" style="color:${col}">${res.rarity.name}</div>` +
+        `<div class="bg-pull-sub">${res.dup ? `🔩+${res.material}` : '✨ 신규'}</div>`
+      grid.appendChild(cell)
+    })
+    stage.appendChild(grid)
   }
 
   // 추가 스타일(덱/필터/메뉴) 1회 주입
