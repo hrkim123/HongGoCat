@@ -3889,12 +3889,10 @@
   function triggerLittleBoy(x, y, otherPid) {
     for (let k = 0; k < 16; k++) spawnSpark(x + (Math.random() - 0.5) * 52 * view.scale, y + (Math.random() - 0.5) * 52 * view.scale)   // fusion flash
     addEffect(x, y, 4)
-    const spawner = !connected() || otherPid == null || (me.netId != null && me.netId < otherPid)
-    if (spawner) {
-      spawnLittleBoy(x, y, true)
-      if (connected() && net) net.send(JSON.stringify({ t: 'littleboy', nx: +(x / canvas.clientWidth).toFixed(4), ny: +(y / canvas.clientHeight).toFixed(4) }))
-    }
-    // the higher-netId client waits for the 'littleboy' broadcast to spawn its (visual) bomb at the same spot
+    // 양쪽 클라이언트가 각자 로컬에서 낙하 폭탄을 생성(연출) → 릴레이 누락돼도 항상 땅에 떨어져 터짐.
+    // 데미지는 권한자(낮은 netId 또는 솔로)만 적용해 중복 방지.
+    const authoritative = !connected() || otherPid == null || (me.netId != null && me.netId < otherPid)
+    spawnLittleBoy(x, y, authoritative)
   }
   function spawnLittleBoy(x, y, damaging) { littleBoys.push({ x, y, vy: -2 * view.scale, damaging, born: performance.now() }) }
   function stepLittleBoys(now) {
