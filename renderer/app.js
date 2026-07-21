@@ -3432,9 +3432,10 @@
   let battleCannon = { charge: 0 }, cannonSweep = null, battleCannonEl = null
   const CANNON_FULL_SEC = 25, CANNON_SWEEP_SEC = 0.85, CANNON_DMG = 20, CANNON_BASE_DMG = 8
   // 기지 터렛(포탑): 각 진영 책상 위, 상대 방향. 내 진영에 근접한 적에게 자동 포물선 포탄(메카 포탄 궤도 재사용, 디자인/폭발은 별도).
-  let battleTurretCd = [0, 0], battleTurretAim = [0, 0], battleTurretFire = [0, 0], battleTurretTgtL = [null, null]
+  let battleTurretCd = [0, 0], battleTurretAim = [0, 0], battleTurretFire = [0, 0], battleTurretTgtL = [null, null], battleTurretShotAng = [0, 0]
   const TURRET_RANGE = 0.18, TURRET_CD = 2400, TURRET_DMG = 8, TURRET_AOE = 0.05   // 사거리 축소(0.34→0.18) · 저데미지 범위공격(14→8, 반경 0.05 레인)
-  const TURRET_LIFT = 58   // 포탑을 책상(작업표시줄) 위로 올리는 높이(px, view.scale 곱해 사용)
+  const TURRET_INSET = 62   // 포탑을 기지(고양이) 옆 책상 빈 공간(안쪽)으로 들이는 거리(px, view.scale 곱)
+  function turretBaseX(side) { const bx = battleLaneX(side === 0 ? 0 : 1); return bx + (side === 0 ? 1 : -1) * TURRET_INSET * view.scale }   // 고양이 옆(상대 쪽)
   let battleSavedCarve, battleSavedBarDmg = 0
   let battlePhase = 'idle', battlePhaseAt = 0, battleWin = false, battleConfetti = []   // 'countdown' | 'playing' | 'result'
   const BATTLE_CD_MS = 3200   // 3·2·1 (각 800ms) + START(800ms)
@@ -3604,12 +3605,13 @@
   }
   // 기지 터렛 기본 공격: 근접한 적에게 포물선 포탄(메카 포탄 궤도) 발사
   function fireTurretShell(side, tL) {
-    const baseX = battleLaneX(side === 0 ? 0 : 1), face = side === 0 ? 1 : -1
-    const sx = baseX + face * 20 * view.scale, sy = antGroundY(baseX) - (60 + TURRET_LIFT) * view.scale   // 포탑 포구(책상 위로 올린 높이 반영)
+    const baseX = turretBaseX(side), face = side === 0 ? 1 : -1
+    const sx = baseX + face * 30 * view.scale, sy = antGroundY(baseX) - 40 * view.scale   // 포탑 포구(책상 위 포신 끝 근처)
     const tx = battleLaneX(tL), ty = antGroundY(tx) - 18 * view.scale
     const grav = 900 * view.scale                                          // stepBattleProj와 동일(초 단위)
     const T = Math.max(0.5, Math.min(1.4, Math.abs(tx - sx) / (360 * view.scale)))   // 비행 시간(초)
     const vx = (tx - sx) / T, vy = (ty - sy - 0.5 * grav * T * T) / T       // T초 뒤 (tx,ty)에 착탄하는 포물선
+    battleTurretShotAng[side] = Math.atan2(vy, vx)   // 실제 발사 벡터 각도 → 포신이 이 방향(위로 쏘면 위)을 바라보게
     bproj.push({ x: sx, y: sy, vx, vy, bside: side, dmg: TURRET_DMG, pow: TURRET_DMG, kind: 'turret', kb: true, aoe: TURRET_AOE, slow: 0, slowDur: 0, born: performance.now(), life: PROJ_LIFE.turret })   // 범위 폭발 포탄
   }
   function stepTurrets(now) {
@@ -3621,7 +3623,7 @@
       let target = null, bd = TURRET_RANGE
       const enemies = (battleMulti && side === 0) ? battleGhosts : battle.state.units.filter((u) => u.side !== side && u.hp > 0)
       for (const e of enemies) { const d = Math.abs(e.L - baseL); if (d < bd) { bd = d; target = e } }
-      if (target) { fireTurretShell(side, target.L); battleTurretCd[side] = now + TURRET_CD; battleTurretFire[side] = now; battleTurretTgtL[side] = target.L }
+      if (target) { fireTurretShell(side, target.L); battleTurretAim[side] = battleTurretShotAng[side]; battleTurretCd[side] = now + TURRET_CD; battleTurretFire[side] = now; battleTurretTgtL[side] = target.L }   // 포신을 실제 발사 각도로 스냅
     }
   }
   function stopBattle() {
@@ -3872,7 +3874,7 @@
     }
     for (const d of battleDead) { const p = Math.min(1, (now - d.born) / 900); window.BattleSprites.draw(ctx, d.id, { x: battleLaneX(d.L), y: antGroundY(battleLaneX(d.L)), scale: view.scale * BATTLE_UNIT_SCALE, facing: d.side === 0 ? 1 : -1, state: 'death', t: 0, deathT: p }) }
     for (const f of battleFalls) { const fx = battleLaneX(f.L), fy = antGroundY(fx) + (f._y || 0); ctx.save(); ctx.globalAlpha = Math.max(0, 1 - (f._y || 0) / (canvas.clientHeight * 0.8)); window.BattleSprites.draw(ctx, f.id, { x: fx, y: fy, scale: view.scale * BATTLE_UNIT_SCALE * (window.BattleData.UNITS[f.id] ? (window.BattleData.UNITS[f.id].size || 1) : 1), facing: f.side === 0 ? 1 : -1, state: 'walk', t: now / 1000 }); ctx.restore() }   // 구멍으로 떨어지는 유닛
-    drawBattleTurret(battleLaneX(0), 0, now); drawBattleTurret(battleLaneX(1), 1, now)   // 각 진영 포탑(상대 바라봄)
+    drawBattleTurret(turretBaseX(0), 0, now); drawBattleTurret(turretBaseX(1), 1, now)   // 각 진영 포탑(고양이 옆 책상 위, 상대 바라봄)
     drawBattleProj(now)   // 투사체(총알·포탄·에너지·수류탄 등)
     // 기지 HP 바 (양 끝 고양이 위)
     drawBattleBaseHp(battleLaneX(0), 0); drawBattleBaseHp(battleLaneX(1), 1)
@@ -3882,21 +3884,21 @@
   // 기지 포탑 — 냥코 베이스 대포탑 느낌(크고 묵직한 금속 캐논). 포신이 타겟을 조준해 회전 + 발사 반동·포구 화염·연기.
   function drawBattleTurret(baseX, side, now) {
     const s = view.scale * 1.8, face = side === 0 ? 1 : -1
-    const gy = antGroundY(baseX), lift = TURRET_LIFT * view.scale, by = gy - lift   // by = 책상 위로 올린 포탑 발치
-    const x = baseX + face * 8 * view.scale
+    const gy = antGroundY(baseX), by = gy   // 책상 윗면에 바로 안착(기둥 없음)
+    const x = baseX
     const tint = antColor(side === 0 ? me.skin : ((peers.get(battleMulti && battleMulti.oppId) || {}).tint || 'gray'))
     const metal = mixHex('#8a90a0', tint, 0.35), dark = mixHex('#4a4e5a', tint, 0.3), hi = mixHex('#c9cfdb', tint, 0.35), accent = '#d94b46'
     const pivotX = x, pivotY = by - 20 * s
-    // 조준: 최근 타겟 방향으로 포신 회전(부드럽게). 없으면 전방 살짝 위.
+    // 조준: 발사 직후엔 실제 발사 벡터(위로 쏘면 위) 방향, 평상시엔 가장 가까운 적/중앙 추적.
+    const fired = now - (battleTurretFire[side] || -1e9)
     let desired
-    if (battleTurretTgtL[side] != null && now - (battleTurretFire[side] || 0) < TURRET_CD + 600) { const tx = battleLaneX(battleTurretTgtL[side]), ty = antGroundY(tx) - 18 * view.scale; desired = Math.atan2(ty - pivotY, (tx - pivotX)) } else { const cx = battleLaneX(0.5); desired = Math.atan2((gy - 40 * view.scale) - pivotY, (cx - pivotX)) }
-    battleTurretAim[side] = lerpAngle(battleTurretAim[side] || (face >= 0 ? -0.3 : Math.PI + 0.3), desired, 0.14)
-    const fired = now - (battleTurretFire[side] || -1e9), recoil = fired < 200 ? -(1 - fired / 200) * 6 * s : 0
-    // 책상 위 지지대(기둥) — 바닥(gy)에서 포탑 발치(by)까지 세워 "책상에 설치된" 느낌
+    if (fired < 420) { desired = battleTurretShotAng[side] }   // 발사 연출 창: 포신 = 실제 포탄 진행 방향
+    else if (battleTurretTgtL[side] != null && fired < TURRET_CD + 600) { const tx = battleLaneX(battleTurretTgtL[side]), ty = antGroundY(tx) - 18 * view.scale; desired = Math.atan2(ty - pivotY, (tx - pivotX)) }
+    else { const cx = battleLaneX(0.5); desired = Math.atan2((gy - 40 * view.scale) - pivotY, (cx - pivotX)) }
+    battleTurretAim[side] = lerpAngle(battleTurretAim[side] || (face >= 0 ? -0.3 : Math.PI + 0.3), desired, 0.2)
+    const recoil = fired < 200 ? -(1 - fired / 200) * 6 * s : 0
     ctx.save(); ctx.lineJoin = 'round'
-    ctx.fillStyle = dark; roundRect(x - 10 * s, by - 2 * s, 20 * s, lift + 4 * s, 3 * s); ctx.fill()
-    ctx.fillStyle = mixHex(dark, '#000000', 0.25); ctx.fillRect(x + 5 * s, by, 4 * s, lift)   // 기둥 음영
-    ctx.fillStyle = mixHex('#2a2d35', tint, 0.2); ctx.beginPath(); ctx.ellipse(x, gy, 16 * s, 4 * s, 0, 0, 7); ctx.fill()   // 바닥 발판
+    ctx.fillStyle = mixHex('#2a2d35', tint, 0.2); ctx.beginPath(); ctx.ellipse(x, gy + 1 * s, 17 * s, 4 * s, 0, 0, 7); ctx.fill()   // 책상 위 접지 그림자
     ctx.restore()
     ctx.save(); ctx.translate(x, by); ctx.lineJoin = 'round'
     // 받침대(사다리꼴) + 볼트
