@@ -1785,8 +1785,8 @@
       const dmg = energy ? p.hp : (p.dmg || 1)                       // energy damage = current HP
       // energy blasts lose HP = the OTHER collidable's DMG per blocking hit (missile/bullet/platform), throttled
       const deplete = (amt) => { if (now < (p.hitCd || 0)) return false; p.hitCd = now + 130; addEffect(p.x, p.y, 1); spawnSpark(p.x, p.y); p.hp -= (amt || 1); return p.hp <= 0 }
-      const pl = hitPlatform(p.x, p.y)
-      if (pl) { damagePlatform(pl, dmg); if (!energy) { spawnSpark(p.x, p.y); hbullets.splice(i, 1); continue } else if (deplete(1)) { hbullets.splice(i, 1); continue } }
+      const plsw = platformSweep(p.x - p.vx, p.y - p.vy, p.x, p.y)
+      if (plsw) { damagePlatform(plsw.pl, dmg); if (!energy) { spawnSpark(plsw.hx, plsw.hy); hbullets.splice(i, 1); continue } else if (deplete(1)) { hbullets.splice(i, 1); continue } }
       const antR = energy ? effR : 12 * s   // energy sweeps wider + pierces
       let hit = false, catHit = false
       for (const a of ants) if (!a.dead && Math.hypot(p.x - a.x, p.y - a.y) < antR) { antTakeDmg(a, dmg); if (a.dead) addAntKill(); hit = true; if (!energy) break }
@@ -2313,6 +2313,7 @@
         if (battleProjCollide(p, 8 * view.scale, 1.0)) { mechaShellImpact(p); mechaShells.splice(i, 1); continue }
         drawMechaShell(p); continue
       }
+      { const plsw = platformSweep(p.x - p.vx, p.y - p.vy, p.x, p.y); if (plsw) { damagePlatform(plsw.pl, MSHELL_DMG); mechaShellImpact(p); bcBoom('mshell', p.id, p.x, p.y, 3); mechaShells.splice(i, 1); continue } }   // 그려진 플랫폼에 착탄(관통 방지)
       const rm = hitRemoteMissile(p.x, p.y, MSHELL_DMG)   // collidable vs missiles (mutual)
       if (rm) { if (connected()) net.send(JSON.stringify({ t: 'col-dmg', target: rm.pid, kind: 'missile', eid: rm.id, dmg: MSHELL_DMG })); p.hp -= (rm.power || 1); mechaShellImpact(p); if (p.hp <= 0) { bcBoom('mshell', p.id, p.x, p.y, 3); mechaShells.splice(i, 1); continue } }
       let hitP = false
@@ -2391,6 +2392,7 @@
         if (battleProjCollide(p, 9 * view.scale, 0.6)) { addEffect(p.x, p.y, 2); spawnSpark(p.x, p.y); energyShots.splice(i, 1); continue }
         drawEnergyShot(p, now); continue
       }
+      { const plsw = platformSweep(p.x - p.vx, p.y - p.vy, p.x, p.y); if (plsw) { damagePlatform(plsw.pl, p.power); addEffect(plsw.hx, plsw.hy, 1); spawnSpark(plsw.hx, plsw.hy); bcBoom('mshell', p.id, p.x, p.y, 2); energyShots.splice(i, 1); continue } }   // 그려진 플랫폼에 막힘(관통 방지)
       if (safeDomeBlocks(p.x, p.y)) { addEffect(p.x, p.y, 2); spawnSpark(p.x, p.y); bcBoom('mshell', p.id, p.x, p.y, 2); energyShots.splice(i, 1); continue }   // peace-mode dome stops it
       // solid cats stop it (like a missile)
       let gone = false
@@ -2818,8 +2820,8 @@
       // NO time limit: a bullet lives until it leaves the overlay or hits something
       if (p.x < -20 || p.x > W + 20 || p.y < -20 || p.y > H + 20) { gbullets.splice(i, 1); continue }
       if (inTaskbar(p.x, p.y)) { carveTaskbar(p.x, 0.12); spawnSpark(p.x, p.y); gbullets.splice(i, 1); continue }   // bullets barely dent
-      const plB = hitPlatform(p.x, p.y)
-      if (plB) { damagePlatform(plB, GAT_DMG); spawnSpark(p.x, p.y); gbullets.splice(i, 1); continue }
+      const plB = platformSweep(p.x - p.vx, p.y - p.vy, p.x, p.y)   // 스윕: 빠른 총알이 얇은 플랫폼을 뚫지 못하게
+      if (plB) { damagePlatform(plB.pl, GAT_DMG); spawnSpark(plB.hx, plB.hy); gbullets.splice(i, 1); continue }
       // 배틀 적 유닛/기지 (게틀링도 오버레이 그대로 배틀에서 작동)
       if (battleActive && battle && battlePhase === 'playing' && battleHitAt(p.x, p.y, GAT_DMG * BATTLE_W_MULT, 6 * s)) { spawnSpark(p.x, p.y); gbullets.splice(i, 1); continue }
       // local ants (몸통 히트박스 — 스프라이트 유닛은 발밑이 아닌 몸통 전체)
@@ -4012,9 +4014,12 @@
         drawAnt(a, now, false, myCol); continue
       }
       const gy = antGroundY(a.x)   // dug-surface height at this ant's x
-      if (!a.onGround) {                        // fall from the cursor onto the bar
+      if (!a.onGround) {                        // fall from the cursor onto the bar OR a drawn platform
+        const prevY = a.y
         a.vy += 0.5; a.y += a.vy
-        if (a.y >= gy) { a.y = gy; a.vy = 0; a.onGround = true }
+        const platY = platformFloorAt(a.x, a.y, prevY)               // 그려진 플랫폼 표면
+        const floor = (platY != null && platY <= gy) ? platY : gy    // 플랫폼이 위에 있으면 그 위에 착지
+        if (a.y >= floor) { a.y = floor; a.vy = 0; a.onGround = true; a.onPlat = (platY != null && platY <= gy) }
         drawAnt(a, now, false, myCol); continue
       }
       // target the nearest enemy — an ant OR a gatling turret (both take melee damage)
@@ -4034,7 +4039,10 @@
         a.wanderUntil = now + 700 + Math.random() * 1400; if (Math.random() < 0.35) a.dir *= -1
       }
       if (moving) { a.x += a.dir * 0.9; if (a.x < 8) { a.x = 8; a.dir = 1 } if (a.x > W - 8) { a.x = W - 8; a.dir = -1 } a.step += 0.35 }
-      if (taskbarHoleAt(a.x)) { a.falling = true; a.fallVy = 1; a.fallStart = now; spawnFallFx(a.x, a.y) }   // over a hole → start falling from the surface
+      const platY = platformFloorAt(a.x, a.y, a.y)   // 서 있는 위치에 그려진 플랫폼이 있나
+      if (platY != null) { a.y = platY; a.onPlat = true }                              // 플랫폼 위 계속(따라 걷기)
+      else if (a.onPlat) { a.onPlat = false; a.onGround = false; a.vy = 1; drawAnt(a, now, false, myCol); continue }   // 플랫폼 끝 → 낙하 시작
+      else if (taskbarHoleAt(a.x)) { a.falling = true; a.fallVy = 1; a.fallStart = now; spawnFallFx(a.x, a.y) }   // over a hole → start falling from the surface
       else a.y = gy
       drawAnt(a, now, !moving, myCol)
     }
