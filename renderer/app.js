@@ -3430,6 +3430,9 @@
   // 베이스 캐논(냥코): 시간에 따라 충전, 만충 시 발사 → 내 진영→상대 진영 연쇄 폭발(전원 데미지+넉백). 덱 HUD와 별도 UI.
   let battleCannon = { charge: 0 }, cannonSweep = null, battleCannonEl = null
   const CANNON_FULL_SEC = 25, CANNON_SWEEP_SEC = 0.85, CANNON_DMG = 20, CANNON_BASE_DMG = 8
+  // 기지 터렛(포탑): 각 진영 책상 위, 상대 방향. 내 진영에 근접한 적에게 자동 포물선 포탄(메카 포탄 궤도 재사용, 디자인/폭발은 별도).
+  let battleTurretCd = [0, 0]
+  const TURRET_RANGE = 0.34, TURRET_CD = 2400, TURRET_DMG = 14
   let battleSavedCarve, battleSavedBarDmg = 0
   let battlePhase = 'idle', battlePhaseAt = 0, battleWin = false, battleConfetti = []   // 'countdown' | 'playing' | 'result'
   const BATTLE_CD_MS = 3200   // 3·2·1 (각 800ms) + START(800ms)
@@ -3470,7 +3473,7 @@
     battle = window.BattleSim.newBattle({ speedScale: 0.38 })   // 냥코풍 느린 행군(전략성). 0.44 → 0.38
     battleAtkAt = {}; battleShieldFlash = {}; battleHealFx = []; battleFalls = []; battleDead = []; bproj.length = 0
     battleGhosts = []; battleGhostBase = battle.state.baseHpMax; bunitsLastSend = 0; unitReadyAt = {}
-    battleCannon = { charge: 0 }; cannonSweep = null; buildCannonUI()
+    battleCannon = { charge: 0 }; cannonSweep = null; battleTurretCd = [0, 0]; buildCannonUI()
     battleResultAt = 0; battleLastT = performance.now(); battleActive = true
     battlePhase = 'countdown'; battlePhaseAt = performance.now(); battleConfetti = []   // 3·2·1·START 후 시작
     battleSavedCarve = carve ? carve.slice() : null; battleSavedBarDmg = barDamage; resetTaskbarDig(false)   // 배틀은 복원된(깨끗한) 작업표시줄로 시작
@@ -3552,12 +3555,14 @@
   // 베이스 캐논 UI — 덱 HUD와 별개(상단 중앙, 붉은 테마). 충전 게이지 + 만충 시 발사.
   function buildCannonUI() {
     if (battleCannonEl) battleCannonEl.remove()
-    const el = document.createElement('div'); el.className = 'no-drag bmcannon'
-    el.style.cssText = 'position:fixed;left:50%;top:10px;transform:translateX(-50%);z-index:2147483000;display:flex;align-items:center;gap:8px;background:linear-gradient(180deg,#241318,#160c0e);border:1px solid #5a2b30;border-radius:12px;padding:7px 12px;font-family:system-ui,"맑은 고딕",sans-serif;box-shadow:0 8px 26px rgba(0,0,0,.5)'
-    el.innerHTML = `<span style="font-size:13px;color:#ffb499;font-weight:700">💥 베이스 캐논</span>` +
-      `<div style="width:150px;height:12px;border-radius:6px;background:rgba(0,0,0,.4);overflow:hidden"><div class="bmcfill" style="height:100%;width:0;background:linear-gradient(90deg,#ff8a5c,#ffd24a)"></div></div>` +
-      `<button class="bmcfire" style="padding:6px 12px;border-radius:8px;border:1px solid #7a3b3b;background:#3a1e1e;color:#8a8f9a;font-weight:700;font-size:13px;cursor:default">발사</button>`
-    el.querySelector('.bmcfire').onclick = () => battleCannonFire()
+    // 내 기지(좌하단) 쪽에 세로 게이지 버튼 — 포탑에서 발사되는 특수 캐논. 게이지가 다 차면 클릭 발사.
+    const el = document.createElement('div'); el.className = 'no-drag bmcfire'
+    el.style.cssText = 'position:fixed;left:14px;bottom:96px;z-index:2147483000;width:64px;height:80px;border-radius:12px;border:2px solid #5a2b30;background:#160c0e;overflow:hidden;cursor:default;user-select:none;font-family:system-ui,"맑은 고딕",sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.5)'
+    el.innerHTML =
+      `<div class="bmcfill" style="position:absolute;left:0;bottom:0;width:100%;height:0;background:linear-gradient(180deg,#ff8a5c,#ffd24a);opacity:.85"></div>` +
+      `<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none">` +
+      `<div style="font-size:22px;line-height:1">💥</div><div class="bmclbl" style="font-size:10px;font-weight:700;color:#ffd9c0;margin-top:2px">캐논</div></div>`
+    el.onclick = () => battleCannonFire()
     document.body.appendChild(el); battleCannonEl = el
   }
   function battleCannonFire() {
@@ -3585,6 +3590,28 @@
       if (battleMulti) { if (connected()) net.send(JSON.stringify({ t: 'bbhit', to: battleMulti.oppId, dmg: CANNON_BASE_DMG })) } else battle.hitBase(1, CANNON_BASE_DMG)
     }
     if (el > CANNON_SWEEP_SEC + 0.1) cannonSweep = null
+  }
+  // 기지 터렛 기본 공격: 근접한 적에게 포물선 포탄(메카 포탄 궤도) 발사
+  function fireTurretShell(side, tL) {
+    const baseX = battleLaneX(side === 0 ? 0 : 1), face = side === 0 ? 1 : -1
+    const sx = baseX + face * 20 * view.scale, sy = antGroundY(baseX) - 60 * view.scale   // 포탑 포구
+    const tx = battleLaneX(tL), ty = antGroundY(tx) - 18 * view.scale
+    const grav = 900 * view.scale                                          // stepBattleProj와 동일(초 단위)
+    const T = Math.max(0.5, Math.min(1.4, Math.abs(tx - sx) / (360 * view.scale)))   // 비행 시간(초)
+    const vx = (tx - sx) / T, vy = (ty - sy - 0.5 * grav * T * T) / T       // T초 뒤 (tx,ty)에 착탄하는 포물선
+    bproj.push({ x: sx, y: sy, vx, vy, bside: side, dmg: TURRET_DMG, pow: TURRET_DMG, kind: 'turret', kb: true, aoe: 0, slow: 0, slowDur: 0, born: performance.now(), life: PROJ_LIFE.turret })
+  }
+  function stepTurrets(now) {
+    if (battlePhase !== 'playing' || !battle) return
+    for (let side = 0; side <= 1; side++) {
+      if (battleMulti && side === 1) continue   // 멀티: 상대 터렛은 상대 클라가 처리
+      if (now < battleTurretCd[side]) continue
+      const baseL = side === 0 ? 0 : 1
+      let target = null, bd = TURRET_RANGE
+      const enemies = (battleMulti && side === 0) ? battleGhosts : battle.state.units.filter((u) => u.side !== side && u.hp > 0)
+      for (const e of enemies) { const d = Math.abs(e.L - baseL); if (d < bd) { bd = d; target = e } }
+      if (target) { fireTurretShell(side, target.L); battleTurretCd[side] = now + TURRET_CD }
+    }
   }
   function stopBattle() {
     // 멀티: 결과 연출 없이 나가면(중도 이탈) 상대에게 패배 통지
@@ -3666,10 +3693,13 @@
     document.body.appendChild(h); battleHud = h
   }
   function updateBattleHud() {
-    if (battleCannonEl && battleCannon) {   // 캐논 게이지/발사 버튼
-      const full = battleCannon.charge >= 1, fill = battleCannonEl.querySelector('.bmcfill'), fire = battleCannonEl.querySelector('.bmcfire')
-      if (fill) fill.style.width = Math.round(battleCannon.charge * 100) + '%'
-      if (fire) { fire.style.cursor = full ? 'pointer' : 'default'; fire.style.background = full ? '#c0392b' : '#3a1e1e'; fire.style.color = full ? '#fff' : '#8a8f9a'; fire.style.borderColor = full ? '#e05a4a' : '#7a3b3b'; fire.textContent = full ? '💥 발사!' : '충전 중' }
+    if (battleCannonEl && battleCannon) {   // 캐논 세로 게이지 버튼
+      const full = battleCannon.charge >= 1, fill = battleCannonEl.querySelector('.bmcfill'), lbl = battleCannonEl.querySelector('.bmclbl')
+      if (fill) fill.style.height = Math.round(battleCannon.charge * 100) + '%'
+      battleCannonEl.style.cursor = full ? 'pointer' : 'default'
+      battleCannonEl.style.borderColor = full ? '#ff6b4a' : '#5a2b30'
+      battleCannonEl.style.boxShadow = full ? '0 0 16px rgba(255,120,60,.7)' : '0 8px 24px rgba(0,0,0,.5)'
+      if (lbl) lbl.textContent = full ? '발사!' : '캐논'
     }
     if (!battleHud || !battle) return
     const mana = battle.state.mana[0], buff = battle.state.manaBuff ? (battle.state.manaBuff[0] || 0) : 0
@@ -3724,6 +3754,7 @@
     for (let i = battleFalls.length - 1; i >= 0; i--) { const f = battleFalls[i]; f.vy += 0.8; f._y = (f._y || 0) + f.vy; if (f._y > canvas.clientHeight + 60) battleFalls.splice(i, 1) }   // 구멍으로 낙하
     stepBattleProj(now, dt)
     stepCannon(now, dt)   // 베이스 캐논 충전/스윕
+    stepTurrets(now)      // 기지 터렛 자동 포격
     for (let i = battleDead.length - 1; i >= 0; i--) if (now - battleDead[i].born > 900) battleDead.splice(i, 1)
     updateBattleHud()
     if (battleMulti) {   // 멀티: 내 기지 HP가 권한(상대가 bbhit 릴레이). 0이면 내 패배 → 상대에게 통지.
@@ -3805,10 +3836,30 @@
     }
     for (const d of battleDead) { const p = Math.min(1, (now - d.born) / 900); window.BattleSprites.draw(ctx, d.id, { x: battleLaneX(d.L), y: antGroundY(battleLaneX(d.L)), scale: view.scale * BATTLE_UNIT_SCALE, facing: d.side === 0 ? 1 : -1, state: 'death', t: 0, deathT: p }) }
     for (const f of battleFalls) { const fx = battleLaneX(f.L), fy = antGroundY(fx) + (f._y || 0); ctx.save(); ctx.globalAlpha = Math.max(0, 1 - (f._y || 0) / (canvas.clientHeight * 0.8)); window.BattleSprites.draw(ctx, f.id, { x: fx, y: fy, scale: view.scale * BATTLE_UNIT_SCALE * (window.BattleData.UNITS[f.id] ? (window.BattleData.UNITS[f.id].size || 1) : 1), facing: f.side === 0 ? 1 : -1, state: 'walk', t: now / 1000 }); ctx.restore() }   // 구멍으로 떨어지는 유닛
+    drawBattleTurret(battleLaneX(0), 0, now); drawBattleTurret(battleLaneX(1), 1, now)   // 각 진영 포탑(상대 바라봄)
     drawBattleProj(now)   // 투사체(총알·포탄·에너지·수류탄 등)
     // 기지 HP 바 (양 끝 고양이 위)
     drawBattleBaseHp(battleLaneX(0), 0); drawBattleBaseHp(battleLaneX(1), 1)
     drawBattleFX(now)   // 카운트다운 / 승패 연출(화면 중앙)
+  }
+  // 기지 포탑 — 책상 위, 상대 방향(냥코 포탑 느낌). 발사 직후 반동 + 포구 화염.
+  function drawBattleTurret(baseX, side, now) {
+    const s = view.scale, face = side === 0 ? 1 : -1
+    const gy = antGroundY(baseX), x = baseX + face * 6 * s
+    const kick = (battleTurretCd[side] && now - (battleTurretCd[side] - TURRET_CD) < 200) ? -3 * s : 0   // 발사 직후 살짝 반동
+    ctx.save(); ctx.translate(x + kick * face, 0)
+    // 받침대(모래주머니/철제)
+    ctx.fillStyle = '#4a4e5a'; ctx.beginPath(); ctx.moveTo(-14 * s, gy); ctx.lineTo(14 * s, gy); ctx.lineTo(10 * s, gy - 16 * s); ctx.lineTo(-10 * s, gy - 16 * s); ctx.closePath(); ctx.fill()
+    ctx.fillStyle = '#5a6070'; ctx.beginPath(); ctx.arc(0, gy - 16 * s, 9 * s, Math.PI, 0); ctx.fill()   // 회전 포탑 돔
+    ctx.strokeStyle = '#2b2f39'; ctx.lineWidth = 1.4 * s; ctx.beginPath(); ctx.arc(0, gy - 16 * s, 9 * s, Math.PI, 0); ctx.stroke()
+    // 포신(상대 방향으로 약간 위로)
+    ctx.save(); ctx.translate(0, gy - 18 * s); ctx.rotate(face * -0.35)
+    ctx.fillStyle = '#3a3e48'; ctx.fillRect(0, -3.2 * s, face * 24 * s, 6.4 * s)
+    ctx.fillStyle = '#22252c'; ctx.fillRect(face * 20 * s, -4 * s, face * 5 * s, 8 * s)   // 포구
+    ctx.restore()
+    // 포신 밑동 힌지
+    ctx.fillStyle = '#2b2f39'; ctx.beginPath(); ctx.arc(0, gy - 18 * s, 3.2 * s, 0, 7); ctx.fill()
+    ctx.restore()
   }
   // 자동 쉴드 시각화 = 기존 오버레이 쉴드 돔(drawHexDome) 재사용. HP 저하 색/깜빡임/벌집·림 그대로.
   function drawBattleShield(x, y, s, u, now) {
@@ -3958,9 +4009,9 @@
     if (type === 'boss') return 'shellbig'
     return 'bullet'   // rifleman/drone/freezer/scout = 게틀링 총알 크기
   }
-  const PROJ_SPD = { bullet: 560, sniper: 950, shell: 400, shellbig: 340, energy: 440, adogen: 320, grenade: 300, missile: 620 }
-  const PROJ_LIFE = { bullet: 1500, sniper: 1500, shell: 3000, shellbig: 3000, energy: 3000, adogen: 2200, grenade: 3000, missile: 3500 }
-  const PROJ_DIG = { bullet: 0.15, sniper: 0.2, shell: 1.2, shellbig: 1.7, energy: 0.6, adogen: 0.9, grenade: 1.5, missile: 1.8 }
+  const PROJ_SPD = { bullet: 560, sniper: 950, shell: 400, shellbig: 340, energy: 440, adogen: 320, grenade: 300, missile: 620, turret: 380 }
+  const PROJ_LIFE = { bullet: 1500, sniper: 1500, shell: 3000, shellbig: 3000, energy: 3000, adogen: 2200, grenade: 3000, missile: 3500, turret: 4000 }
+  const PROJ_DIG = { bullet: 0.15, sniper: 0.2, shell: 1.2, shellbig: 1.7, energy: 0.6, adogen: 0.9, grenade: 1.5, missile: 1.8, turret: 1.4 }
   // 총구/발사구 위치(스프라이트 로컬 좌표: x=앞쪽+, y=발밑에서 위로+). 스케일(s)·facing 적용해 실제 총구에서 발사되게.
   const PROJ_MUZZLE = { rifleman: { x: 26, y: 22 }, sniper: { x: 30, y: 22 }, grenadier: { x: 11, y: 28 }, drone: { x: 15, y: 20 }, freezer: { x: 14, y: 22 }, mechaAnt: { x: 22, y: 30 }, mechaHuman: { x: 18, y: 34 }, human: { x: 16, y: 28 }, boss: { x: 26, y: 40 }, _default: { x: 16, y: 22 } }
   // 무기(덱) 배틀 발사 — 오버레이 무기 시스템을 "그대로" 사용(캐릭터 기준 발사·커서 추적·합체·핵·리틀보이 등).
@@ -4084,13 +4135,20 @@
       bproj.push({ x: bx, y: by, vx, vy, bside: ev.side, dmg: ev.dmg, pow: ev.dmg, kind, aoe: (ev.atkType === 'aoe' || kind === 'grenade') ? (ev.aoeR || 0.05) : 0, slow: ev.slow, slowDur: ev.slowDur, born: nowP, life: PROJ_LIFE[kind] })
     }
   }
+  // 터렛 포탄 폭발 — 메카 스파크와 다른 연출: 큰 폭발 + 주황 파편 샤워
+  function turretBoom(x, y) {
+    addEffect(x, y, 3)
+    for (let k = 0; k < 9; k++) spawnDebris(x + (Math.random() - 0.5) * 28 * view.scale, y - Math.random() * 14 * view.scale, 1, k % 2 ? '#ffcf6b' : '#ff7d3a')
+    spawnSpark(x, y)
+  }
   function stepBattleProj(now, dt) {
     const W = canvas.clientWidth, grav = 900 * view.scale
     for (let i = bproj.length - 1; i >= 0; i--) {
       const p = bproj[i]
-      if (p.kind === 'grenade') p.vy += grav * dt
+      if (p.kind === 'grenade' || p.kind === 'turret') p.vy += grav * dt   // 포물선(수류탄·터렛)
       p.x += p.vx * dt; p.y += p.vy * dt
       let done = false
+      const isTurret = p.kind === 'turret'
       // 적 유닛 충돌 (디자인별 몸통 박스)
       for (const u of battle.state.units) {
         if (u.side === p.bside || u.hp <= 0) continue
@@ -4098,7 +4156,8 @@
         const feetY = battleUnitFeetY(ux, def.flying)
         if (inUnitBody(p.x, p.y, ux, feetY, u.type, def.size, 2 * view.scale)) {
           const before = u.hp
-          if (p.aoe) { for (const e of battle.state.units) if (e.side !== p.bside && e.hp > 0 && Math.abs(battleLaneX(e.L) - p.x) < p.aoe * W) battle.hitUnit(e.uid, p.dmg, p.slow, p.slowDur); addEffect(p.x, p.y, 1); done = true }
+          if (isTurret) { battle.hitUnit(u.uid, p.dmg, 0, 0, true); turretBoom(p.x, p.y); done = true }   // 터렛: 명중 폭발 + 강제 넉백
+          else if (p.aoe) { for (const e of battle.state.units) if (e.side !== p.bside && e.hp > 0 && Math.abs(battleLaneX(e.L) - p.x) < p.aoe * W) battle.hitUnit(e.uid, p.dmg, p.slow, p.slowDur); addEffect(p.x, p.y, 1); done = true }
           else { battle.hitUnit(u.uid, p.dmg, p.slow, p.slowDur); spawnSpark(p.x, p.y); if (p.pow > before) { p.pow -= before } else { done = true } }   // 관통: 파워 > 대상 HP면 뚫고 진행
           break
         }
@@ -4110,8 +4169,8 @@
           if (g.hp <= 0) continue
           const gx = battleLaneX(g.L), gdef = window.BattleData.UNITS[g.type] || {}
           if (inUnitBody(p.x, p.y, gx, battleUnitFeetY(gx, gdef.flying), g.type, gdef.size, 2 * view.scale)) {
-            if (p.aoe) { for (const e of battleGhosts) if (e.hp > 0 && Math.abs(battleLaneX(e.L) - p.x) < p.aoe * W && connected()) net.send(JSON.stringify({ t: 'bghit', to: battleMulti.oppId, uid: e.uid, dmg: p.dmg, slow: p.slow || 0, slowDur: p.slowDur || 0 })); addEffect(p.x, p.y, 1) }
-            else { if (connected()) net.send(JSON.stringify({ t: 'bghit', to: battleMulti.oppId, uid: g.uid, dmg: p.dmg, slow: p.slow || 0, slowDur: p.slowDur || 0 })); spawnSpark(p.x, p.y) }
+            if (!isTurret && p.aoe) { for (const e of battleGhosts) if (e.hp > 0 && Math.abs(battleLaneX(e.L) - p.x) < p.aoe * W && connected()) net.send(JSON.stringify({ t: 'bghit', to: battleMulti.oppId, uid: e.uid, dmg: p.dmg, slow: p.slow || 0, slowDur: p.slowDur || 0 })); addEffect(p.x, p.y, 1) }
+            else { if (connected()) net.send(JSON.stringify({ t: 'bghit', to: battleMulti.oppId, uid: g.uid, dmg: p.dmg, slow: p.slow || 0, slowDur: p.slowDur || 0, kb: (isTurret || p.kb) ? 1 : 0 })); isTurret ? turretBoom(p.x, p.y) : spawnSpark(p.x, p.y) }
             g.hp -= p.dmg; done = true; break
           }
         }
@@ -4122,7 +4181,8 @@
       if (Math.abs(p.x - bx) < 26 * view.scale && p.y > antGroundY(bx) - 92 * view.scale) {
         if (battleMulti && p.bside === 0) { if (connected()) net.send(JSON.stringify({ t: 'bbhit', to: battleMulti.oppId, dmg: p.dmg })) }
         else battle.hitBase(p.bside === 0 ? 1 : 0, p.dmg)
-        if (p.aoe) addEffect(p.x, p.y, 1); else spawnSpark(p.x, p.y); bproj.splice(i, 1); continue
+        if (isTurret) turretBoom(p.x, p.y); else if (p.aoe) addEffect(p.x, p.y, 1); else spawnSpark(p.x, p.y)
+        bproj.splice(i, 1); continue
       }
       // 땅 충돌 → 파임 (참호 전략)
       if (inTaskbar(p.x, p.y)) { carveTaskbar(p.x, PROJ_DIG[p.kind], false); if (p.aoe || PROJ_DIG[p.kind] >= 1) addEffect(p.x, p.y, 1); else spawnSpark(p.x, p.y); bproj.splice(i, 1); continue }
@@ -4135,7 +4195,16 @@
     for (const p of bproj) {
       const ang = Math.atan2(p.vy, p.vx), spd = Math.hypot(p.vx, p.vy) || 1
       const ux = p.vx / spd, uy = p.vy / spd   // 진행 방향 단위벡터(꼬리 그리기)
-      if (p.kind === 'bullet' || p.kind === 'sniper') {
+      if (p.kind === 'turret') {
+        // 터렛 포탄: 검은 쇠구슬 + 불꽃 도화선 + 회전 연기 꼬리
+        const R = 7 * s
+        ctx.fillStyle = 'rgba(90,90,90,.28)'
+        for (let k = 1; k <= 3; k++) { ctx.beginPath(); ctx.arc(p.x - ux * R * k, p.y - uy * R * k, R * (0.75 - k * 0.16), 0, 7); ctx.fill() }
+        ctx.fillStyle = '#2a2a30'; ctx.beginPath(); ctx.arc(p.x, p.y, R, 0, 7); ctx.fill()
+        ctx.fillStyle = '#5a5a66'; ctx.beginPath(); ctx.arc(p.x - R * 0.35, p.y - R * 0.35, R * 0.35, 0, 7); ctx.fill()   // 하이라이트
+        const fl = 0.6 + 0.4 * Math.sin(t * 30 + p.x)
+        ctx.fillStyle = `rgba(255,${Math.round(160 + fl * 60)},60,.95)`; ctx.beginPath(); ctx.arc(p.x, p.y - R - 1 * s, 2.2 * s * fl, 0, 7); ctx.fill()   // 도화선 불꽃
+      } else if (p.kind === 'bullet' || p.kind === 'sniper') {
         // 라이플/저격: 발광 예광탄 — 긴 트레일 + 밝은 코어
         const len = (p.kind === 'sniper' ? 26 : 15) * s, r = (p.kind === 'sniper' ? 3.4 : 2.6) * s
         const col = p.kind === 'sniper' ? '150,225,255' : '255,226,120'
