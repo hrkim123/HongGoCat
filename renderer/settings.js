@@ -101,8 +101,9 @@
   { const ha = $('heal-all'); if (ha) ha.onclick = () => api.toOverlay({ t: 'heal-all' }) }
 
   btnDisconnect.onclick = () => api.toOverlay({ t: 'disconnect' })
-  $('btn-monitor').onclick = () => api.toOverlay({ t: 'next-monitor' })
-  $('btn-restore-bar').onclick = () => api.toOverlay({ t: 'reset-taskbar' })
+  // 🖥 화면 전환 · 🧱 땅 복구 → 햄버거 메뉴 하단으로 이동(설정에서 제거). 남은 버튼이 있으면만 연결.
+  { const m = $('btn-monitor'); if (m) m.onclick = () => api.toOverlay({ t: 'next-monitor' }) }
+  { const r = $('btn-restore-bar'); if (r) r.onclick = () => api.toOverlay({ t: 'reset-taskbar' }) }
   $('btn-chat').onclick = () => api.toOverlay({ t: 'chat' })
   $('btn-check-update').onclick = () => { if (api.checkUpdate) api.checkUpdate() }
   { const q = $('btn-quit'); if (q) q.onclick = () => api.toOverlay({ t: 'quit' }) }   // 종료는 햄버거 메뉴로 이동

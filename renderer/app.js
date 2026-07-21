@@ -972,6 +972,8 @@
       weapon: () => openWeaponLoadout(),         // ⚔ 무기 설정: 전용 팝업(오버레이 단축키 슬롯)
       achievements: () => openAchv(),            // 🏆 업적: 기존 팝업
       settings: () => inputSource.openSettings(), // ⚙ 설정: 기존 설정 창
+      restoreBar: () => resetTaskbarDig(),       // 🧱 땅 복구: 파인 작업표시줄 복원(모두 함께)
+      switchView: () => { try { window.bongo.toOverlay({ t: 'next-monitor' }) } catch (e) {} }, // 🖥 화면 전환: 다음 모니터
       quit: () => { try { inputSource.quit() } catch (e) {} }, // ⏻ 홍고캣 종료
     })
     window.__bgModalChanged = () => sendHotzone()   // 배틀 팝업 열림/닫힘 → hotzone 갱신
@@ -2801,6 +2803,8 @@
       if (inTaskbar(p.x, p.y)) { carveTaskbar(p.x, 0.12); spawnSpark(p.x, p.y); gbullets.splice(i, 1); continue }   // bullets barely dent
       const plB = hitPlatform(p.x, p.y)
       if (plB) { damagePlatform(plB, GAT_DMG); spawnSpark(p.x, p.y); gbullets.splice(i, 1); continue }
+      // 배틀 적 유닛/기지 (게틀링도 오버레이 그대로 배틀에서 작동)
+      if (battleActive && battle && battlePhase === 'playing' && battleHitAt(p.x, p.y, GAT_DMG * BATTLE_W_MULT, 6 * s)) { spawnSpark(p.x, p.y); gbullets.splice(i, 1); continue }
       // local ants
       let hitLocalAnt = false
       for (const an of ants) if (!an.dead && Math.hypot(p.x - an.x, p.y - an.y) < 14 * s) { antTakeDmg(an, GAT_DMG); if (an.dead) addAntKill(); hitLocalAnt = true; break }
@@ -3350,6 +3354,8 @@
   let battleActive = false, battle = null, battleAI = null, battleLastT = 0, battleResultAt = 0
   let battleAtkAt = {}, battleDead = [], battleOpp = null, battleHud = null
   let battleSavedCarve, battleSavedBarDmg = 0
+  let battlePhase = 'idle', battlePhaseAt = 0, battleWin = false, battleConfetti = []   // 'countdown' | 'playing' | 'result'
+  const BATTLE_CD_MS = 3200   // 3·2·1 (각 800ms) + START(800ms)
   const BATTLE_PAD = 90
   const BATTLE_UNIT_SCALE = 2.86   // 배틀 유닛 렌더 배율 (2.2 → ×1.3 확대)
   function battleLaneX(L) { const W = canvas.clientWidth; return BATTLE_PAD + L * (W - 2 * BATTLE_PAD) }   // side0 기지=좌
@@ -3360,11 +3366,12 @@
     battleAI = battle.makeAI(1, ['ant', 'rifleman', 'grenadier', 'mechaAnt', 'mechaHuman'].filter((id) => window.BattleData.UNITS[id]), 1.4)
     battleOpp = Object.assign({ id: 'battleOpp', animal: 'cat', name: '상대', skin: 'gray', pattern: 'solid', hat: 'none', ear: 'pointed', eye: 'oval', mouth: 'smile', tail: 'curl', shape: {}, hp: CAT_HP }, newAnimState())
     battleAtkAt = {}; battleDead = []; bproj.length = 0; battleResultAt = 0; battleLastT = performance.now(); battleActive = true
+    battlePhase = 'countdown'; battlePhaseAt = performance.now(); battleConfetti = []   // 3·2·1·START 후 시작
     battleSavedCarve = carve ? carve.slice() : null; battleSavedBarDmg = barDamage; resetTaskbarDig(false)   // 배틀은 복원된(깨끗한) 작업표시줄로 시작
     buildBattleHud(); sendHotzone()
   }
   function stopBattle() {
-    battleActive = false; battle = null; bproj.length = 0
+    battleActive = false; battle = null; bproj.length = 0; battlePhase = 'idle'; battleConfetti = []
     if (battleSavedCarve !== undefined) { carve = battleSavedCarve; barDamage = battleSavedBarDmg || 0; carveDirty = true; battleSavedCarve = undefined }   // 원래 작업표시줄 상태 복귀
     if (battleHud) { battleHud.remove(); battleHud = null } sendHotzone()
   }
@@ -3416,6 +3423,8 @@
   }
   function stepBattle(now) {
     let dt = (now - (battleLastT || now)) / 1000; battleLastT = now; if (dt > 0.1) dt = 0.1
+    // 카운트다운 중엔 시뮬 정지(마나·행군 없음). 화면만 배틀 뷰.
+    if (battlePhase === 'countdown') { if (now - battlePhaseAt >= BATTLE_CD_MS) { battlePhase = 'playing'; battleLastT = now } return }
     if (battleAI) battleAI(dt); battle.step(dt)
     for (const e of battle.drainEvents()) {
       if (e.type === 'hit') battleAtkAt[e.by] = now
@@ -3425,8 +3434,8 @@
     stepBattleProj(now, dt)
     for (let i = battleDead.length - 1; i >= 0; i--) if (now - battleDead[i].born > 900) battleDead.splice(i, 1)
     updateBattleHud()
-    if (battle.state.winner != null && !battleResultAt) { battleResultAt = now; const win = battle.state.winner === 0; showToast(win ? '🏆 승리!' : '💀 패배') }
-    if (battleResultAt && now - battleResultAt > 3000) stopBattle()
+    if (battle.state.winner != null && battlePhase !== 'result') { battlePhase = 'result'; battleResultAt = now; battleWin = battle.state.winner === 0; seedBattleConfetti() }
+    if (battleResultAt && now - battleResultAt > 3000) stopBattle()   // 결과 연출 3초 뒤 원래 화면 복귀
   }
   function drawBattleUnits(now) {
     if (!battle || !window.BattleSprites) return
@@ -3446,6 +3455,53 @@
     drawBattleProj(now)   // 투사체(총알·포탄·에너지·수류탄 등)
     // 기지 HP 바 (양 끝 고양이 위)
     drawBattleBaseHp(battleLaneX(0), 0); drawBattleBaseHp(battleLaneX(1), 1)
+    drawBattleFX(now)   // 카운트다운 / 승패 연출(화면 중앙)
+  }
+  function seedBattleConfetti() {
+    battleConfetti = []
+    const W = canvas.clientWidth, cols = ['#4aa3ff', '#7ee0ff', '#ffd86b', '#8ff0c8', '#ff9d3a', '#ff6b8a']
+    for (let i = 0; i < 90; i++) battleConfetti.push({ x: Math.random() * W, y: -Math.random() * canvas.clientHeight * 0.6, vx: (Math.random() - 0.5) * 2, vy: 2 + Math.random() * 4, r: 3 + Math.random() * 4, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 0.4, c: cols[i % cols.length] })
+  }
+  // 카운트다운(3·2·1·START) + 승/패(WIN/LOSE) 화면 중앙 연출
+  function drawBattleFX(now) {
+    const W = canvas.clientWidth, H = canvas.clientHeight, cx = W / 2, cy = H * 0.42, sc = Math.max(1, view.scale)
+    ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+    if (battlePhase === 'countdown') {
+      const el = now - battlePhaseAt, seg = 800, i = Math.floor(el / seg)   // 0,1,2 = 3,2,1 · 3 = START
+      const within = (el % seg) / seg, pop = within < 0.28 ? within / 0.28 : 1   // 0→1 팝인
+      const fade = within > 0.72 ? 1 - (within - 0.72) / 0.28 : 1
+      const label = i >= 3 ? 'START!' : String(3 - i)
+      const big = i >= 3
+      ctx.globalAlpha = Math.max(0, fade)
+      const size = (big ? 82 : 130) * sc * (0.6 + 0.4 * pop)
+      ctx.font = `900 ${size}px system-ui, "맑은 고딕"`
+      ctx.lineWidth = 8 * sc; ctx.strokeStyle = 'rgba(0,0,0,.65)'; ctx.strokeText(label, cx, cy)
+      const g = ctx.createLinearGradient(cx, cy - size / 2, cx, cy + size / 2)
+      if (big) { g.addColorStop(0, '#a8ffd0'); g.addColorStop(1, '#28c07a') } else { g.addColorStop(0, '#fff3c4'); g.addColorStop(1, '#ff9d3a') }
+      ctx.fillStyle = g; ctx.fillText(label, cx, cy)
+      ctx.globalAlpha = 1
+    } else if (battlePhase === 'result') {
+      const el = now - battleResultAt, pop = Math.min(1, el / 260)
+      // 딤 배경
+      ctx.fillStyle = `rgba(6,8,12,${0.34 * pop})`; ctx.fillRect(0, 0, W, H)
+      // 승리 색종이
+      if (battleWin) {
+        for (const p of battleConfetti) {
+          p.x += p.vx; p.y += p.vy; p.rot += p.vr; if (p.y > H + 10) { p.y = -10; p.x = Math.random() * W }
+          ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.fillStyle = p.c; ctx.fillRect(-p.r / 2, -p.r / 2, p.r, p.r * 1.6); ctx.restore()
+        }
+      }
+      const label = battleWin ? 'WIN' : 'LOSE'
+      const size = 118 * sc * (0.5 + 0.5 * pop) * (1 + 0.03 * Math.sin(el / 120))
+      ctx.font = `900 ${size}px system-ui, "맑은 고딕"`
+      ctx.lineWidth = 10 * sc; ctx.strokeStyle = 'rgba(0,0,0,.7)'; ctx.strokeText(label, cx, cy)
+      const g = ctx.createLinearGradient(cx, cy - size / 2, cx, cy + size / 2)
+      if (battleWin) { g.addColorStop(0, '#bfe3ff'); g.addColorStop(0.5, '#4aa3ff'); g.addColorStop(1, '#2f6bd8') } else { g.addColorStop(0, '#ffb0b0'); g.addColorStop(0.5, '#e24b4a'); g.addColorStop(1, '#a52222') }
+      ctx.fillStyle = g; ctx.fillText(label, cx, cy)
+      ctx.font = `600 ${16 * sc}px system-ui`; ctx.fillStyle = 'rgba(255,255,255,.85)'
+      ctx.fillText(battleWin ? '🏆 승리!' : '💀 패배', cx, cy + size * 0.62)
+    }
+    ctx.restore()
   }
   function drawBattleBaseHp(x, side) {
     const sc = Math.max(1, view.scale)
@@ -3501,19 +3557,52 @@
   const PROJ_SPD = { bullet: 560, sniper: 950, shell: 400, shellbig: 340, energy: 440, adogen: 320, grenade: 300, missile: 620 }
   const PROJ_LIFE = { bullet: 1500, sniper: 1500, shell: 3000, shellbig: 3000, energy: 3000, adogen: 2200, grenade: 3000, missile: 3500 }
   const PROJ_DIG = { bullet: 0.15, sniper: 0.2, shell: 1.2, shellbig: 1.7, energy: 0.6, adogen: 0.9, grenade: 1.5, missile: 1.8 }
-  // 무기(덱) 배틀 발사 — 내 기지에서 상대 쪽으로 실제 투사체
+  // 무기(덱) 배틀 발사 — 오버레이 무기 시스템을 "그대로" 사용(캐릭터 기준 발사·커서 추적·합체·핵·리틀보이 등).
+  // 마나만 배틀 코스트로 소모하고, 실제 발사는 기존 오버레이 함수를 호출한다.
+  const BATTLE_W_MULT = 4   // 오버레이 무기의 파워를 배틀 유닛 HP 스케일에 맞게 증폭
   function battleWeaponFire(id) {
     const w = window.BattleData.WEAPONS[id]; if (!w || !battle) return
+    if (battlePhase !== 'playing') { showToast('전투 시작 후 사용'); return }
     const cost = w.mana != null ? w.mana : 2
     if (battle.state.mana[0] < cost) { showToast(`마나 부족 (${cost} 필요)`); return }
     battle.state.mana[0] -= cost; updateBattleHud()
-    const fx = battleLaneX(0), fy = antGroundY(fx) - 40 * view.scale
-    const shots = id === 'gatling' ? 5 : 1, kind = id === 'missile' ? 'missile' : (id === 'gatling' ? 'bullet' : 'shell')
-    const dmg = id === 'missile' ? 18 : (id === 'gatling' ? 3 : 12), pow = id === 'missile' ? 40 : dmg
-    for (let k = 0; k < shots; k++) {
-      const spd = PROJ_SPD[kind] * view.scale, jitter = (Math.random() - 0.5) * 0.12
-      bproj.push({ x: fx, y: fy, vx: spd, vy: spd * jitter, bside: 0, dmg, pow, kind, aoe: id === 'missile' ? 0.05 : 0, slow: 0, slowDur: 0, born: performance.now(), life: PROJ_LIFE[kind] })
+    // 오버레이 무기 그대로 — 미사일: 캐릭터에서 발사 → 커서 추적 → 합체 → 10합체 핵 → 상대 핵과 만나면 리틀보이
+    if (id === 'missile') fireHoming()
+    else if (id === 'gatling') deployGatling()
+    else if (id === 'shield') activateShield()
+    else if (id === 'net') toggleNetAim()
+    else if (id === 'blackhole') activateBlackhole()
+    else if (id === 'lightning') fireBolt(cursor.x, cursor.y, 3)   // 배틀에선 즉발(충전 키업 없음)
+    else fireHoming()
+  }
+  // 오버레이 무기가 명중/폭발한 지점에서 배틀 적 유닛(side1)·적 기지에 데미지. explode/nukeBlast/투사체 스텝에서 호출.
+  function battleHitAt(x, y, dmg, radius) {
+    if (!battleActive || !battle || battlePhase !== 'playing') return false
+    const R = (radius || 0) + 22 * view.scale
+    let hit = false
+    for (const u of battle.state.units) {
+      if (u.side === 0 || u.hp <= 0) continue   // 내 유닛(side0)은 안 맞음
+      const ux = battleLaneX(u.L), def = window.BattleData.UNITS[u.type] || {}
+      const uy = antGroundY(ux) - (def.flying ? 34 * view.scale : 0) - 18 * view.scale
+      if (Math.hypot(x - ux, y - uy) <= R) { battle.hitUnit(u.uid, dmg); hit = true }
     }
+    const bx = battleLaneX(1)   // 적 기지(우측)
+    if (Math.abs(x - bx) <= R + 12 * view.scale && y > antGroundY(bx) - 104 * view.scale) { battle.hitBase(1, dmg); hit = true }
+    return hit
+  }
+  // 미사일이 적 유닛/기지에 닿았는지(폭발 트리거용 근접 판정)
+  function battleMissileHitsEnemy(x, y) {
+    if (!battle) return false
+    const hitR = 20 * view.scale
+    for (const u of battle.state.units) {
+      if (u.side === 0 || u.hp <= 0) continue
+      const ux = battleLaneX(u.L), def = window.BattleData.UNITS[u.type] || {}
+      const uy = antGroundY(ux) - (def.flying ? 34 * view.scale : 0) - 18 * view.scale
+      if (Math.abs(x - ux) < hitR && Math.abs(y - uy) < 26 * view.scale) return true
+    }
+    const bx = battleLaneX(1)
+    if (Math.abs(x - bx) < 26 * view.scale && y > antGroundY(bx) - 96 * view.scale) return true
+    return false
   }
   function battleFire(ev) {
     const byU = battle.unitByUid(ev.by); const kind = projKindFor(byU ? byU.type : 'ant')
@@ -3982,6 +4071,7 @@
   function explode(x, y, power) {
     addEffect(x, y, power)
     const R = blastRadius(power), now = performance.now()
+    battleHitAt(x, y, power * BATTLE_W_MULT, R)   // 배틀 적 유닛/기지에도 폭발 데미지(무기 = 오버레이 그대로)
     for (const a of ants) if (!a.dead && Math.hypot(x - a.x, y - a.y) <= R) { antTakeDmg(a, power); if (a.dead) addAntKill() }
     for (const [pid, rec] of remoteAnts) {
       if (now - rec.ts > 800) continue
@@ -4032,6 +4122,7 @@
   // authoritative (damaging) bomb runs this; local entities damaged directly, remote via relays.
   function nukeBlast(x, y, dmg, R) {
     const now = performance.now(), W = canvas.clientWidth, H = canvas.clientHeight
+    battleHitAt(x, y, dmg * BATTLE_W_MULT, R)   // ☢ 리틀보이/핵 → 배틀 적 유닛·기지에도 광역 데미지
     for (const a of ants) if (!a.dead && Math.hypot(x - a.x, y - a.y) <= R) { antTakeDmg(a, dmg); if (a.dead) addAntKill() }
     for (const [pid, rec] of remoteAnts) { if (now - rec.ts > 800) continue; for (const a of rec.items.values()) { if (a.dead) continue; const s = remoteAntScreenPos(pid, a); if (s && Math.hypot(x - s.x, y - s.y) <= R && connected()) net.send(JSON.stringify({ t: 'ant-hit', target: pid, ant: a.id, dmg })) } }
     for (let i = 0; i < catPos.length; i++) { const cat = allRef[i], c = catPos[i]; if (!cat || !c) continue; if (Math.hypot(x - c.x, y - c.y) > R + 30 * view.scale) continue; if (catShieldCovers(cat, c, x, y, now)) continue; applyCatHit(cat, dmg, now); if (cat.id !== 'me') addCatHit() }
@@ -4168,6 +4259,11 @@
           addEffect(p.x, p.y, 1); spawnSpark(p.x, p.y)
           if (p.power > (rmm.power || 1)) { p.power -= (rmm.power || 1); p.pierceCd = now + 120 }   // punch through, shrink
           else { explode(p.x, p.y, p.power); bcBoom('missile', p.mid, p.x, p.y, p.power); projectiles.splice(i, 1); continue }
+        }
+        // 배틀 적 유닛/기지에 명중 → 폭발(explode 안에서 battleHitAt로 데미지). 무기 = 오버레이 그대로.
+        if (battleActive && battle && battlePhase === 'playing' && battleMissileHitsEnemy(p.x, p.y)) {
+          explode(p.x, p.y, p.power); bcBoom('missile', p.mid, p.x, p.y, p.power)
+          projectiles.splice(i, 1); continue
         }
         // cat (SOLID — always detonates), peer gatling bullet, OR taskbar
         if (hitTestCats(p.x, p.y) || hitRemoteGBullet(p.x, p.y) || inTaskbar(p.x, p.y)) {

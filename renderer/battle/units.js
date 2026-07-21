@@ -49,7 +49,8 @@
     },
     shielder: {
       name: '쉴더', cat: 'unit', rarity: 'uncommon', cost: 2, hp: 40,
-      speed: 0.10, atk: { type: 'none' }, shield: { absorb: 10 },
+      speed: 0.10, atk: { type: 'none' },
+      battleShield: { absorb: 30, cooldown: 4 }, // 실제 자동 쉴드(30 흡수, 앞면 방패). 피격 없이 4s 지나야 재충전(교전 중 재생 X). ※예전엔 shield를 HP에 합산만 했음 → 실제 쉴드로 승격
       art: 'ant-shield', size: 1.2, // 방패 든 개미. 탱커(공격 없음)
     },
     mechaAnt: {
