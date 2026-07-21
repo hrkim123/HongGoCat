@@ -1773,6 +1773,14 @@
       const bh = blackholePull(p, now); if (bh) { spawnDustToHole(p.x, p.y, bh); hbullets.splice(i, 1); continue }
       p.x += p.vx; p.y += p.vy
       if (p.x < -20 || p.x > W + 20 || p.y < -20 || p.y > H + 20) { hbullets.splice(i, 1); continue }
+      if (battleActive && p.bfoe != null) {   // 배틀 인간 유닛의 아도겐 = 상대 side만 타격(오버레이 개미/고양이 충돌은 건너뜀)
+        if (battleProjCollide(p, (p.waveR || 16 * s) * 0.6, p.hp * 0.32)) { addEffect(p.x, p.y, 1); spawnSpark(p.x, p.y); hbullets.splice(i, 1); continue }
+        const rr = (p.waveR || 16 * s) * 0.9   // 아도겐 글로우
+        const grd = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rr)
+        grd.addColorStop(0, 'rgba(235,250,255,0.95)'); grd.addColorStop(0.5, 'rgba(120,200,255,0.8)'); grd.addColorStop(1, 'rgba(80,160,255,0)')
+        ctx.save(); ctx.fillStyle = grd; ctx.beginPath(); ctx.arc(p.x, p.y, rr, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#eaf8ff'; ctx.beginPath(); ctx.arc(p.x, p.y, rr * 0.4, 0, Math.PI * 2); ctx.fill(); ctx.restore()
+        continue
+      }
       if (inTaskbar(p.x, p.y)) { carveTaskbar(p.x, p.adogen ? p.hp * 0.32 : (p.wave ? p.hp * 0.05 : 0.1)); spawnSpark(p.x, p.y); bcBoom('hbullet', p.id, p.x, p.y, 1); hbullets.splice(i, 1); continue }   // 아도겐: dig scales with size (~40% of before); 검기: ~3× its old dent
       const energy = p.wave || p.adogen, waveR = p.waveR || 16 * s
       const hpFrac = energy && p.hp0 ? p.hp / p.hp0 : 1
@@ -2304,6 +2312,10 @@
       { const bh = blackholePull(p, now); if (bh) { spawnDustToHole(p.x, p.y, bh); mechaShells.splice(i, 1); continue } }   // black hole sucks it in
       p.vy += MSHELL_GRAV * s; p.x += p.vx; p.y += p.vy
       if (p.x < -30 || p.x > W + 30 || p.y > H + 30) { mechaShells.splice(i, 1); continue }
+      if (battleActive && p.bfoe != null) {   // 배틀 유닛의 포탄 = 상대 side만 타격 + 빗나가면 땅파임(참호)
+        if (battleProjCollide(p, 8 * view.scale, 1.0)) { mechaShellImpact(p); mechaShells.splice(i, 1); continue }
+        drawMechaShell(p); continue
+      }
       const rm = hitRemoteMissile(p.x, p.y, MSHELL_DMG)   // collidable vs missiles (mutual)
       if (rm) { if (connected()) net.send(JSON.stringify({ t: 'col-dmg', target: rm.pid, kind: 'missile', eid: rm.id, dmg: MSHELL_DMG })); p.hp -= (rm.power || 1); mechaShellImpact(p); if (p.hp <= 0) { bcBoom('mshell', p.id, p.x, p.y, 3); mechaShells.splice(i, 1); continue } }
       let hitP = false
@@ -2378,6 +2390,10 @@
       { const bh = blackholePull(p, now); if (bh) { spawnDustToHole(p.x, p.y, bh); energyShots.splice(i, 1); continue } }   // black hole sucks it in
       p.x += p.vx; p.y += p.vy
       if (p.x < -60 || p.x > W + 60 || p.y < -60 || p.y > H + 60) { energyShots.splice(i, 1); continue }
+      if (battleActive && p.bfoe != null) {   // 배틀 유닛의 에너지포 = 상대 side만 타격
+        if (battleProjCollide(p, 9 * view.scale, 0.6)) { addEffect(p.x, p.y, 2); spawnSpark(p.x, p.y); energyShots.splice(i, 1); continue }
+        drawEnergyShot(p, now); continue
+      }
       if (safeDomeBlocks(p.x, p.y)) { addEffect(p.x, p.y, 2); spawnSpark(p.x, p.y); bcBoom('mshell', p.id, p.x, p.y, 2); energyShots.splice(i, 1); continue }   // peace-mode dome stops it
       // solid cats stop it (like a missile)
       let gone = false
@@ -3679,20 +3695,61 @@
     else if (id === 'lightning') fireBolt(cursor.x, cursor.y, 3)   // 배틀에선 즉발(충전 키업 없음)
     else fireHoming()
   }
-  // 오버레이 무기가 명중/폭발한 지점에서 배틀 적 유닛(side1)·적 기지에 데미지. explode/nukeBlast/투사체 스텝에서 호출.
-  function battleHitAt(x, y, dmg, radius) {
+  // 지정한 side(foeSide)의 유닛/기지에만 데미지. 투사체 소유 side에 따라 상대만 맞게(양측 유닛 무기 재사용 일관).
+  function battleHitSide(x, y, dmg, radius, foeSide) {
     if (!battleActive || !battle || battlePhase !== 'playing') return false
     const R = (radius || 0) + 22 * view.scale
     let hit = false
     for (const u of battle.state.units) {
-      if (u.side === 0 || u.hp <= 0) continue   // 내 유닛(side0)은 안 맞음
+      if (u.side !== foeSide || u.hp <= 0) continue
       const ux = battleLaneX(u.L), def = window.BattleData.UNITS[u.type] || {}
       const uy = antGroundY(ux) - (def.flying ? 34 * view.scale : 0) - 18 * view.scale
       if (Math.hypot(x - ux, y - uy) <= R) { battle.hitUnit(u.uid, dmg); hit = true }
     }
-    const bx = battleLaneX(1)   // 적 기지(우측)
-    if (Math.abs(x - bx) <= R + 12 * view.scale && y > antGroundY(bx) - 104 * view.scale) { battle.hitBase(1, dmg); hit = true }
+    const bx = battleLaneX(foeSide)   // 그 side의 기지
+    if (Math.abs(x - bx) <= R + 12 * view.scale && y > antGroundY(bx) - 104 * view.scale) { battle.hitBase(foeSide, dmg); hit = true }
     return hit
+  }
+  // 플레이어 오버레이 무기(미사일 등)는 항상 적(side1) 타격.
+  function battleHitAt(x, y, dmg, radius) { return battleHitSide(x, y, dmg, radius, 1) }
+  // 배틀에서 재사용하는 오버레이 유닛 투사체(메카 포탄/에너지/아도겐 등)의 충돌 — 상대 side + 빗나가면 땅파임.
+  // 투사체에 p.bfoe(맞을 side)·p.bdmg(데미지)를 태그해두고 각 스텝 최상단에서 호출. 명중/땅닿음이면 true.
+  function battleProjCollide(p, R, dig) {
+    if (battleHitSide(p.x, p.y, p.bdmg || 6, R, p.bfoe)) return true
+    if (inTaskbar(p.x, p.y)) { carveTaskbar(p.x, dig || 1.0, false); return true }
+    return false
+  }
+  // 배틀 유닛(메카/인간)의 공격 = 기존 오버레이 발사 함수를 그대로 호출(전역 잠시 스왑 후 복구).
+  // 스폰된 투사체에 배틀 side·데미지 태그를 달아 상대만 맞게 한다.
+  function battleFireOverlay(ev, which) {
+    const laneX = battleLaneX(ev.fromL)
+    const foe = ev.side === 0 ? 1 : 0, dmg = ev.dmg || 8
+    const tu = ev.targetUid != null ? battle.unitByUid(ev.targetUid) : null
+    const tx = tu ? battleLaneX(tu.L) : battleLaneX(ev.toL)
+    const ty = tu ? (antGroundY(tx) - 22 * view.scale) : (antGroundY(tx) - 40 * view.scale)
+    const cxs = cursor.x, cys = cursor.y; cursor.x = tx; cursor.y = ty   // 타겟(상대 소환체/기지) 조준
+    const now = performance.now()
+    if (which === 'shell') {   // 메카개미 = 기존 포물선 대포(fireMechaShell)
+      const sv = { x: me.mechaX, y: me.mechaY, cg: me.mechaCharge, f: me.mechaFace }
+      me.mechaX = laneX; me.mechaY = antGroundY(laneX) - 30 * view.scale
+      me.mechaCharge = Math.max(0.3, Math.min(1, Math.abs(tx - laneX) / (0.55 * canvas.clientWidth)))   // 거리→발사력(포물선 사거리)
+      const before = mechaShells.length; fireMechaShell(now)
+      for (let k = before; k < mechaShells.length; k++) { mechaShells[k].bfoe = foe; mechaShells[k].bdmg = dmg }
+      me.mechaX = sv.x; me.mechaY = sv.y; me.mechaCharge = sv.cg; me.mechaFace = sv.f
+    } else if (which === 'energy') {   // 메카인간폼 = 기존 에너지포(fireEnergyCannon)
+      const sv = { x: me.mechaX, y: me.mechaY, cg: me.mechaCharge, f: me.mechaFace }
+      me.mechaX = laneX; me.mechaY = antGroundY(laneX) - 30 * view.scale; me.mechaCharge = 1
+      const before = energyShots.length; fireEnergyCannon(now)
+      for (let k = before; k < energyShots.length; k++) { energyShots[k].bfoe = foe; energyShots[k].bdmg = dmg }
+      me.mechaX = sv.x; me.mechaY = sv.y; me.mechaCharge = sv.cg; me.mechaFace = sv.f
+    } else {   // 인간 = 기존 아도겐(fireAdogen)
+      const sv = { x: me.humanX, y: me.humanY, f: me.humanFace }
+      me.humanX = laneX; me.humanY = antGroundY(laneX)
+      const before = hbullets.length; fireAdogen(now, 0.6)
+      for (let k = before; k < hbullets.length; k++) { hbullets[k].bfoe = foe; hbullets[k].bdmg = dmg }
+      me.humanX = sv.x; me.humanY = sv.y; me.humanFace = sv.f
+    }
+    cursor.x = cxs; cursor.y = cys
   }
   // 미사일이 적 유닛/기지에 닿았는지(폭발 트리거용 근접 판정)
   function battleMissileHitsEnemy(x, y) {
@@ -3710,6 +3767,10 @@
   }
   function battleFire(ev) {
     const byU = battle.unitByUid(ev.by); const type = byU ? byU.type : 'ant'; const kind = projKindFor(type)
+    // 메카/인간은 "기존 오버레이 공격 함수"를 그대로 재사용(포물선 대포·에너지포·아도겐). 자작 투사체 X.
+    if (type === 'mechaAnt') return battleFireOverlay(ev, 'shell')
+    if (type === 'mechaHuman') return battleFireOverlay(ev, 'energy')
+    if (type === 'human') return battleFireOverlay(ev, 'adogen')
     const def = window.BattleData.UNITS[type] || {}
     const s = view.scale * BATTLE_UNIT_SCALE * (def.size || 1), face = ev.side === 0 ? 1 : -1
     const mz = PROJ_MUZZLE[type] || PROJ_MUZZLE._default
