@@ -31,81 +31,83 @@
 
   // ── 덱에 넣는 소환체 (cat:'unit') ──────────────────────────────────────────
   // starter:true = 기본 지급(가챠 풀 제외). rarity 키는 RARITY 참고.
+  // ── 밸런스 v2 (2026-07-21) ── PvP 기준. 코스트=파워. 순수 딜러 DPS≈코스트×2~3, 탱커/유틸은 대신 실효HP·효과.
+  // DPS = dmg×(burst||1)/cd. 실효HP = hp + battleShield.absorb. 사거리(range)·속도는 레인비율.
   const UNITS = {
     ant: {
       name: '개미', cat: 'unit', rarity: 'common', starter: true, cost: 1, hp: 20,
       speed: 0.18, atk: { type: 'melee', dmg: 5, range: 0.02, cd: 0.6 },
-      art: 'ant', size: 1.0, // 기본 근접 물량
+      art: 'ant', size: 1.0, // 기본 근접 물량 (근접 8.3dps)
     },
     rifleman: {
-      name: '라이플 솔저', cat: 'unit', rarity: 'common', cost: 2, hp: 22,
-      speed: 0.13, atk: { type: 'proj', dmg: 4, range: 0.22, cd: 1.2, burst: 3, projSpeed: 1.4 },
-      art: 'ant-soldier', size: 1.0, // 개미 병사(총). 기본 원거리
+      name: '라이플 솔저', cat: 'unit', rarity: 'common', cost: 2, hp: 24,
+      speed: 0.13, atk: { type: 'proj', dmg: 4, range: 0.22, cd: 1.3, burst: 3, projSpeed: 1.4 },
+      art: 'ant-soldier', size: 1.0, // 3연발×4 = cd1.3당 12 (≈9.2dps). 기본 원거리
     },
     grenadier: {
-      name: '수류탄 솔저', cat: 'unit', rarity: 'common', cost: 3, hp: 26,
-      speed: 0.11, atk: { type: 'aoe', dmg: 8, range: 0.20, cd: 1.8, aoeR: 0.06, arc: true },
-      art: 'ant-soldier', size: 1.0, // 개미 병사(수류탄). 범위 딜
+      name: '수류탄 솔저', cat: 'unit', rarity: 'common', cost: 3, hp: 28,
+      speed: 0.11, atk: { type: 'aoe', dmg: 9, range: 0.20, cd: 1.8, aoeR: 0.06, arc: true },
+      art: 'ant-soldier', size: 1.0, // 범위 딜(광역 5dps)
     },
     shielder: {
-      name: '쉴더', cat: 'unit', rarity: 'uncommon', cost: 2, hp: 40,
+      name: '쉴더', cat: 'unit', rarity: 'uncommon', cost: 2, hp: 45,
       speed: 0.10, atk: { type: 'none' },
-      battleShield: { absorb: 30, cooldown: 4 }, // 실제 자동 쉴드(30 흡수, 앞면 방패). 피격 없이 4s 지나야 재충전(교전 중 재생 X). ※예전엔 shield를 HP에 합산만 했음 → 실제 쉴드로 승격
-      art: 'ant-shield', size: 1.2, // 방패 든 개미. 탱커(공격 없음)
+      battleShield: { absorb: 30, cooldown: 4 }, // 실효HP 75. 앞면 자동 쉴드(30 흡수·4s 무피격 시 재충전). 순수 탱커
+      art: 'ant-shield', size: 1.2,
     },
     mechaAnt: {
-      name: '메카 개미', cat: 'unit', rarity: 'rare', cost: 5, hp: 80,
-      speed: 0.09, atk: { type: 'proj', dmg: 12, range: 0.30, cd: 0.5 },
-      battleShield: { absorb: 15, cooldown: 5 }, // 자동 쉴드(15 흡수). cooldown = "피격 없이 5s 지나야 재충전"(교전 중 재생 X)
-      art: 'mecha', size: 1.6, // 기존 메카 그림 재사용, 개미 대포
+      name: '메카 개미', cat: 'unit', rarity: 'rare', cost: 5, hp: 85,
+      speed: 0.09, atk: { type: 'proj', dmg: 12, range: 0.26, cd: 1.1 }, // 대포 연사 완화(0.5→1.1) = ≈10.9dps. 실효HP 100
+      battleShield: { absorb: 15, cooldown: 5 },
+      art: 'mecha', size: 1.6, // 기존 메카 아트·포물선 대포 재사용
     },
     mechaHuman: {
       name: '메카 인간폼', cat: 'unit', rarity: 'legend', cost: 7, hp: 120,
-      speed: 0.12, atk: { type: 'proj', dmg: 15, range: 0.28, cd: 0.7 },
-      battleShield: { absorb: 20, cooldown: 6 }, // 자동 쉴드(20 흡수). 피격 없이 6s 지나야 재충전(교전 중 재생 X)
-      art: 'human', size: 1.7, flying: true, // 공중 타입: 구멍 무시. 발밑 부스터 상시 분사 + 바닥에서 살짝 뜬 채 전진
+      speed: 0.12, atk: { type: 'proj', dmg: 15, range: 0.28, cd: 0.95 }, // 0.7→0.95 = ≈15.8dps. 실효HP 140·공중
+      battleShield: { absorb: 20, cooldown: 6 },
+      art: 'human', size: 1.7, flying: true, // 공중 타입(구멍 무시). 기존 건담폼 아트·에너지포 재사용
     },
     human: {
-      name: '인간', cat: 'unit', rarity: 'rare', cost: 4, hp: 45,
-      speed: 0.12, atk: { type: 'proj', dmg: 10, range: 0.24, cd: 1.0 },
-      art: 'human', size: 1.3, // 배틀: 자동 조작 · 기본 공격 = 아도겐(원거리). 오버레이: WASD 수동 조종.
+      name: '인간', cat: 'unit', rarity: 'rare', cost: 4, hp: 48,
+      speed: 0.12, atk: { type: 'proj', dmg: 10, range: 0.24, cd: 1.0 }, // 10dps 브루저(아도겐)
+      art: 'human', size: 1.3,
     },
-    // ── 신규 소환체 (밸런스 초안 v1) ──
+    // ── 신규 소환체 (밸런스 v2) ──
     scout: {
       name: '정찰 개미', cat: 'unit', rarity: 'common', cost: 1, hp: 12,
-      speed: 0.30, atk: { type: 'melee', dmg: 3, range: 0.02, cd: 0.7 }, art: 'scout', size: 0.9,
+      speed: 0.30, atk: { type: 'melee', dmg: 3, range: 0.02, cd: 0.7 }, art: 'scout', size: 0.9, // 고속 러셔
     },
     kamikaze: {
-      name: '폭탄 개미', cat: 'unit', rarity: 'uncommon', cost: 3, hp: 20,
-      speed: 0.22, atk: { type: 'suicide', dmg: 25, aoeR: 0.05, range: 0.03, cd: 0.1 }, suicide: true, art: 'kamikaze', size: 1.1,
+      name: '폭탄 개미', cat: 'unit', rarity: 'uncommon', cost: 3, hp: 22,
+      speed: 0.24, atk: { type: 'suicide', dmg: 28, aoeR: 0.05, range: 0.03, cd: 0.1 }, suicide: true, art: 'kamikaze', size: 1.1, // 1회성 자폭(구현 예정)
     },
     medic: {
-      name: '의무 개미', cat: 'unit', rarity: 'uncommon', cost: 3, hp: 24,
-      speed: 0.10, atk: { type: 'heal', heal: 4, range: 0.10, cd: 1.0 }, art: 'medic', size: 1.0,
+      name: '의무 개미', cat: 'unit', rarity: 'uncommon', cost: 3, hp: 26,
+      speed: 0.10, atk: { type: 'heal', heal: 5, range: 0.10, cd: 1.2 }, art: 'medic', size: 1.0, // 아군 회복(구현 예정)
     },
     drone: {
       name: '말벌 드론', cat: 'unit', rarity: 'uncommon', cost: 4, hp: 30,
-      speed: 0.16, atk: { type: 'proj', dmg: 6, range: 0.22, cd: 1.0 }, flying: true, art: 'drone', size: 1.0,
+      speed: 0.16, atk: { type: 'proj', dmg: 6, range: 0.22, cd: 1.0 }, flying: true, art: 'drone', size: 1.0, // 공중 견제(6dps)
     },
     freezer: {
       name: '얼음 개미', cat: 'unit', rarity: 'rare', cost: 4, hp: 28,
-      speed: 0.11, atk: { type: 'proj', dmg: 3, range: 0.20, cd: 1.5, slow: 0.4, slowDur: 2 }, art: 'freezer', size: 1.0,
+      speed: 0.11, atk: { type: 'proj', dmg: 4, range: 0.22, cd: 1.4, slow: 0.5, slowDur: 2 }, art: 'freezer', size: 1.0, // 저뎀+50% 감속 유틸(빙결 구현 예정)
     },
     worker: {
-      name: '일개미', cat: 'unit', rarity: 'rare', cost: 4, hp: 30,
-      speed: 0.02, atk: { type: 'none' }, manaBuff: 0.1, art: 'worker', size: 1.0, // 배틀: 정지형·마나 회복 +0.1/s. 오버레이: 배회만.
+      name: '일개미', cat: 'unit', rarity: 'rare', cost: 4, hp: 32,
+      speed: 0.02, atk: { type: 'none' }, manaBuff: 0.1, art: 'worker', size: 1.0, // 정지형·마나 +0.1/s
     },
     commander: {
-      name: '지휘 개미', cat: 'unit', rarity: 'rare', cost: 6, hp: 70,
-      speed: 0.10, atk: { type: 'melee', dmg: 5, range: 0.03, cd: 1.0 }, aura: { range: 0.12, atk: 0.2, speed: 0.2 }, art: 'commander', size: 1.4,
+      name: '지휘 개미', cat: 'unit', rarity: 'rare', cost: 6, hp: 75,
+      speed: 0.10, atk: { type: 'melee', dmg: 6, range: 0.03, cd: 1.0 }, aura: { range: 0.12, atk: 0.2, speed: 0.2 }, art: 'commander', size: 1.4, // 주변 아군 +20% 오라(구현 예정)
     },
     sniper: {
       name: '저격 개미', cat: 'unit', rarity: 'rare', cost: 5, hp: 18,
-      speed: 0.08, atk: { type: 'proj', dmg: 20, range: 0.40, cd: 2.5 }, art: 'sniper', size: 1.0,
+      speed: 0.08, atk: { type: 'proj', dmg: 22, range: 0.42, cd: 2.6 }, art: 'sniper', size: 1.0, // 초장거리 유리대포(8.5dps)
     },
     boss: {
-      name: '여왕 개미', cat: 'unit', rarity: 'legend', cost: 10, hp: 300,
-      speed: 0.06, atk: { type: 'aoe', dmg: 30, range: 0.15, aoeR: 0.08, cd: 1.2 }, art: 'boss', size: 2.0,
+      name: '여왕 개미', cat: 'unit', rarity: 'legend', cost: 10, hp: 320,
+      speed: 0.06, atk: { type: 'aoe', dmg: 32, range: 0.15, aoeR: 0.08, cd: 1.3 }, art: 'boss', size: 2.0, // 결전 광역(24.6dps)
     },
   }
 

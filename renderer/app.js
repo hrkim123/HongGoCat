@@ -1038,7 +1038,8 @@
       }
     }
     else if (msg.t === 'human-key') {
-      if (msg.down) {
+      if (platformMode) { /* 그리기 모드: 조작 잠금 */ }
+      else if (msg.down) {
         if (!humanKeys.has(msg.key)) {
           humanKeys.add(msg.key)
           if (msg.key === 'q') {
@@ -1053,7 +1054,7 @@
         if (msg.key === 'q') { if (me.humanActive) humanRelease(); else if (me.mechaActive && me.mechaCharging) { me.mechaCharging = false; const t = performance.now(); if (weaponsLocked()) { /* locked */ } else if ((me.mechaForm || 0) >= 0.5) fireEnergyCannon(t); else if (t >= (me.mechaShellCd || 0)) { fireMechaShell(t); me.mechaShellCd = t + MSHELL_CD } } }
       }
     }
-    else if (msg.t === 'mecha-transform') { if (me.mechaActive) startMechaTransform(performance.now()) }
+    else if (msg.t === 'mecha-transform') { if (!platformMode && me.mechaActive) startMechaTransform(performance.now()) }
     else if (msg.t === 'fire-missile') { fireWeapon('missile') }
     else if (msg.t === 'fire-slot') {
       if (battleActive && battle) {
@@ -1063,7 +1064,7 @@
           const wid = deck.weapons[(msg.slot || 1) - 1]
           if (wid) battleWeaponFire(wid)
         }
-      } else {
+      } else if (!platformMode) {   // 그리기 모드에선 무기/능력 잠금
         const id = me.slots[(msg.slot || 1) - 1] || 'none'
         if (id === 'lightning') { if (msg.down === false) lightningRelease(); else lightningPress() }
         else if (msg.down !== false) fireWeapon(id)   // other weapons fire once on press; ignore key-up
@@ -1222,6 +1223,7 @@
 
   // fire the weapon assigned to a slot (extensible)
   function fireWeapon(id) {
+    if (platformMode) { showToast('🖌️ 플랫폼 그리기 중 — 그리기만 가능'); return }   // 그리기 모드 = 독점(다른 기능 잠금)
     if (weaponsLocked()) { showToast(me.safeMode ? '🕊️ 평화 모드 — 무기 사용 불가' : '🔒 무기 잠금 중'); return }
     if (!weaponUsable(id)) { showToast(`🛒 ${WEAPONS[id] || '이 무기'}은(는) 상점에서 먼저 구매하세요`); return }
     if (id === 'missile') fireHoming()
@@ -3820,10 +3822,18 @@
     const tx = tu ? battleLaneX(tu.L) : battleLaneX(ev.toL)
     const ty = tu ? (antGroundY(tx) - (tdef.flying ? 34 * view.scale : 0) - 20 * view.scale) : (antGroundY(tx) - 60 * view.scale)   // 적 몸통/기지 높이 조준
     const spd = PROJ_SPD[kind] * view.scale
-    let vx, vy
-    if (kind === 'grenade') { const dx = tx - fx; vx = dx / 0.8; vy = -260 * view.scale }   // 포물선 던지기
-    else { const a = Math.atan2(ty - fy, tx - fx); vx = Math.cos(a) * spd; vy = Math.sin(a) * spd }
-    bproj.push({ x: fx, y: fy, vx, vy, bside: ev.side, dmg: ev.dmg, pow: ev.dmg, kind, aoe: (ev.atkType === 'aoe' || kind === 'grenade') ? (ev.aoeR || 0.05) : 0, slow: ev.slow, slowDur: ev.slowDur, born: performance.now(), life: PROJ_LIFE[kind] })
+    const burst = (kind === 'bullet' && def.atk && def.atk.burst > 1) ? def.atk.burst : 1   // 라이플 3연발 등
+    const nowP = performance.now()
+    for (let b = 0; b < burst; b++) {
+      let vx, vy, bx = fx, by = fy
+      if (kind === 'grenade') { const dx = tx - fx; vx = dx / 0.8; vy = -260 * view.scale }   // 포물선 던지기
+      else {
+        const jit = burst > 1 ? (Math.random() - 0.5) * 0.05 : 0
+        const a = Math.atan2(ty - fy, tx - fx) + jit; vx = Math.cos(a) * spd; vy = Math.sin(a) * spd
+        const back = b * 11 * view.scale; bx = fx - Math.cos(a) * back; by = fy - Math.sin(a) * back   // 연발 스트림(뒤로 살짝)
+      }
+      bproj.push({ x: bx, y: by, vx, vy, bside: ev.side, dmg: ev.dmg, pow: ev.dmg, kind, aoe: (ev.atkType === 'aoe' || kind === 'grenade') ? (ev.aoeR || 0.05) : 0, slow: ev.slow, slowDur: ev.slowDur, born: nowP, life: PROJ_LIFE[kind] })
+    }
   }
   function stepBattleProj(now, dt) {
     const W = canvas.clientWidth, grav = 900 * view.scale
