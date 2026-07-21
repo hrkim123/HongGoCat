@@ -1,7 +1,7 @@
 {
   "name": "honggocat",
   "productName": "HongGoCat",
-  "version": "0.6.5",
+  "version": "1.0.0",
   "description": "HongGoCat — a full-screen bongo-cat desktop overlay that taps along with your keyboard/mouse, with multiplayer rooms and cursor-homing missiles",
   "main": "main.js",
   "author": "hrkim",
