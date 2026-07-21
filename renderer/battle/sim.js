@@ -40,8 +40,10 @@
       if (!(opts && opts.free)) st.mana[side] -= cost
       const s = statsFor(type)
       const hp = s.hp + (s.shield ? s.shield.absorb : 0)   // 쉴드는 실효 HP로 단순화
-      const u = { uid: uidSeq++, side, type, L: side === 0 ? 0 : 1, dir: side === 0 ? 1 : -1, hp, maxHp: hp, stats: s, cdLeft: 0 }
+      const startL = (opts && opts.atL != null) ? clamp(opts.atL, 0, 1) : (side === 0 ? 0 : 1)   // atL: 특정 위치 소환(여왕 앞 등)
+      const u = { uid: uidSeq++, side, type, L: startL, dir: side === 0 ? 1 : -1, hp, maxHp: hp, stats: s, cdLeft: 0 }
       if (base.battleShield) { u.shMax = base.battleShield.absorb; u.shHp = u.shMax; u.shHitAt = -1e9; u.shCooldown = base.battleShield.cooldown } // 자동 쉴드
+      if (base.summon) u.summonCd = base.summon.every || 4   // 생산형(여왕): 소환 타이머
       st.units.push(u)
       st.events.push({ type: 'spawn', uid: u.uid, side, unit: type })
       return true
@@ -51,6 +53,18 @@
       let best = null, bd = Infinity
       for (const e of st.units) { if (e.side === u.side || e.hp <= 0) continue; const d = Math.abs(e.L - u.L); if (d < bd) { bd = d; best = e } }
       return { e: best, d: bd }
+    }
+    // 서포트 유닛 앞쪽(적 방향)에 있는 "가장 가까운 전투 아군"의 L. 없으면 null → 서포트는 그 뒤에서 대기·전진.
+    function nearestCombatAllyAhead(u) {
+      let best = null
+      for (const e of st.units) {
+        if (e === u || e.side !== u.side || e.hp <= 0) continue
+        const ed = D.UNITS[e.type]; if (ed && ed.support) continue   // 서포트끼리는 프론트라인으로 안 침
+        const ahead = u.side === 0 ? e.L > u.L : e.L < u.L
+        if (!ahead) continue
+        if (best == null || (u.side === 0 ? e.L < best : e.L > best)) best = e.L   // 가장 가까운(바로 앞) 아군
+      }
+      return best
     }
 
     function applyDamage(target, dmg, killerSide) {
@@ -133,11 +147,23 @@
           }
         }
 
+        const baseDef = D.UNITS[u.type]
+        // 생산형(여왕 개미): summonCd마다 지정 유닛을 바로 앞에 소환
+        if (baseDef && baseDef.summon && u.summonCd != null) {
+          u.summonCd -= dt
+          if (u.summonCd <= 0) { u.summonCd = baseDef.summon.every || 4; spawn(u.side, baseDef.summon.unit, { free: true, atL: clamp(u.L + u.dir * 0.03, 0, 1) }) }
+        }
+
         // 이동: 오라 속도 버프 + 감속(slow). 근접 교전/사격 중엔 정지.
         const blocked = tgt && td <= Math.max(range, 0.02)
         const slowMul = (u.slowUntil && u.slowUntil > st.t) ? (u.slowMul || 1) : 1
         const spdMul = (1 + (u._auraSpd || 0)) * slowMul
-        if (!acting && !blocked) u.L = clamp(u.L + u.dir * u.stats.speed * (cfg.speedScale || 1) * spdMul * dt, 0, 1)
+        let allowMove = !acting && !blocked
+        if (allowMove && baseDef && baseDef.support) {   // 서포트: 앞선 전투 아군을 추월하지 않고 뒤에서 대기·전진
+          const frontL = nearestCombatAllyAhead(u)
+          if (frontL != null) { const gap = 0.05, limit = u.side === 0 ? frontL - gap : frontL + gap; if (u.side === 0 ? u.L >= limit : u.L <= limit) allowMove = false }
+        }
+        if (allowMove) u.L = clamp(u.L + u.dir * u.stats.speed * (cfg.speedScale || 1) * spdMul * dt, 0, 1)
       }
 
       // 사망 제거

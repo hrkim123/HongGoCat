@@ -83,7 +83,7 @@
     },
     medic: {
       name: '의무 개미', cat: 'unit', rarity: 'uncommon', cost: 3, hp: 26,
-      speed: 0.10, atk: { type: 'heal', heal: 5, range: 0.10, cd: 1.2 }, art: 'medic', size: 1.0, // 아군 회복(구현 예정)
+      speed: 0.10, atk: { type: 'heal', heal: 5, range: 0.10, cd: 1.2 }, support: true, art: 'medic', size: 1.0, // 아군 회복. 서포트: 아군 뒤에서 대기·전진
     },
     drone: {
       name: '말벌 드론', cat: 'unit', rarity: 'uncommon', cost: 4, hp: 30,
@@ -95,7 +95,7 @@
     },
     worker: {
       name: '일개미', cat: 'unit', rarity: 'rare', cost: 4, hp: 32,
-      speed: 0.02, atk: { type: 'none' }, manaBuff: 0.1, art: 'worker', size: 1.0, // 정지형·마나 +0.1/s
+      speed: 0.02, atk: { type: 'none' }, manaBuff: 0.1, support: true, art: 'worker', size: 1.0, // 정지형·마나 +0.1/s
     },
     commander: {
       name: '지휘 개미', cat: 'unit', rarity: 'rare', cost: 6, hp: 75,
@@ -107,7 +107,9 @@
     },
     boss: {
       name: '여왕 개미', cat: 'unit', rarity: 'legend', cost: 10, hp: 320,
-      speed: 0.06, atk: { type: 'aoe', dmg: 32, range: 0.15, aoeR: 0.08, cd: 1.3 }, art: 'boss', size: 2.0, // 결전 광역(24.6dps)
+      speed: 0.06, atk: { type: 'none' }, support: true,
+      summon: { unit: 'rifleman', every: 4 }, // 직접 공격 X → 4초마다 라이플 솔저를 바로 앞에 1마리 소환(생산형 결전병기)
+      art: 'boss', size: 2.0,
     },
   }
 
