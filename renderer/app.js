@@ -692,6 +692,7 @@
   function toggleDimPeer(pid) { if (dimmedPeers.has(pid)) dimmedPeers.delete(pid); else dimmedPeers.add(pid) }
   function drawPeerDimButtons(now) {
     peerDimBtns = []
+    if (battleActive || platformMode) return   // 배틀/플랫폼 독점 모드에선 👁 투명 버튼 숨김(다른 피어도 안 보임)
     const R = 12 * view.scale
     for (let i = 0; i < catPos.length; i++) {
       const cat = allRef[i]; if (!cat || cat.id === 'me') continue   // opponents only
@@ -5137,7 +5138,7 @@
       const p = projectiles[i]
 
       if (p.homing) {
-        if (now - p.born > p.life) { projectiles.splice(i, 1); continue }
+        // 유지시간(수명) 제거 — 미사일은 화면 밖으로 나가거나 충돌할 때만 사라짐(시간 만료 X)
         if (!p.boost) {                       // normal: curve toward the cursor
           const dx = cursor.x - p.x, dy = cursor.y - p.y
           const d = Math.hypot(dx, dy) || 1
@@ -5481,7 +5482,10 @@
   function sendHotzone() {
     if (wx == null) return
     const extra = peerDimBtns.map((b) => ({ x: b.x - b.r - 2, y: b.y - b.r - 2, w: (b.r + 2) * 2, h: (b.r + 2) * 2 }))
-    inputSource.setHotzone({ rect: { x: wx, y: wy, w: cellPxW, h: cellPxH + BAR_SPACE }, extra, force: chatOpenFlag || editing || shopOpenFlag || achvOpenFlag || platformMode || me.netAiming || me.netActive || updateNotesOpen || battleActive || !!document.querySelector('.bg-back, .bm-root, .bm-bet, .bm-invite, .bx-confirm') })
+    const exclusive = battleActive || platformMode   // 배틀/플랫폼 = 독점 입력(다른 기능·바탕화면 클릭 전부 차단)
+    // 독점 모드에선 rect를 화면 전체로 → 커서가 어디에 있든 오버레이가 클릭을 잡아 바탕화면/파일 통과 차단(force와 이중 안전)
+    const rect = exclusive ? { x: 0, y: 0, w: canvas.clientWidth, h: canvas.clientHeight } : { x: wx, y: wy, w: cellPxW, h: cellPxH + BAR_SPACE }
+    inputSource.setHotzone({ rect, extra: exclusive ? [] : extra, force: exclusive || chatOpenFlag || editing || shopOpenFlag || achvOpenFlag || me.netAiming || me.netActive || updateNotesOpen || !!document.querySelector('.bg-back, .bm-root, .bm-bet, .bm-invite, .bx-confirm') })
   }
 
   // cursor for missile homing + dragging comes from main's poll (window-relative)
