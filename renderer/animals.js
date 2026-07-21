@@ -440,15 +440,24 @@
       }
       ctx.restore()
     }
-    // 자리비움(away): floating 💤 z's rising and fading above the head
+    // 자리비움(away): 크게 보이도록 "💤 자리비움" 배지 + 크고 떠오르는 Z들
     if (state.away && !broken) {
-      ctx.save(); ctx.textBaseline = 'middle'; ctx.textAlign = 'center'; ctx.fillStyle = '#8fb4e6'
+      ctx.save(); ctx.textBaseline = 'middle'; ctx.textAlign = 'center'
+      // 떠오르는 큰 Z (더 크고 선명하게)
       for (let k = 0; k < 3; k++) {
-        const ph = ((now / 900) + k / 3) % 1
-        ctx.globalAlpha = Math.max(0, 1 - ph) * 0.9
-        ctx.font = `bold ${11 + k * 4}px "Segoe UI", "Malgun Gothic", sans-serif`
-        ctx.fillText('z', cx + 28 + ph * 18, hy - 40 - ph * 28)
+        const ph = ((now / 950) + k / 3) % 1
+        ctx.globalAlpha = Math.max(0, 1 - ph) * 0.95
+        ctx.font = `bold ${22 + k * 9}px "Segoe UI", "Malgun Gothic", sans-serif`
+        ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(20,30,50,.7)'; ctx.fillStyle = '#a9cbff'
+        ctx.strokeText('Z', cx + 36 + ph * 26, hy - 44 - ph * 46); ctx.fillText('Z', cx + 36 + ph * 26, hy - 44 - ph * 46)
       }
+      // 부재중 배지(머리 위 필 형태)
+      const by = hy - 78, bw = 116, bh = 30, bx = cx
+      ctx.globalAlpha = 0.5 + 0.15 * Math.sin(now / 500)
+      ctx.fillStyle = 'rgba(28,38,58,0.92)'; ctx.strokeStyle = 'rgba(150,190,255,0.8)'; ctx.lineWidth = 2
+      ctx.beginPath(); ctx.roundRect(bx - bw / 2, by - bh / 2, bw, bh, bh / 2); ctx.fill(); ctx.stroke()
+      ctx.globalAlpha = 1; ctx.fillStyle = '#dbe8ff'; ctx.font = 'bold 15px "Segoe UI", "Malgun Gothic", sans-serif'
+      ctx.fillText('💤 자리비움', bx, by)
       ctx.restore()
     }
     ctx.restore()

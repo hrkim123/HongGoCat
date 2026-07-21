@@ -838,7 +838,7 @@
       // ── 멀티 배틀 ── (to === me.netId 만 처리)
       else if (msg.t === 'battle-req') { if (msg.to === me.netId && !battleActive && !battleIncoming) { const p = peers.get(msg.id); showBattleInvitePopup(msg.id, (p && p.name) || '상대', msg.bet || null) } else if (msg.to === me.netId && connected()) net.send(JSON.stringify({ t: 'battle-dec', to: msg.id, reason: 'busy' })) }
       else if (msg.t === 'battle-acc') { if (msg.to === me.netId && battleInvite && battleInvite.to === msg.id) { const bet = battleInvite.bet; battleInvite = null; startBattleMulti(msg.id, 0, bet) } }   // 내 신청 수락됨 → 신청자=side0(+베팅 escrow)
-      else if (msg.t === 'battle-state') { const p = peers.get(msg.id); if (p) p.inBattle = !!msg.on }   // 관전자: 배틀 중인 피어는 화면에서 가림
+      else if (msg.t === 'battle-state') { const p = peers.get(msg.id); if (p) p.inBattle = !!msg.on }   // 관전자: 원위치 유지 + "⚔ 배틀 중" 배지
       else if (msg.t === 'battle-dec') { if (msg.to === me.netId && battleInvite && battleInvite.to === msg.id) { battleInvite = null; showToast(msg.reason === 'busy' ? '상대가 배틀 중입니다' : '상대가 배틀을 거절했습니다') } }
       else if (msg.t === 'battle-end') { if (battleMulti && msg.id === battleMulti.oppId && battlePhase !== 'result') { battlePhase = 'result'; battleResultAt = performance.now(); battleWin = true; seedBattleConfetti(); recordBattleWin() } }   // 상대가 패배/이탈 통지 → 내 승리
       else if (msg.t === 'bunits') { if (battleMulti && msg.id === battleMulti.oppId && msg.to === me.netId) { battleGhosts = (msg.list || []).filter((g) => !battleNetHeldUids.has(g.uid)).map((g) => ({ uid: g.uid, type: g.type, L: 1 - g.L, hp: g.hp, shHp: g.shHp, frozen: g.frozen, slowed: g.slowed })); battleGhostBase = msg.base != null ? msg.base : battleGhostBase } }   // 상대 유닛(미러링, 그물에 붙잡힌 uid 제외) + 상대 기지 HP
@@ -5313,6 +5313,20 @@
     ctx.fillText(fmtCount(taps || 0), x + barW / 2, y + h / 2 + 0.5)
     ctx.restore()
   }
+  // 관전자 화면: 배틀 중인 피어 머리 위 "⚔ 배틀 중" 배지(원위치 유지, 숨기지 않음)
+  function drawInBattleBadge(origin, sc, now) {
+    const cx = origin.x + CELL_W * sc / 2, cy = origin.y + 18 * sc
+    const pulse = 0.6 + 0.4 * Math.sin(now / 400)
+    const label = '⚔ 배틀 중', bw = 96, bh = 26
+    ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+    ctx.globalAlpha = 0.85 + 0.15 * pulse
+    ctx.beginPath(); ctx.roundRect(cx - bw / 2, cy - bh / 2, bw, bh, bh / 2)
+    ctx.fillStyle = 'rgba(60,20,24,0.92)'; ctx.fill()
+    ctx.lineWidth = 2; ctx.strokeStyle = `rgba(255,120,90,${0.7 + 0.3 * pulse})`; ctx.stroke()
+    ctx.globalAlpha = 1; ctx.fillStyle = '#ffcdbf'; ctx.font = 'bold 14px "Segoe UI", "Malgun Gothic", sans-serif'
+    ctx.fillText(label, cx, cy + 0.5)
+    ctx.restore()
+  }
 
   // Main decides click-through by polling the real cursor against this "hotzone".
   // We just report the widget rect (+ force flag while chatting/editing).
@@ -5433,8 +5447,7 @@
     drawSnapGrid()   // preset dots under the cats while dragging
 
     all.forEach((p, i) => {
-      if (battleActive && p.id !== 'me') return   // 배틀 중엔 다른 피어 숨김
-      if (!battleActive && p.inBattle) return      // 관전자: 배틀 중인 피어는 가림(참여자끼리만 보임)
+      if (battleActive && p.id !== 'me') return   // 내가 배틀 중일 땐 다른 피어 숨김(상대는 battleOpp로 별도 렌더)
       ctx.save()
       if (p.id !== 'me') ctx.globalAlpha = peerAlpha(p.id)   // 👁 dim THIS opponent on my screen
       ctx.translate(origins[i].x, origins[i].y)
@@ -5442,6 +5455,7 @@
       window.AnimalArt.draw(ctx, p.animal, p, now)
       ctx.restore()
       if (p.id !== 'me' && p.taps != null) { ctx.save(); ctx.globalAlpha = peerAlpha(p.id); drawPeerCount(origins[i], p.taps); ctx.restore() }   // peer's counter (dims with 👁)
+      if (p.inBattle) drawInBattleBadge(origins[i], scale, now)   // 관전자: 원위치 유지 + "⚔ 배틀 중" 표시(숨기지 않음)
     })
     if (battleActive && battleOpp) {   // 상대 고양이(우측 끝) — 솔로는 AI 더미
       const by = Math.max(0, usableBottom() - (CELL_H * scale + BAR_SPACE))
