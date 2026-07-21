@@ -95,7 +95,8 @@
     },
     worker: {
       name: '망치 개미', cat: 'unit', rarity: 'uncommon', cost: 3, hp: 45,
-      speed: 0.10, atk: { type: 'melee', dmg: 6, range: 0.03, cd: 1.0, kbHit: true }, kb: 2, art: 'worker', size: 1.1, // 큰 망치로 내려쳐 명중 시 적 강제 넉백(물량 저지)
+      speed: 0.10, atk: { type: 'melee', dmg: 2, range: 0.06, cd: 1.6, aoeR: 0.10, kbHit: true }, kb: 2, art: 'worker', size: 1.1, // 큰 망치 범위 슬램: 저뎀이지만 매 공격 범위 내 적 전원 강제 넉백(느린 cd로 밸런스). 물량 저지·시간벌기
+
     },
     commander: {
       name: '지휘 개미', cat: 'unit', rarity: 'rare', cost: 6, hp: 95,

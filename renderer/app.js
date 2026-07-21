@@ -3703,7 +3703,7 @@
       if (taskbarHoleAt(ux)) { fellUids.add(u.uid); battle.hitUnit(u.uid, 1e9); spawnFallFx(ux, antGroundY(ux)) }
     }
     for (const e of battle.drainEvents()) {
-      if (e.type === 'hit') battleAtkAt[e.by] = now
+      if (e.type === 'hit') { battleAtkAt[e.by] = now; if (e.slamL != null) { const sx = battleLaneX(e.slamL), sy = antGroundY(sx); addEffect(sx, sy - 14 * view.scale, 2); for (let k = 0; k < 6; k++) spawnDebris(sx + (Math.random() - 0.5) * (e.slamR || 0.1) * canvas.clientWidth, sy, 1, k % 2 ? '#d9c08a' : '#b8901e') } }   // 망치 범위 슬램 충격파
       else if (e.type === 'fire') { battleAtkAt[e.by] = now; battleFire(e) }   // 원거리 → 실제 투사체 발사
       else if (e.type === 'die') { if (fellUids.has(e.uid)) battleFalls.push({ id: e.unit, L: e.L, side: e.side, born: now, vy: 1 }); else battleDead.push({ id: e.unit, L: e.L, side: e.side, born: now }) }
       else if (e.type === 'shieldblock' || e.type === 'shieldbreak') { battleShieldFlash[e.uid] = now }   // 쉴드가 막음 → 번쩍 연출

@@ -78,9 +78,10 @@
       return best
     }
 
-    function applyKb(target) {   // 강제 넉백(임계 무관) — 캐논/워커 kbHit용
+    function applyKb(target, force) {   // 강제 넉백(임계 무관). force=true면 재넉백 쿨(KB_CD)도 무시(망치개미: 매 공격 넉백).
       if (target.hp <= 0) return
-      if ((target.kbCdUntil && target.kbCdUntil > st.t) || (target.frozenUntil && target.frozenUntil > st.t)) return
+      if (target.frozenUntil && target.frozenUntil > st.t) return   // 빙결 중엔 넉백 X
+      if (!force && target.kbCdUntil && target.kbCdUntil > st.t) return
       target.kbUntil = st.t + KB_DUR; target.kbCdUntil = st.t + KB_CD; st.events.push({ type: 'knockback', uid: target.uid, L: target.L, side: target.side })
     }
     function upgradeMana(side) {   // 마나 강화 1레벨(마나 지불). 성공 시 true.
@@ -167,10 +168,16 @@
             if (u.cdLeft <= 0) {
               u.cdLeft = u.stats.atk.cd || 1
               const dmg = Math.round((u.stats.atk.dmg || 1) * (1 + (u._auraAtk || 0)))   // 오라 공격 버프
-              if (isMelee) {   // 근접: 즉시(접촉). kbHit=명중 시 강제 넉백(워커)
-                const kbHit = !!u.stats.atk.kbHit
-                if (inTgt) { if (tgtGhost) st.events.push({ type: 'ghosthit', uid: tgt.uid, dmg, kb: kbHit }); else { applyDamage(tgt, dmg, u.side); if (kbHit) applyKb(tgt); st.events.push({ type: 'hit', by: u.uid, target: tgt.uid, dmg }) } }
-                else { const es = u.side === 0 ? 1 : 0; st.baseHp[es] = Math.max(0, st.baseHp[es] - dmg); st.events.push({ type: 'basehit', side: es, dmg }) }
+              if (isMelee) {   // 근접: 즉시(접촉). kbHit=명중 시 강제 넉백(망치개미), aoeR=범위 슬램(주변 전원)
+                const kbHit = !!u.stats.atk.kbHit, slamR = u.stats.atk.aoeR || 0
+                if (inTgt) {
+                  if (slamR > 0) {   // 범위 슬램: 주변 적 전원 타격 + (kbHit면) 매번 강제 넉백
+                    for (const e of st.units) if (e.side !== u.side && e.hp > 0 && Math.abs(e.L - u.L) <= slamR) { applyDamage(e, dmg, u.side); if (kbHit) applyKb(e, true) }
+                    for (const g of st.ghosts) if (g.hp > 0 && Math.abs(g.L - u.L) <= slamR) st.events.push({ type: 'ghosthit', uid: g.uid, dmg, kb: kbHit })
+                    st.events.push({ type: 'hit', by: u.uid, target: tgt.uid, dmg, slamL: u.L, slamR })
+                  } else if (tgtGhost) st.events.push({ type: 'ghosthit', uid: tgt.uid, dmg, kb: kbHit })
+                  else { applyDamage(tgt, dmg, u.side); if (kbHit) applyKb(tgt, true); st.events.push({ type: 'hit', by: u.uid, target: tgt.uid, dmg }) }
+                } else { const es = u.side === 0 ? 1 : 0; st.baseHp[es] = Math.max(0, st.baseHp[es] - dmg); st.events.push({ type: 'basehit', side: es, dmg }) }
               } else {   // 원거리: 실제 투사체 발사(컨트롤러가 처리). ghost=true면 명중 시 릴레이.
                 st.events.push({ type: 'fire', by: u.uid, side: u.side, fromL: u.L, dir: u.dir, dmg, atkType, aoeR: u.stats.atk.aoeR || 0, slow: u.stats.atk.slow || 0, slowDur: u.stats.atk.slowDur || 0, targetUid: inTgt ? tgt.uid : null, toL: inTgt ? tgt.L : (u.side === 0 ? 1 : 0), ghost: !!(inTgt && tgtGhost) })
               }
