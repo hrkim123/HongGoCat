@@ -7,6 +7,13 @@ let updater = null   // electron-updater instance (set in initAutoUpdate), for r
 // disabling GPU compositing is a common fix. (Light overlay, negligible perf cost.)
 app.disableHardwareAcceleration()
 
+// 개발 빌드(소스에서 실행 = unpackaged)는 설치된 배포 앱과 저장소·단일인스턴스 락이 겹치지 않도록
+// 별도 userData 폴더를 사용한다. → dev로 켜도 배포 앱의 실제 데이터(가챠·덱·설정 등)를 건드리지 않고,
+// 둘을 번갈아/동시에 켜도 초기화·충돌이 없다. (배포 설치본은 그대로 'honggocat' 사용)
+if (!app.isPackaged) {
+  try { app.setPath('userData', app.getPath('userData') + '-dev') } catch (e) {}
+}
+
 let uIOhook = null
 let UiohookKey = {}
 try {
