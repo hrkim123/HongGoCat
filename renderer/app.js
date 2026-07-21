@@ -3557,6 +3557,8 @@
   const PROJ_SPD = { bullet: 560, sniper: 950, shell: 400, shellbig: 340, energy: 440, adogen: 320, grenade: 300, missile: 620 }
   const PROJ_LIFE = { bullet: 1500, sniper: 1500, shell: 3000, shellbig: 3000, energy: 3000, adogen: 2200, grenade: 3000, missile: 3500 }
   const PROJ_DIG = { bullet: 0.15, sniper: 0.2, shell: 1.2, shellbig: 1.7, energy: 0.6, adogen: 0.9, grenade: 1.5, missile: 1.8 }
+  // 총구/발사구 위치(스프라이트 로컬 좌표: x=앞쪽+, y=발밑에서 위로+). 스케일(s)·facing 적용해 실제 총구에서 발사되게.
+  const PROJ_MUZZLE = { rifleman: { x: 26, y: 22 }, sniper: { x: 30, y: 22 }, grenadier: { x: 11, y: 28 }, drone: { x: 15, y: 20 }, freezer: { x: 14, y: 22 }, mechaAnt: { x: 22, y: 30 }, mechaHuman: { x: 18, y: 34 }, human: { x: 16, y: 28 }, boss: { x: 26, y: 40 }, _default: { x: 16, y: 22 } }
   // 무기(덱) 배틀 발사 — 오버레이 무기 시스템을 "그대로" 사용(캐릭터 기준 발사·커서 추적·합체·핵·리틀보이 등).
   // 마나만 배틀 코스트로 소모하고, 실제 발사는 기존 오버레이 함수를 호출한다.
   const BATTLE_W_MULT = 4   // 오버레이 무기의 파워를 배틀 유닛 HP 스케일에 맞게 증폭
@@ -3605,10 +3607,16 @@
     return false
   }
   function battleFire(ev) {
-    const byU = battle.unitByUid(ev.by); const kind = projKindFor(byU ? byU.type : 'ant')
-    const fx = battleLaneX(ev.fromL), fy = antGroundY(fx) - 20 * view.scale
+    const byU = battle.unitByUid(ev.by); const type = byU ? byU.type : 'ant'; const kind = projKindFor(type)
+    const def = window.BattleData.UNITS[type] || {}
+    const s = view.scale * BATTLE_UNIT_SCALE * (def.size || 1), face = ev.side === 0 ? 1 : -1
+    const mz = PROJ_MUZZLE[type] || PROJ_MUZZLE._default
+    const laneX = battleLaneX(ev.fromL), feetY = antGroundY(laneX) - (def.flying ? 34 * view.scale : 0)
+    const fx = laneX + face * mz.x * s, fy = feetY - mz.y * s   // 실제 총구 위치에서 발사
     const tu = ev.targetUid != null ? battle.unitByUid(ev.targetUid) : null
-    const tx = tu ? battleLaneX(tu.L) : battleLaneX(ev.toL), ty = antGroundY(tx) - (tu ? 20 : 40) * view.scale
+    const tdef = tu ? (window.BattleData.UNITS[tu.type] || {}) : null
+    const tx = tu ? battleLaneX(tu.L) : battleLaneX(ev.toL)
+    const ty = tu ? (antGroundY(tx) - (tdef.flying ? 34 * view.scale : 0) - 20 * view.scale) : (antGroundY(tx) - 60 * view.scale)   // 적 몸통/기지 높이 조준
     const spd = PROJ_SPD[kind] * view.scale
     let vx, vy
     if (kind === 'grenade') { const dx = tx - fx; vx = dx / 0.8; vy = -260 * view.scale }   // 포물선 던지기
