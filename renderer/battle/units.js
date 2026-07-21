@@ -63,7 +63,7 @@
     },
     mechaHuman: {
       name: '메카 인간폼', cat: 'unit', rarity: 'legend', cost: 7, hp: 120,
-      speed: 0.12, atk: { type: 'proj', dmg: 15, range: 0.28, cd: 0.95 }, // 0.7→0.95 = ≈15.8dps. 실효HP 140·공중
+      speed: 0.12, atk: { type: 'proj', dmg: 15, range: 0.28, cd: 1.05, charge: 1.0 }, // 에너지포 = 1초 충전 후 최대 빔(오버레이 ECANNON_MS 동일). ≈14dps
       battleShield: { absorb: 20, cooldown: 6 },
       art: 'human', size: 1.7, flying: true, // 공중 타입(구멍 무시). 기존 건담폼 아트·에너지포 재사용
     },

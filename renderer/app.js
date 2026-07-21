@@ -861,7 +861,7 @@
         else remoteHumans.delete(msg.id)
       }
       else if (msg.t === 'mecha') {
-        if (msg.active) remoteMechas.set(msg.id, { nx: msg.nx, ny: msg.ny, hp: msg.hp, face: msg.face || 1, shield: msg.shield || 0, form: msg.form || 0, thr: msg.thr || 0, ch: msg.ch || 0, chg: msg.chg || 0, sdep: msg.sdep || 0, snx: msg.snx, sny: msg.sny, sang: msg.sang || 0 })
+        if (msg.active) remoteMechas.set(msg.id, { nx: msg.nx, ny: msg.ny, hp: msg.hp, face: msg.face || 1, shield: msg.shield || 0, form: msg.form || 0, thr: msg.thr || 0, ch: msg.ch || 0, chg: msg.chg || 0, mang: msg.mang || 0, sdep: msg.sdep || 0, snx: msg.snx, sny: msg.sny, sang: msg.sang || 0 })
         else remoteMechas.delete(msg.id)
       }
       else if (msg.t === 'mshells') { mergeRemote(remoteMShells, msg.id, msg.list, 'nx', 'ny') }
@@ -2379,7 +2379,10 @@
       me.mechaShieldHp = (m.shield || 0) * MSHIELD_HP
       me.mechaForm = m.form || 0; me.mechaThrust = !!m.thr; me.mechaCharging = !!m.ch; me.mechaCharge = m.chg || 0
       me.mechaShieldDeploy = m.sdep || 0; me.mechaShieldX = (m.snx != null ? m.snx : m.nx) * W; me.mechaShieldY = (m.sny != null ? m.sny : m.ny) * H; me.mechaShieldAng = m.sang || 0; me.mechaActive = true
+      // 팔·대포 조준은 소유자 커서(mang) 방향으로. 내 로컬 커서를 잠시 대체(drawMecha가 cursor로 각도 계산).
+      const scx = cursor.x, scy = cursor.y; cursor.x = me.mechaX + Math.cos(m.mang || 0) * 400; cursor.y = me.mechaY + Math.sin(m.mang || 0) * 400
       drawMecha(now, false)
+      cursor.x = scx; cursor.y = scy
       me.mechaX = sv.x; me.mechaY = sv.y; me.mechaFace = sv.f; me.mechaHp = sv.hp; me.mechaShieldOn = sv.on; me.mechaShieldHp = sv.sh; me.mechaCharging = sv.ch; me.mechaCharge = sv.cg; me.mechaForm = sv.form; me.mechaThrust = sv.thr; me.mechaShieldDeploy = sv.dep; me.mechaShieldX = sv.sX; me.mechaShieldY = sv.sY; me.mechaShieldAng = sv.sA; me.skin = sv.skin; me.mechaActive = sv.active
     }
   }
@@ -3591,7 +3594,10 @@
         // 공중형: 걷기 모션 제거 + 진행 방향으로 살짝 기울임(멈추면 복귀)
         const moving = !atk, tgtLean = moving ? facing * 0.16 : 0
         u._lean = (u._lean || 0) + (tgtLean - (u._lean || 0)) * 0.12
-        drawOverlayMechaAt(x, y, 0.46 * (def.size || 1.7), facing, 1, now, { walking: false, lean: u._lean, shHp01: sh01 })
+        // 에너지포 충전: 교전(_acting) 중이면 cdLeft 기준 0→1로 에너지볼이 커지는 연출
+        const ecd = (def.atk && def.atk.cd) || 1
+        const charge = (u._acting && def.atk && def.atk.charge) ? Math.max(0, Math.min(1, 1 - (u.cdLeft || 0) / ecd)) : 0
+        drawOverlayMechaAt(x, y, 0.46 * (def.size || 1.7), facing, 1, now, { walking: false, lean: u._lean, shHp01: sh01, charge })
       }
       else if (u.type === 'human') drawOverlayHumanAt(x, y, 0.80 * (def.size || 1.3), facing, now)
       else window.BattleSprites.draw(ctx, u.type, { x, y, scale: s, facing, state: atk ? 'attack' : 'walk', t: u.uid * 0.37 + now / 1000, flash: atk })
@@ -3652,13 +3658,14 @@
   // 크기는 (x,y) 기준 스케일 변환으로 조절(원본 함수 수정 없이).
   function drawOverlayMechaAt(x, y, k, facing, form, now, opts) {
     opts = opts || {}
-    const walking = opts.walking !== false, lean = opts.lean || 0, sh = opts.shHp01
-    const sv = { x: me.mechaX, y: me.mechaY, f: me.mechaFace, form: me.mechaForm, thr: me.mechaThrust, chg: me.mechaCharging, dep: me.mechaShieldDeploy, shp: me.mechaShieldHp, sang: me.mechaShieldAng }
+    const walking = opts.walking !== false, lean = opts.lean || 0, sh = opts.shHp01, charge = opts.charge || 0
+    const sv = { x: me.mechaX, y: me.mechaY, f: me.mechaFace, form: me.mechaForm, thr: me.mechaThrust, chg: me.mechaCharging, cg: me.mechaCharge, dep: me.mechaShieldDeploy, shp: me.mechaShieldHp, sang: me.mechaShieldAng }
     const cx = cursor.x, cy = cursor.y
     ctx.save()
     try {
       ctx.translate(x, y); ctx.scale(k, k); if (lean) ctx.rotate(lean); ctx.translate(-x, -y)   // lean = 진행 방향 기울임(공중형)
-      me.mechaX = x; me.mechaY = y; me.mechaFace = facing; me.mechaForm = form; me.mechaThrust = form >= 1; me.mechaCharging = false
+      me.mechaX = x; me.mechaY = y; me.mechaFace = facing; me.mechaForm = form; me.mechaThrust = form >= 1
+      me.mechaCharging = charge > 0; me.mechaCharge = charge   // 에너지포 충전 연출(에너지볼이 커짐)
       cursor.x = x + facing * 500; cursor.y = y - 40   // 전방 조준(대포 각도용)
       drawMecha(now, walking)
       if (sh != null && sh > 0) {   // 쉴드도 기존 함수 재사용 → 개미폼=반구 돔 / 인간폼=판넬(자동 form 분기)
@@ -3666,7 +3673,7 @@
         drawMechaShield(now)
       }
     } finally {
-      me.mechaX = sv.x; me.mechaY = sv.y; me.mechaFace = sv.f; me.mechaForm = sv.form; me.mechaThrust = sv.thr; me.mechaCharging = sv.chg
+      me.mechaX = sv.x; me.mechaY = sv.y; me.mechaFace = sv.f; me.mechaForm = sv.form; me.mechaThrust = sv.thr; me.mechaCharging = sv.chg; me.mechaCharge = sv.cg
       me.mechaShieldDeploy = sv.dep; me.mechaShieldHp = sv.shp; me.mechaShieldAng = sv.sang
       cursor.x = cx; cursor.y = cy; ctx.restore()
     }
@@ -4652,7 +4659,7 @@
     } else if (sentHuman) { net.send(JSON.stringify({ t: 'human', active: 0 })); sentHuman = false }
     if (me.mechaActive) {
       sentMecha = true
-      net.send(JSON.stringify({ t: 'mecha', active: 1, nx: +(me.mechaX / NW).toFixed(4), ny: +(me.mechaY / NH).toFixed(4), hp: me.mechaHp, face: me.mechaFace || 1, shield: +(me.mechaShieldHp / MSHIELD_HP).toFixed(2), form: +(me.mechaForm || 0).toFixed(2), thr: me.mechaThrust ? 1 : 0, ch: me.mechaCharging ? 1 : 0, chg: +(me.mechaCharge || 0).toFixed(2), sdep: +(me.mechaShieldDeploy || 0).toFixed(2), snx: +((me.mechaShieldX != null ? me.mechaShieldX : me.mechaX) / NW).toFixed(4), sny: +((me.mechaShieldY != null ? me.mechaShieldY : me.mechaY) / NH).toFixed(4), sang: +(me.mechaShieldAng || 0).toFixed(2) }))
+      net.send(JSON.stringify({ t: 'mecha', active: 1, nx: +(me.mechaX / NW).toFixed(4), ny: +(me.mechaY / NH).toFixed(4), hp: me.mechaHp, face: me.mechaFace || 1, shield: +(me.mechaShieldHp / MSHIELD_HP).toFixed(2), form: +(me.mechaForm || 0).toFixed(2), thr: me.mechaThrust ? 1 : 0, ch: me.mechaCharging ? 1 : 0, chg: +(me.mechaCharge || 0).toFixed(2), mang: +(Math.atan2(cursor.y - me.mechaY, cursor.x - me.mechaX)).toFixed(2), sdep: +(me.mechaShieldDeploy || 0).toFixed(2), snx: +((me.mechaShieldX != null ? me.mechaShieldX : me.mechaX) / NW).toFixed(4), sny: +((me.mechaShieldY != null ? me.mechaShieldY : me.mechaY) / NH).toFixed(4), sang: +(me.mechaShieldAng || 0).toFixed(2) }))   // mang = 소유자 조준 각도(내 커서 아님)
     } else if (sentMecha) { net.send(JSON.stringify({ t: 'mecha', active: 0 })); sentMecha = false }
     // all mecha projectiles share one channel, tagged by kind (0=ant shell, 1=energy, 2=interceptor)
     const allMShells = mechaShells.map((p) => ({ p, k: 0 })).concat(energyShots.map((p) => ({ p, k: 1 }))).concat(interceptors.map((p) => ({ p, k: 2 })))
