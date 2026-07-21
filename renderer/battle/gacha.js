@@ -30,6 +30,11 @@
   ;[...D.unitList(), ...D.weaponList()].forEach((e) => {
     if (e.starter && !owned[e.id]) { owned[e.id] = true; if (!levels[e.id]) levels[e.id] = 1 }
   })
+  // 디폴트 덱: 모든 유저 기본 지급(보유 처리) — 일반 개미 4종 + 쉴더(고급) + 미사일. 덱이 비어있으면 자동 편성.
+  const DEFAULT_UNITS = ['ant', 'rifleman', 'grenadier', 'scout', 'shielder']
+  const DEFAULT_WEAPONS = ['missile']
+  ;[...DEFAULT_UNITS, ...DEFAULT_WEAPONS].forEach((id) => { if (!owned[id]) owned[id] = true; if (!levels[id]) levels[id] = 1 })
+  if (!deck.units.length && !deck.weapons.length) { deck = { units: DEFAULT_UNITS.slice(), weapons: DEFAULT_WEAPONS.slice() }; localStorage.setItem(K.deck, JSON.stringify(deck)) }
   saveOwned()
 
   function saveGems() { localStorage.setItem(K.gems, String(gems)) }

@@ -841,7 +841,7 @@
       else if (msg.t === 'battle-state') { const p = peers.get(msg.id); if (p) p.inBattle = !!msg.on }   // 관전자: 배틀 중인 피어는 화면에서 가림
       else if (msg.t === 'battle-dec') { if (msg.to === me.netId && battleInvite && battleInvite.to === msg.id) { battleInvite = null; showToast(msg.reason === 'busy' ? '상대가 배틀 중입니다' : '상대가 배틀을 거절했습니다') } }
       else if (msg.t === 'battle-end') { if (battleMulti && msg.id === battleMulti.oppId && battlePhase !== 'result') { battlePhase = 'result'; battleResultAt = performance.now(); battleWin = true; seedBattleConfetti(); recordBattleWin() } }   // 상대가 패배/이탈 통지 → 내 승리
-      else if (msg.t === 'bunits') { if (battleMulti && msg.id === battleMulti.oppId && msg.to === me.netId) { battleGhosts = (msg.list || []).map((g) => ({ uid: g.uid, type: g.type, L: 1 - g.L, hp: g.hp, shHp: g.shHp, frozen: g.frozen, slowed: g.slowed })); battleGhostBase = msg.base != null ? msg.base : battleGhostBase } }   // 상대 유닛(미러링) + 상대 기지 HP
+      else if (msg.t === 'bunits') { if (battleMulti && msg.id === battleMulti.oppId && msg.to === me.netId) { battleGhosts = (msg.list || []).filter((g) => !battleNetHeldUids.has(g.uid)).map((g) => ({ uid: g.uid, type: g.type, L: 1 - g.L, hp: g.hp, shHp: g.shHp, frozen: g.frozen, slowed: g.slowed })); battleGhostBase = msg.base != null ? msg.base : battleGhostBase } }   // 상대 유닛(미러링, 그물에 붙잡힌 uid 제외) + 상대 기지 HP
       else if (msg.t === 'bghit') { if (battleMulti && msg.to === me.netId && battle) { battle.hitUnit(msg.uid, msg.dmg || 0, msg.slow || 0, msg.slowDur || 0, !!msg.kb) } }   // 내 유닛이 맞음(상대가 통지) → 로컬 적용(권한, 넉백 플래그)
       else if (msg.t === 'bbhit') { if (battleMulti && msg.to === me.netId && battle) { battle.hitBase(0, msg.dmg || 0) } }   // 내 기지가 맞음 → 로컬 적용
       else if (msg.t === 'gatling') {
@@ -1479,6 +1479,7 @@
     grab(energyShots, () => 'energy')   // 에너지포
     grab(ants, () => 'ant')
     if (me.humanActive && !me.humanNetted && Math.hypot(me.humanX - me.netBx, me.humanY - me.netBy) < radius) { me.humanNetted = true; me.netCaught.push({ kind: 'human', obj: me }) }
+    if (battleActive && battle) battleNetCatch(radius)   // 배틀: 적 소환체 포획(최대 5코스트)
     // MULTIPLAYER: also trap OTHER players' collidables — remove them from the owner (t:'capture') and
     // keep a local copy in the net so I can fling it as my own.
     if (connected()) {
@@ -1499,6 +1500,34 @@
       for (const [pid, rec] of remoteMShells) { if (nowP - rec.ts > 500) continue   // enemy mecha's shells / energy (the mecha itself is never caught)
         for (const [id, it] of rec.items) { if (cap()) break; const x = it.sx * W, y = it.sy * H
           if (Math.hypot(x - me.netBx, y - me.netBy) < radius) { rec.items.delete(id); steal(pid, id, 'mshell', x, y, { x, y, vx: 0, vy: 0, hp: it.pw || 5, born: nowP, life: 6000 }, mechaShells) } } }
+    }
+  }
+  // 배틀 그물: 반경 내 "적" 소환체를 코스트 합 최대 5까지 포획. 솔로=로컬 side1, 멀티=고스트.
+  function battleNetCatch(radius) {
+    let cost = me.netCaught.reduce((s, it) => s + (it.kind === 'bunit' ? (it.cost || 0) : 0), 0)
+    const unitCost = (type) => (window.BattleData.UNITS[type] || {}).cost || 1
+    if (battleMulti) {
+      for (let i = battleGhosts.length - 1; i >= 0; i--) {
+        const g = battleGhosts[i]; if (g.hp <= 0) continue
+        const c = unitCost(g.type); if (cost + c > BATTLE_NET_COST_CAP) continue
+        const gx = battleLaneX(g.L), gy = battleUnitFeetY(gx, (window.BattleData.UNITS[g.type] || {}).flying)
+        if (Math.hypot(gx - me.netBx, gy - me.netBy) < radius) {
+          battleGhosts.splice(i, 1); battleNetHeldUids.add(g.uid); cost += c   // 들고 있는 동안 bunits 재갱신에서 제외
+          me.netCaught.push({ kind: 'bunit', obj: { uid: g.uid, type: g.type, side: g.side, L: g.L, ghost: true }, cost: c }); spawnSpark(gx, gy)
+        }
+      }
+    } else {
+      const victims = []
+      for (const u of battle.state.units) {
+        if (u.side !== 1 || u.hp <= 0) continue
+        const c = unitCost(u.type); if (cost + c > BATTLE_NET_COST_CAP) continue
+        const ux = battleLaneX(u.L), uy = battleUnitFeetY(ux, (window.BattleData.UNITS[u.type] || {}).flying)
+        if (Math.hypot(ux - me.netBx, uy - me.netBy) < radius) { victims.push(u); cost += c; spawnSpark(ux, uy) }
+      }
+      for (const u of victims) {   // sim 배열에서 조용히 제거(사망 이벤트 없이 붙잡아 들어올림), 스냅샷 보관
+        const idx = battle.state.units.indexOf(u); if (idx >= 0) battle.state.units.splice(idx, 1)
+        me.netCaught.push({ kind: 'bunit', obj: { uid: u.uid, type: u.type, side: 1, L: u.L, ghost: false, snap: u }, cost: unitCost(u.type) })
+      }
     }
   }
   function stepNet(now) {
@@ -1557,6 +1586,16 @@
         me.humanNetted = false; me.humanX = me.netBx; me.humanY = me.netBy - 2 * s
         me.humanTossVx = dx * flingT * 0.85; me.humanVY = dy * flingT * 0.85 - 3 * s; me.humanGround = false; me.humanTossKill = lethal; continue   // slight upward loft
       }
+      if (it.kind === 'bunit') {   // 배틀 소환체: 쌔게(커서 상단) 던지면 사망, 살살이면 전장 복귀
+        const b = o; battleNetHeldUids.delete(b.uid)
+        const L = Math.max(0, Math.min(1, (me.netBx - BATTLE_PAD) / (canvas.clientWidth - 2 * BATTLE_PAD)))
+        if (lethal) {
+          if (b.ghost) { if (connected() && battleMulti) net.send(JSON.stringify({ t: 'bghit', to: battleMulti.oppId, uid: b.uid, dmg: 9999, slow: 0, slowDur: 0, kb: 0 })) }
+          else battleDead.push({ id: b.type, L, side: 1, born: nowP })   // 솔로: 이미 제거됨 → 사망 스프라이트
+          addEffect(me.netBx, me.netBy, 2); for (let k = 0; k < 6; k++) spawnDebris(me.netBx + (Math.random() - 0.5) * 24 * s, me.netBy, 1, '#c94b46')
+        } else if (!b.ghost && b.snap && battle) { b.snap.L = L; if (b.snap.hp <= 0) b.snap.hp = 1; battle.state.units.push(b.snap) }   // 솔로: 재투입(멀티는 held 해제로 다음 bunits에 복귀)
+        continue
+      }
       o.x = me.netBx; o.y = me.netBy; o.born = nowP
       if (it.kind === 'missile') { const sp = Math.max(flingT, MISSILE_SPEED * BOOST_MULT * 0.6); o.vx = dx * sp; o.vy = dy * sp; o.boost = true; projectiles.push(o) }
       else if (it.kind === 'ant') {   // thrown as a parabola in the swing direction (see stepAnts toss)
@@ -1585,6 +1624,7 @@
     }
     else if (it.kind === 'adogen') { const g = ctx.createRadialGradient(x, y, 0, x, y, 8 * s); g.addColorStop(0, 'rgba(235,250,255,0.95)'); g.addColorStop(0.5, 'rgba(120,200,255,0.8)'); g.addColorStop(1, 'rgba(80,160,255,0)'); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, 8 * s, 0, Math.PI * 2); ctx.fill() }
     else if (it.kind === 'wave') { ctx.strokeStyle = 'rgba(150,210,255,0.9)'; ctx.lineWidth = 3 * s; ctx.beginPath(); ctx.arc(x, y, 6 * s, -1.15, 1.15); ctx.stroke() }
+    else if (it.kind === 'bunit') { if (window.BattleSprites) window.BattleSprites.draw(ctx, o.type, { x, y: y + 14 * s, scale: view.scale * 1.0, facing: -1, state: 'hit', t: now / 1000 }) }   // 붙잡힌 배틀 소환체
     else { ctx.fillStyle = it.kind === 'gbullet' ? '#ffd76b' : '#fff1b0'; ctx.beginPath(); ctx.arc(x, y, 2.8 * s, 0, Math.PI * 2); ctx.fill() }
   }
   // draw a net canopy (radial ribs + concentric rings + weighted rim) — used open (cast) or closed (held)
@@ -3448,6 +3488,8 @@
     showToast(`↩ 베팅 환불(${reason || '무효'}) +${betLabel(battleBet)}`)
   }
   let battleGhosts = [], battleGhostBase = 100, bunitsLastSend = 0   // 상대(고스트) 유닛 + 상대 기지 HP
+  const battleNetHeldUids = new Set()   // 배틀 그물이 붙잡은 상대 고스트 uid(들고 있는 동안 bunits 재갱신에서 제외)
+  const BATTLE_NET_COST_CAP = 5         // 그물 1회 포획 최대 소환체 코스트 합
   let unitReadyAt = {}   // 유닛별 재출격 쿨다운(냥코풍): 소환 후 일정 시간 재소환 불가
   let battleUnitOrder = []   // 배틀-로컬 소환체 순서(앞 5 활성 + 뒤 5 벤치). 벤치 탭 → 같은 열 앞뒤 스왑(판 중 전략 교체)
   function redeployCd(id) { const u = window.BattleData.UNITS[id]; return 1500 + (u ? (u.cost || 1) : 1) * 900 }   // 코스트 비례(ms): 개미 2.4s ~ 여왕 10.5s
@@ -3514,6 +3556,7 @@
     battlePhase = 'countdown'; battlePhaseAt = performance.now(); battleConfetti = []   // 3·2·1·START 후 시작
     battleSavedCarve = carve ? carve.slice() : null; battleSavedBarDmg = barDamage; resetTaskbarDig(false)   // 배틀은 복원된(깨끗한) 작업표시줄로 시작
     battleBet = null; battleBetSettled = false   // 베팅 초기화(멀티는 startBattleMulti에서 설정·escrow)
+    battleNetHeldUids.clear()
     buildBattleHud(); sendHotzone(); recordBattlePlay()   // 🏆 배틀 참여 업적
     if (connected()) net.send(JSON.stringify({ t: 'battle-state', on: true }))   // 관전자에게 "배틀 중"(가리기)
   }
@@ -3708,7 +3751,7 @@
     // 멀티: 결과 연출 없이 나가면(중도 이탈) 상대에게 패배 통지
     if (battleMulti && battlePhase !== 'result' && connected()) net.send(JSON.stringify({ t: 'battle-end', to: battleMulti.oppId, result: 'loser' }))
     if (battleCannonEl) { battleCannonEl.remove(); battleCannonEl = null } cannonSweep = null
-    battleMulti = null; battleGhosts = []
+    battleMulti = null; battleGhosts = []; battleNetHeldUids.clear()
     battleActive = false; battle = null; bproj.length = 0; battlePhase = 'idle'; battleConfetti = []
     { const c = document.querySelector('.bx-confirm'); if (c) c.remove() }
     if (battleSavedCarve !== undefined) { carve = battleSavedCarve; barDamage = battleSavedBarDmg || 0; carveDirty = true; battleSavedCarve = undefined }   // 원래 작업표시줄 상태 복귀

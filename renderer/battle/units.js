@@ -120,7 +120,7 @@
   const WEAPONS = {
     missile:   { name: '미사일', cat: 'weapon', rarity: 'common',   starter: true, battle: true, mana: 0.5, merge: true }, // 합체 유지
     shield:    { name: '쉴드',   cat: 'weapon', rarity: 'common' },
-    net:       { name: '그물',   cat: 'weapon', rarity: 'uncommon' },
+    net:       { name: '그물',   cat: 'weapon', rarity: 'uncommon', battle: true, mana: 6 },   // 배틀: 적 소환체를 최대 5코스트까지 포획, 쌔게 던지면 사망
     gatling:   { name: '게틀링건', cat: 'weapon', rarity: 'uncommon', battle: true, mana: 7, place: 'base-fixed', aim: 'cursor' },
     lightning: { name: '낙뢰',   cat: 'weapon', rarity: 'rare' },
     blackhole: { name: '블랙홀', cat: 'weapon', rarity: 'legend', battle: true }, // 배틀: 1게임 1회
