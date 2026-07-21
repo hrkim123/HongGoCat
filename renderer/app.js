@@ -499,6 +499,10 @@
   // Compares the last-seen version (localStorage) to the current app version; lists every changelog
   // entry between them (first run just shows the current version). Add newest versions at the TOP.
   const CHANGELOG = {
+    '1.0.7': [
+      '메카·인간폼 에너지포가 소환체를 맞힐 때 충돌 연출이 나오도록 수정',
+      '에너지포 관통도 통일 규칙 적용 — 자기보다 튼튼한 소환체엔 막혀서 사라짐',
+    ],
     '1.0.6': [
       '업데이트 노트가 1.0.x 버전부터 안 뜨던 문제 수정 — 이제 이전 버전부터 최신까지 변경 내역을 한 번에 보여줘요',
     ],
