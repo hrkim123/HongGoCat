@@ -412,6 +412,30 @@
   const CUM_ACH_GEMS = 3
   let cumAchCleared = parseInt(localStorage.getItem('cumAchCleared') || '0', 10) || 0
   function cumTarget(c) { return c <= 0 ? 10000 : c === 1 ? 50000 : 100000 + (c - 2) * 50000 }
+  // 배틀 업적(티어): 5 → 10 → 20 → 30 → … → 100. 참여/승리 각각. 보상 = 💎5/단계.
+  const BATTLE_ACH_TARGETS = [5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100], BATTLE_ACH_GEMS = 5
+  let battlePlays = parseInt(localStorage.getItem('battlePlays') || '0', 10) || 0
+  let battleWins = parseInt(localStorage.getItem('battleWins') || '0', 10) || 0
+  let battlePlayAch = parseInt(localStorage.getItem('battlePlayAch') || '0', 10) || 0
+  let battleWinAch = parseInt(localStorage.getItem('battleWinAch') || '0', 10) || 0
+  function checkTierAch(count, cleared, targets, gems, label) {
+    let c = cleared
+    while (c < targets.length && count >= targets[c]) {
+      if (window.BattleGacha) window.BattleGacha.addGems(gems)
+      showToast(`🏆 ${label} ${targets[c]}회 달성! 💎 +${gems}`); c++
+    }
+    return c
+  }
+  function recordBattlePlay() {
+    battlePlays++; localStorage.setItem('battlePlays', String(battlePlays))
+    battlePlayAch = checkTierAch(battlePlays, battlePlayAch, BATTLE_ACH_TARGETS, BATTLE_ACH_GEMS, '배틀 참여'); localStorage.setItem('battlePlayAch', String(battlePlayAch))
+    if (achvOpenFlag) renderAchv()
+  }
+  function recordBattleWin() {
+    battleWins++; localStorage.setItem('battleWins', String(battleWins))
+    battleWinAch = checkTierAch(battleWins, battleWinAch, BATTLE_ACH_TARGETS, BATTLE_ACH_GEMS, '배틀 승리'); localStorage.setItem('battleWinAch', String(battleWinAch))
+    if (achvOpenFlag) renderAchv()
+  }
   function checkCumAch() {
     let target = cumTarget(cumAchCleared), gained = 0
     while (totalCount >= target) {
@@ -422,16 +446,27 @@
     }
     if (gained && achvOpenFlag) renderAchv()
   }
+  function achCard(name, reward, desc, cur, target, cleared, done) {
+    const pct = done ? 100 : Math.min(100, (cur / target) * 100)
+    const card = document.createElement('div'); card.className = 'ach'
+    card.innerHTML = `<div class="ach-top"><span class="ach-name">${name}</span><span class="ach-reward">🎁 ${reward}</span></div>` +
+      `<p class="ach-desc">${desc}</p>` +
+      `<div class="ach-bar"><div class="ach-fill" style="width:${pct}%"></div></div>` +
+      `<div class="ach-status">${done ? '✅ 전 단계 달성 완료' : `${cur.toLocaleString()} / ${target.toLocaleString()} · 지금까지 ${cleared}단계`}</div>`
+    return card
+  }
   function renderAchv() {
     if (!achvListEl) return
     achvListEl.innerHTML = ''
-    const target = cumTarget(cumAchCleared), pct = Math.min(100, (totalCount / target) * 100)
-    const card = document.createElement('div'); card.className = 'ach'
-    card.innerHTML = `<div class="ach-top"><span class="ach-name">🏆 누적 카운트 ${target.toLocaleString()}회</span><span class="ach-reward">🎁 💎 ${CUM_ACH_GEMS}</span></div>` +
-      `<p class="ach-desc">키보드·마우스 누적 입력 ${target.toLocaleString()}회 달성 시 소환 재화 지급</p>` +
-      `<div class="ach-bar"><div class="ach-fill" style="width:${pct}%"></div></div>` +
-      `<div class="ach-status">${totalCount.toLocaleString()} / ${target.toLocaleString()} · 지금까지 ${cumAchCleared}단계 달성</div>`
-    achvListEl.appendChild(card)
+    // 1) 누적 카운트
+    const t1 = cumTarget(cumAchCleared)
+    achvListEl.appendChild(achCard(`🏆 누적 카운트 ${t1.toLocaleString()}회`, `💎 ${CUM_ACH_GEMS}`, `키보드·마우스 누적 입력 ${t1.toLocaleString()}회 달성 시 소환 재화 지급`, totalCount, t1, cumAchCleared, false))
+    // 2) 배틀 참여
+    const pDone = battlePlayAch >= BATTLE_ACH_TARGETS.length, pT = pDone ? BATTLE_ACH_TARGETS[BATTLE_ACH_TARGETS.length - 1] : BATTLE_ACH_TARGETS[battlePlayAch]
+    achvListEl.appendChild(achCard(`⚔ 배틀 참여 ${pT}회`, `💎 ${BATTLE_ACH_GEMS}`, `배틀 모드 ${pT}회 참여 시 소환 재화 지급 (5·10·20…100)`, battlePlays, pT, battlePlayAch, pDone))
+    // 3) 배틀 승리
+    const wDone = battleWinAch >= BATTLE_ACH_TARGETS.length, wT = wDone ? BATTLE_ACH_TARGETS[BATTLE_ACH_TARGETS.length - 1] : BATTLE_ACH_TARGETS[battleWinAch]
+    achvListEl.appendChild(achCard(`🏆 배틀 승리 ${wT}회`, `💎 ${BATTLE_ACH_GEMS}`, `배틀 모드에서 ${wT}회 승리 시 소환 재화 지급 (5·10·20…100)`, battleWins, wT, battleWinAch, wDone))
   }
   function positionAchv() {
     if (wx == null || !achvBtn) return
@@ -3413,7 +3448,7 @@
     battleAtkAt = {}; battleShieldFlash = {}; battleHealFx = []; battleDead = []; bproj.length = 0; battleResultAt = 0; battleLastT = performance.now(); battleActive = true
     battlePhase = 'countdown'; battlePhaseAt = performance.now(); battleConfetti = []   // 3·2·1·START 후 시작
     battleSavedCarve = carve ? carve.slice() : null; battleSavedBarDmg = barDamage; resetTaskbarDig(false)   // 배틀은 복원된(깨끗한) 작업표시줄로 시작
-    buildBattleHud(); sendHotzone()
+    buildBattleHud(); sendHotzone(); recordBattlePlay()   // 🏆 배틀 참여 업적
   }
   // 나가기 확인 팝업 — 나가면 패배 처리(승패 판정과 연관). YES/NO.
   function confirmExitBattle() {
@@ -3522,7 +3557,7 @@
     stepBattleProj(now, dt)
     for (let i = battleDead.length - 1; i >= 0; i--) if (now - battleDead[i].born > 900) battleDead.splice(i, 1)
     updateBattleHud()
-    if (battle.state.winner != null && battlePhase !== 'result') { battlePhase = 'result'; battleResultAt = now; battleWin = battle.state.winner === 0; seedBattleConfetti() }
+    if (battle.state.winner != null && battlePhase !== 'result') { battlePhase = 'result'; battleResultAt = now; battleWin = battle.state.winner === 0; seedBattleConfetti(); if (battleWin) recordBattleWin() }   // 🏆 배틀 승리 업적
     if (battleResultAt && now - battleResultAt > 3000) stopBattle()   // 결과 연출 3초 뒤 원래 화면 복귀
   }
   function drawBattleUnits(now) {

@@ -52,6 +52,15 @@
       `<path d="M25 36 Q27.1 45 29.2 36 Z" fill="#ff9d3a"/>` +
       `<path d="M20.2 36 Q21.1 41.5 22 36 Z" fill="#ffe08a"/>` +
       `<path d="M26.2 36 Q27.1 41.5 28 36 Z" fill="#ffe08a"/>`,
+    // 인간(스틱 파이터) — 배틀: 아도겐 원거리
+    human: () =>
+      `<circle cx="24" cy="13" r="4.6" fill="#e0b088"/>` +
+      `<rect x="20.4" y="17.5" width="7.2" height="13" rx="3" fill="#4a6a9a"/>` +
+      `<line x1="21" y1="20" x2="14" y2="27" stroke="#4a6a9a" stroke-width="3.2" stroke-linecap="round"/>` +
+      `<line x1="27" y1="20" x2="34" y2="25" stroke="#4a6a9a" stroke-width="3.2" stroke-linecap="round"/>` +
+      `<circle cx="36" cy="24.5" r="3.2" fill="rgba(120,200,255,.85)"/>` +
+      `<line x1="22" y1="30" x2="19" y2="40" stroke="#33456a" stroke-width="3.2" stroke-linecap="round"/>` +
+      `<line x1="26" y1="30" x2="29" y2="40" stroke="#33456a" stroke-width="3.2" stroke-linecap="round"/>`,
 
     // ── 무기 ──
     missile: () =>
