@@ -3454,6 +3454,11 @@
     const rb = document.createElement('div'); rb.style.cssText = 'flex:1;text-align:center;padding:8px 2px;border-radius:9px;background:rgba(180,140,90,.14);border:1px solid rgba(180,140,90,.4);color:#e6d3b8;font-size:12px;cursor:pointer;user-select:none'; rb.innerHTML = '🧱 작업표시줄 복구 <span style="color:#ffd86b;font-weight:600">💧1</span>'
     rb.onclick = () => { if (battle && battle.state.mana[0] >= 1) { battle.state.mana[0] -= 1; resetTaskbarDig(false); updateBattleHud() } else showToast('마나 부족 (1 필요)') }
     fw.appendChild(rb)
+    if (isDev) {   // 🛠 개발자 전용: 마나 풀충전(테스트용) — dev 모드에서만 노출
+      const mb = document.createElement('div'); mb.style.cssText = 'flex:1;text-align:center;padding:8px 2px;border-radius:9px;background:rgba(74,163,255,.16);border:1px solid rgba(74,163,255,.45);color:#bfe3ff;font-size:12px;cursor:pointer;user-select:none'; mb.innerHTML = '🛠 마나 채우기 <span style="color:#8fd3ff;font-weight:600">DEV</span>'
+      mb.onclick = () => { if (battle) { battle.state.mana[0] = battle.state.cfg.manaCap; updateBattleHud(); showToast('🛠 마나 풀충전') } }
+      fw.appendChild(mb)
+    }
     h.querySelector('.bhx').onclick = () => confirmExitBattle()
     const grip = h.querySelector('.bhgrip'); grip.style.touchAction = 'none'
     grip.addEventListener('pointerdown', (e) => {
