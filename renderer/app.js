@@ -844,7 +844,7 @@
       else if (msg.t === 'battle-state') { const p = peers.get(msg.id); if (p) p.inBattle = !!msg.on }   // 관전자: 원위치 유지 + "⚔ 배틀 중" 배지
       else if (msg.t === 'battle-dec') { if (msg.to === me.netId && battleInvite && battleInvite.to === msg.id) { battleInvite = null; showToast(msg.reason === 'busy' ? '상대가 배틀 중입니다' : '상대가 배틀을 거절했습니다') } }
       else if (msg.t === 'battle-end') { if (battleMulti && msg.id === battleMulti.oppId && battlePhase !== 'result') { battlePhase = 'result'; battleResultAt = performance.now(); battleWin = true; seedBattleConfetti(); recordBattleWin() } }   // 상대가 패배/이탈 통지 → 내 승리
-      else if (msg.t === 'bunits') { if (battleMulti && msg.id === battleMulti.oppId && msg.to === me.netId) { battleGhosts = (msg.list || []).filter((g) => !battleNetHeldUids.has(g.uid)).map((g) => ({ uid: g.uid, type: g.type, L: 1 - g.L, hp: g.hp, shHp: g.shHp, frozen: g.frozen, slowed: g.slowed })); battleGhostBase = msg.base != null ? msg.base : battleGhostBase } }   // 상대 유닛(미러링, 그물에 붙잡힌 uid 제외) + 상대 기지 HP
+      else if (msg.t === 'bunits') { if (battleMulti && msg.id === battleMulti.oppId && msg.to === me.netId) { const prev = new Map(battleGhosts.map((g) => [g.uid, g._dispL])); battleGhosts = (msg.list || []).filter((g) => !battleNetHeldUids.has(g.uid)).map((g) => { const L = 1 - g.L; return { uid: g.uid, type: g.type, L, hp: g.hp, shHp: g.shHp, frozen: g.frozen, slowed: g.slowed, _dispL: prev.has(g.uid) ? prev.get(g.uid) : L } }); battleGhostBase = msg.base != null ? msg.base : battleGhostBase } }   // 상대 유닛(미러링·표시위치 이어받아 보간) + 상대 기지 HP
       else if (msg.t === 'bghit') { if (battleMulti && msg.to === me.netId && battle) { battle.hitUnit(msg.uid, msg.dmg || 0, msg.slow || 0, msg.slowDur || 0, !!msg.kb) } }   // 내 유닛이 맞음(상대가 통지) → 로컬 적용(권한, 넉백 플래그)
       else if (msg.t === 'bbhit') { if (battleMulti && msg.to === me.netId && battle) { battle.hitBase(0, msg.dmg || 0) } }   // 내 기지가 맞음 → 로컬 적용
       else if (msg.t === 'gatling') {
@@ -3507,7 +3507,7 @@
   let battleActive = false, battle = null, battleAI = null, battleLastT = 0, battleResultAt = 0
   let battleAtkAt = {}, battleDead = [], battleOpp = null, battleHud = null, battleShieldFlash = {}, battleHealFx = [], battleFalls = []
   // 멀티 배틀: 상대와 1v1. battleMulti = { oppId, mySide(0=신청자/1=수락자), oppName } · null이면 솔로.
-  let battleMulti = null, battleInvite = null, battleIncoming = null
+  let battleMulti = null, battleInvite = null, battleIncoming = null, battleFlip = false
   let battleBet = null, battleBetSettled = false   // 베팅: {cur:'count'|'gems'|'mat', amt}. 진입 시 escrow 차감, 결과 시 1회 정산.
   const BET_CUR = { count: { name: '카운트', emoji: '🪙' }, gems: { name: '젬', emoji: '💎' }, mat: { name: '강화 부품', emoji: '🔩' } }
   function betBalance(cur) { return cur === 'count' ? tapCount : cur === 'gems' ? (window.BattleGacha ? window.BattleGacha.getGems() : 0) : cur === 'mat' ? (window.BattleGacha ? window.BattleGacha.getMaterials() : 0) : 0 }
@@ -3547,7 +3547,9 @@
   const BATTLE_CD_MS = 3200   // 3·2·1 (각 800ms) + START(800ms)
   const BATTLE_PAD = 90
   const BATTLE_UNIT_SCALE = 2.0   // 배틀 유닛 렌더 배율 (2.86 → ×0.7 축소). 히트박스(unitHitboxScreen)도 이 값에 연동.
-  function battleLaneX(L) { const W = canvas.clientWidth; return BATTLE_PAD + L * (W - 2 * BATTLE_PAD) }   // side0 기지=좌
+  // 멀티: 신청자(side0)=화면 왼쪽 / 수락자(side1)=오른쪽으로 "절대 고정". 수락자는 battleFlip으로 좌우 반전 렌더
+  // → 두 클라가 동일 절대 프레임을 공유(미사일 등 화면좌표 무기도 정합, 미러링 혼란 해소). sim은 L그대로.
+  function battleLaneX(L) { const W = canvas.clientWidth, t = battleFlip ? 1 - L : L; return BATTLE_PAD + t * (W - 2 * BATTLE_PAD) }
   // 유닛 발밑 Y. 지상형은 파인 지형(antGroundY)을 따라가고, 공중형은 땅 파임과 무관하게 원래 작업표시줄 라인 위로 고정.
   function battleUnitFeetY(x, flying) {
     if (flying) { const tb = taskbarRect(); return (tb ? tb.top : canvas.clientHeight) - 5 * view.scale - 64 * view.scale }   // 공중형: 지상보다 확실히 높게(34→64)
@@ -3597,6 +3599,7 @@
     battlePhase = 'countdown'; battlePhaseAt = performance.now(); battleConfetti = []   // 3·2·1·START 후 시작
     battleSavedCarve = carve ? carve.slice() : null; battleSavedBarDmg = barDamage; resetTaskbarDig(false)   // 배틀은 복원된(깨끗한) 작업표시줄로 시작
     battleBet = null; battleBetSettled = false   // 베팅 초기화(멀티는 startBattleMulti에서 설정·escrow)
+    battleFlip = false   // 기본(솔로/신청자)=왼쪽. 멀티 수락자는 startBattleMulti에서 true
     battleNetHeldUids.clear()
     buildBattleHud(); sendHotzone(); recordBattlePlay()   // 🏆 배틀 참여 업적
     if (connected()) net.send(JSON.stringify({ t: 'battle-state', on: true }))   // 관전자에게 "배틀 중"(가리기)
@@ -3616,6 +3619,7 @@
     battleMulti = { oppId, mySide, oppName: (opp && opp.name) || '상대' }
     battleAI = null
     _enterBattle()
+    battleFlip = (mySide === 1)   // 수락자=오른쪽(좌우 반전). 신청자=왼쪽. → 두 클라 동일 절대 배치
     if (bet && bet.amt > 0 && BET_CUR[bet.cur]) { battleBet = { cur: bet.cur, amt: bet.amt }; betAdd(bet.cur, -bet.amt); showToast(`💰 베팅 ${betLabel(battleBet)} 걸림`) }   // escrow 차감
     // 상대 고양이 = 그 피어 외형(없으면 기본). 렌더는 항상 "나=좌, 상대=우"로 미러링.
     battleOpp = Object.assign({ id: 'battleOpp', animal: (opp && opp.animal) || 'cat', name: battleMulti.oppName,
@@ -3932,7 +3936,7 @@
     battleHud.querySelectorAll('.bhsegs div').forEach((s, i) => s.style.background = i < Math.floor(mana / 2) ? '#4aa3ff' : 'rgba(255,255,255,.14)')   // 세그먼트당 마나 2 (맥스 20)
     const v = battleHud.querySelector('.bhval'); if (v) v.textContent = `${mana.toFixed(1)}/${battle.state.cfg.manaCap}` + (buff > 0 ? ` ⚡+${buff.toFixed(1)}` : '')
     const mu = battleHud.querySelector('.bhmanaup')   // ⚡ 마나 강화 라벨(레벨/다음 비용/현재 속도)
-    if (mu && battle.manaUpInfo) { const info = battle.manaUpInfo(0); mu.innerHTML = info.maxed ? `⚡ 마나 강화 <b>MAX</b> <span style="opacity:.7">${info.rate.toFixed(1)}/s</span>` : `⚡ 마나 강화 Lv.${info.level} <span style="color:#ffd86b;font-weight:600">💧${info.nextCost}</span> <span style="opacity:.7">→${(({0:0.7,1:0.9,2:1.2,3:1.5,4:2.0})[info.level] || 0)}/s</span>`; mu.style.opacity = (info.maxed || mana >= info.nextCost) ? '1' : '0.5' }
+    if (mu && battle.manaUpInfo) { const info = battle.manaUpInfo(0); mu.innerHTML = info.maxed ? `⚡ 마나 강화 <b>MAX</b> <span style="opacity:.7">${info.rate.toFixed(1)}/s</span>` : `⚡ 마나 강화 Lv.${info.level} <span style="color:#ffd86b;font-weight:600">💧${info.nextCost}</span> <span style="opacity:.7">→${(({0:1.1,1:1.4,2:1.8,3:2.3,4:2.8})[info.level] || 0)}/s</span>`; mu.style.opacity = (info.maxed || mana >= info.nextCost) ? '1' : '0.5' }
     const nowH = performance.now()
     battleHud.querySelectorAll('.bhunits [data-id]').forEach((b) => {
       const id = b.dataset.id, u = window.BattleData.UNITS[id]
@@ -4069,7 +4073,8 @@
     // 멀티: 상대(고스트) 유닛 — 미러링돼 우측→좌측 전진, facing=-1
     if (battleMulti) for (const g of battleGhosts) {
       if (g.hp <= 0) continue
-      const gdef = window.BattleData.UNITS[g.type] || {}, gx = battleLaneX(g.L), gy = battleUnitFeetY(gx, gdef.flying)
+      if (g._dispL == null) g._dispL = g.L; else g._dispL += (g.L - g._dispL) * 0.25   // 100ms 방송 사이 부드럽게 보간(버벅임 완화)
+      const gdef = window.BattleData.UNITS[g.type] || {}, gx = battleLaneX(g._dispL), gy = battleUnitFeetY(gx, gdef.flying)
       const gs = view.scale * BATTLE_UNIT_SCALE * (gdef.size || 1)
       drawTeamMarker(gx, gy, 1, g.type, gdef.size || 1)   // 상대(고스트) = 빨강 머리 위 삼각형
       if (g.type === 'mechaAnt') drawOverlayMechaAt(gx, gy, 0.43 * (gdef.size || 1.6), -1, 0, now, { walking: true, shHp01: g.shHp > 0 ? 1 : null })
