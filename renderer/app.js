@@ -798,6 +798,8 @@
           else peers.set(p.id, { id: p.id, name: p.name, animal: 'cat', tint: p.skin || 'default', pattern: p.pattern || 'solid', hat: p.hat || 'none', shape: parseShape(p.shape), feat: {}, ...newAnimState() })
         }
         for (const id of [...peers.keys()]) if (!seen.has(id)) peers.delete(id)
+        // 배틀 중 상대가 팅김(로스터에서 사라짐) = 비자발적 이탈 → 무효·베팅 환불 후 종료
+        if (battleMulti && battleActive && battlePhase !== 'result' && !seen.has(battleMulti.oppId)) { refundBattleBet('상대 접속 종료'); showToast('상대 접속이 끊겨 배틀 무효'); stopBattle() }
         // drop any remote entities belonging to peers who left (no lingering state)
         for (const m of [remoteMissiles, remoteShields, remoteAnts, remoteBlackholes, remoteGatlings, remoteGBullets, remoteHumans, remoteHbullets, remoteNets, remoteMechas, remoteMShells])
           for (const id of [...m.keys()]) if (!seen.has(id)) m.delete(id)
@@ -834,8 +836,9 @@
       else if (msg.t === 'digreset') { resetTaskbarDig(false) }   // someone restored → everyone restores
       else if (msg.t === 'peace') { setPeace(!!msg.on, true) }    // dev toggled peace mode → lock/unlock weapons for me too
       // ── 멀티 배틀 ── (to === me.netId 만 처리)
-      else if (msg.t === 'battle-req') { if (msg.to === me.netId && !battleActive && !battleIncoming) { const p = peers.get(msg.id); showBattleInvitePopup(msg.id, (p && p.name) || '상대') } else if (msg.to === me.netId && connected()) net.send(JSON.stringify({ t: 'battle-dec', to: msg.id, reason: 'busy' })) }
-      else if (msg.t === 'battle-acc') { if (msg.to === me.netId && battleInvite && battleInvite.to === msg.id) { battleInvite = null; startBattleMulti(msg.id, 0) } }   // 내 신청 수락됨 → 신청자=side0
+      else if (msg.t === 'battle-req') { if (msg.to === me.netId && !battleActive && !battleIncoming) { const p = peers.get(msg.id); showBattleInvitePopup(msg.id, (p && p.name) || '상대', msg.bet || null) } else if (msg.to === me.netId && connected()) net.send(JSON.stringify({ t: 'battle-dec', to: msg.id, reason: 'busy' })) }
+      else if (msg.t === 'battle-acc') { if (msg.to === me.netId && battleInvite && battleInvite.to === msg.id) { const bet = battleInvite.bet; battleInvite = null; startBattleMulti(msg.id, 0, bet) } }   // 내 신청 수락됨 → 신청자=side0(+베팅 escrow)
+      else if (msg.t === 'battle-state') { const p = peers.get(msg.id); if (p) p.inBattle = !!msg.on }   // 관전자: 배틀 중인 피어는 화면에서 가림
       else if (msg.t === 'battle-dec') { if (msg.to === me.netId && battleInvite && battleInvite.to === msg.id) { battleInvite = null; showToast(msg.reason === 'busy' ? '상대가 배틀 중입니다' : '상대가 배틀을 거절했습니다') } }
       else if (msg.t === 'battle-end') { if (battleMulti && msg.id === battleMulti.oppId && battlePhase !== 'result') { battlePhase = 'result'; battleResultAt = performance.now(); battleWin = true; seedBattleConfetti(); recordBattleWin() } }   // 상대가 패배/이탈 통지 → 내 승리
       else if (msg.t === 'bunits') { if (battleMulti && msg.id === battleMulti.oppId && msg.to === me.netId) { battleGhosts = (msg.list || []).map((g) => ({ uid: g.uid, type: g.type, L: 1 - g.L, hp: g.hp, shHp: g.shHp, frozen: g.frozen, slowed: g.slowed })); battleGhostBase = msg.base != null ? msg.base : battleGhostBase } }   // 상대 유닛(미러링) + 상대 기지 HP
@@ -995,7 +998,7 @@
     window.BattleGachaUI.setCountBridge({ get: () => tapCount, spend: (n) => { spendCoins(n) }, set: (n) => { tapCount = Math.max(0, n | 0); counterDirty = true; renderCounter() } })
     window.BattleGachaUI.setDev(isDev)
     window.__startBattle = startBattleSolo   // 배틀은 오버레이 통합(app.js)에서 시작
-    window.__battleRequest = sendBattleRequest   // 멀티 배틀 신청
+    window.__battleRequest = (peerId) => openBetDialog(peerId)   // 멀티 배틀 신청(베팅 선택 다이얼로그)
     window.BattleGachaUI.setDevContext({
       peers: () => [...peers.values()].map((p) => ({ id: p.id, name: p.name })),
       setPeer: (id, cur) => { if (net && connected()) net.send(JSON.stringify({ t: 'setcur', target: id, count: cur.count, gems: cur.gems, mat: cur.mat })) },
@@ -3424,6 +3427,26 @@
   let battleAtkAt = {}, battleDead = [], battleOpp = null, battleHud = null, battleShieldFlash = {}, battleHealFx = [], battleFalls = []
   // 멀티 배틀: 상대와 1v1. battleMulti = { oppId, mySide(0=신청자/1=수락자), oppName } · null이면 솔로.
   let battleMulti = null, battleInvite = null, battleIncoming = null
+  let battleBet = null, battleBetSettled = false   // 베팅: {cur:'count'|'gems'|'mat', amt}. 진입 시 escrow 차감, 결과 시 1회 정산.
+  const BET_CUR = { count: { name: '카운트', emoji: '🪙' }, gems: { name: '젬', emoji: '💎' }, mat: { name: '강화 부품', emoji: '🔩' } }
+  function betBalance(cur) { return cur === 'count' ? tapCount : cur === 'gems' ? (window.BattleGacha ? window.BattleGacha.getGems() : 0) : cur === 'mat' ? (window.BattleGacha ? window.BattleGacha.getMaterials() : 0) : 0 }
+  function betAdd(cur, n) {   // n 음수=차감. 카운트=tapCount, 젬/부품=BattleGacha.
+    if (cur === 'count') { tapCount = Math.max(0, tapCount + n); counterDirty = true; renderCounter() }
+    else if (cur === 'gems' && window.BattleGacha) window.BattleGacha.addGems(n)
+    else if (cur === 'mat' && window.BattleGacha) window.BattleGacha.addMaterials(n)
+  }
+  function betLabel(bet) { const c = BET_CUR[bet.cur] || {}; return `${c.emoji || ''} ${bet.amt} ${c.name || ''}` }
+  function settleBattleBet(win) {   // 결과 1회 정산: 승=팟(2×) 수령(순 +amt), 패=escrow 유지(순 -amt)
+    if (!battleBet || battleBetSettled) return
+    battleBetSettled = true
+    if (win) { betAdd(battleBet.cur, battleBet.amt * 2); showToast(`🏆 베팅 획득 +${betLabel(battleBet)}`) }
+    else showToast(`💸 베팅 잃음 −${betLabel(battleBet)}`)
+  }
+  function refundBattleBet(reason) {   // 무효(상대 팅김 등): escrow 환불
+    if (!battleBet || battleBetSettled) return
+    battleBetSettled = true; betAdd(battleBet.cur, battleBet.amt)
+    showToast(`↩ 베팅 환불(${reason || '무효'}) +${betLabel(battleBet)}`)
+  }
   let battleGhosts = [], battleGhostBase = 100, bunitsLastSend = 0   // 상대(고스트) 유닛 + 상대 기지 HP
   let unitReadyAt = {}   // 유닛별 재출격 쿨다운(냥코풍): 소환 후 일정 시간 재소환 불가
   let battleUnitOrder = []   // 배틀-로컬 소환체 순서(앞 5 활성 + 뒤 5 벤치). 벤치 탭 → 같은 열 앞뒤 스왑(판 중 전략 교체)
@@ -3490,7 +3513,9 @@
     battleResultAt = 0; battleLastT = performance.now(); battleActive = true
     battlePhase = 'countdown'; battlePhaseAt = performance.now(); battleConfetti = []   // 3·2·1·START 후 시작
     battleSavedCarve = carve ? carve.slice() : null; battleSavedBarDmg = barDamage; resetTaskbarDig(false)   // 배틀은 복원된(깨끗한) 작업표시줄로 시작
+    battleBet = null; battleBetSettled = false   // 베팅 초기화(멀티는 startBattleMulti에서 설정·escrow)
     buildBattleHud(); sendHotzone(); recordBattlePlay()   // 🏆 배틀 참여 업적
+    if (connected()) net.send(JSON.stringify({ t: 'battle-state', on: true }))   // 관전자에게 "배틀 중"(가리기)
   }
   function startBattleSolo() {
     if (!(window.BattleSim && window.BattleData)) { showToast('배틀 모듈 로드 안 됨'); return }
@@ -3501,12 +3526,13 @@
     battleOpp = Object.assign({ id: 'battleOpp', animal: 'cat', name: '상대', skin: 'gray', pattern: 'solid', hat: 'none', ear: 'pointed', eye: 'oval', mouth: 'smile', tail: 'curl', shape: {}, hp: CAT_HP }, newAnimState())
   }
   // 멀티 배틀 진입. mySide: 0=신청자, 1=수락자. 상대 고양이는 그 피어의 실제 외형으로 우측 끝에.
-  function startBattleMulti(oppId, mySide) {
+  function startBattleMulti(oppId, mySide, bet) {
     if (!(window.BattleSim && window.BattleData)) { showToast('배틀 모듈 로드 안 됨'); return }
     const opp = peers.get(oppId)
     battleMulti = { oppId, mySide, oppName: (opp && opp.name) || '상대' }
     battleAI = null
     _enterBattle()
+    if (bet && bet.amt > 0 && BET_CUR[bet.cur]) { battleBet = { cur: bet.cur, amt: bet.amt }; betAdd(bet.cur, -bet.amt); showToast(`💰 베팅 ${betLabel(battleBet)} 걸림`) }   // escrow 차감
     // 상대 고양이 = 그 피어 외형(없으면 기본). 렌더는 항상 "나=좌, 상대=우"로 미러링.
     battleOpp = Object.assign({ id: 'battleOpp', animal: (opp && opp.animal) || 'cat', name: battleMulti.oppName,
       skin: (opp && opp.tint) || 'gray', pattern: (opp && opp.pattern) || 'solid', hat: (opp && opp.hat) || 'none',
@@ -3514,24 +3540,66 @@
     showToast(`⚔ ${battleMulti.oppName} 님과 배틀 시작!`)
   }
   // ── 배틀 신청/수락 핸드셰이크 ──
-  function sendBattleRequest(peerId) {
+  function sendBattleRequest(peerId, bet) {
     if (!connected()) { showToast('멀티 접속 후 신청 가능'); return }
     if (battleActive) { showToast('이미 배틀 중'); return }
     if (window.BattleGacha && window.BattleGacha.deckReady && !window.BattleGacha.deckReady()) { showToast('덱 구성을 완료하세요 — 소환체 3개 이상, 무기 1개 이상'); return }
     const p = peers.get(peerId); if (!p) { showToast('상대를 찾을 수 없어요'); return }
-    battleInvite = { to: peerId, at: performance.now() }
-    net.send(JSON.stringify({ t: 'battle-req', to: peerId }))
-    showToast(`⚔ ${p.name || '상대'} 님에게 배틀 신청… 응답 대기`)
+    if (bet && bet.amt > 0) { if (!BET_CUR[bet.cur]) return; if (betBalance(bet.cur) < bet.amt) { showToast(`${BET_CUR[bet.cur].name} 잔액 부족(베팅 ${bet.amt})`); return } }
+    else bet = null
+    battleInvite = { to: peerId, at: performance.now(), bet }
+    net.send(JSON.stringify({ t: 'battle-req', to: peerId, bet }))
+    showToast(`⚔ ${p.name || '상대'} 님에게 배틀 신청${bet ? ` (베팅 ${betLabel(bet)})` : ''}… 응답 대기`)
   }
-  function showBattleInvitePopup(fromId, fromName) {
+  // 배틀 신청 전 베팅 선택 다이얼로그(무베팅/카운트/젬/부품 + 금액) → sendBattleRequest 호출
+  function openBetDialog(peerId) {
+    if (!connected()) { showToast('멀티 접속 후 신청 가능'); return }
+    const p = peers.get(peerId); if (!p) { showToast('상대를 찾을 수 없어요'); return }
+    if (document.querySelector('.bm-bet')) return
+    const back = document.createElement('div'); back.className = 'no-drag bm-bet'
+    back.style.cssText = 'position:fixed;inset:0;z-index:2147483200;display:flex;align-items:center;justify-content:center;background:rgba(6,8,12,.55);font-family:system-ui,"맑은 고딕",sans-serif'
+    const card = document.createElement('div')
+    card.style.cssText = 'background:linear-gradient(180deg,#1a1f28,#12151b);border:1px solid #39414f;border-radius:14px;padding:18px 20px;width:min(340px,90vw);box-shadow:0 18px 50px rgba(0,0,0,.6);color:#e8ebf0'
+    let cur = 'none'
+    const curs = [['none', '무베팅', '—'], ['count', '🪙 카운트', betBalance('count')], ['gems', '💎 젬', betBalance('gems')], ['mat', '🔩 부품', betBalance('mat')]]
+    card.innerHTML = `<div style="font-size:15px;font-weight:700;margin-bottom:4px">⚔ ${p.name || '상대'} 에게 배틀 신청</div>
+      <div style="font-size:12px;color:#8fa0b4;margin-bottom:12px">베팅 재화와 금액 선택 (지면 잃고, 이기면 2배)</div>
+      <div class="betcurs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px"></div>
+      <div class="betamtrow" style="display:flex;gap:8px;align-items:center;margin-bottom:14px">
+        <span style="font-size:12px;color:#aeb4c0">금액</span>
+        <input class="betamt" type="number" min="1" value="10" style="flex:1;padding:8px;border-radius:8px;background:#242a36;color:#e8ebf0;border:1px solid #3a4150">
+        <span class="betbal" style="font-size:11px;color:#8fa0b4"></span></div>
+      <div style="display:flex;gap:10px"><button class="betcancel" style="flex:1;padding:10px;border-radius:9px;border:1px solid #3a4150;background:#242a36;color:#e8ebf0;cursor:pointer">취소</button>
+      <button class="betgo" style="flex:1;padding:10px;border-radius:9px;border:1px solid #2f6bd8;background:#2f6bd8;color:#fff;font-weight:700;cursor:pointer">신청 ⚔</button></div>`
+    back.appendChild(card); document.body.appendChild(back); sendHotzone()
+    const close = () => { back.remove(); sendHotzone() }
+    const cursEl = card.querySelector('.betcurs'), amtRow = card.querySelector('.betamtrow'), balEl = card.querySelector('.betbal')
+    function renderCurs() {
+      cursEl.innerHTML = curs.map(([k, n]) => `<button class="bg-fbtn2" data-cur="${k}" style="cursor:pointer;border:1px solid ${cur === k ? '#3f7ce8' : '#2b2f39'};background:${cur === k ? '#2f6bd8' : '#1c2029'};color:#e8ebf0;border-radius:999px;padding:5px 11px;font-size:12px">${n}</button>`).join('')
+      amtRow.style.display = cur === 'none' ? 'none' : 'flex'
+      if (cur !== 'none') balEl.textContent = `보유 ${betBalance(cur)}`
+      cursEl.querySelectorAll('[data-cur]').forEach((b) => b.onclick = () => { cur = b.dataset.cur; renderCurs() })
+    }
+    renderCurs()
+    card.querySelector('.betcancel').onclick = close
+    card.querySelector('.betgo').onclick = () => {
+      let bet = null
+      if (cur !== 'none') { const amt = Math.max(1, parseInt(card.querySelector('.betamt').value, 10) || 0); if (betBalance(cur) < amt) { showToast(`${BET_CUR[cur].name} 잔액 부족`); return } bet = { cur, amt } }
+      close(); sendBattleRequest(peerId, bet)
+    }
+  }
+  function showBattleInvitePopup(fromId, fromName, bet) {
     if (document.querySelector('.bm-invite')) return
-    battleIncoming = { from: fromId, name: fromName }
+    battleIncoming = { from: fromId, name: fromName, bet: bet || null }
     const back = document.createElement('div'); back.className = 'no-drag bm-invite'
     back.style.cssText = 'position:fixed;inset:0;z-index:2147483200;display:flex;align-items:center;justify-content:center;background:rgba(6,8,12,.5);font-family:system-ui,"맑은 고딕",sans-serif'
     const card = document.createElement('div')
     card.style.cssText = 'background:linear-gradient(180deg,#1a1f28,#12151b);border:1px solid #39414f;border-radius:14px;padding:20px 22px;width:min(340px,88vw);text-align:center;box-shadow:0 18px 50px rgba(0,0,0,.6)'
+    const betRow = bet && bet.amt > 0
+      ? `<div style="font-size:13px;color:#ffd86b;margin-bottom:14px;background:rgba(255,210,90,.1);border:1px solid rgba(255,210,90,.3);border-radius:9px;padding:8px">💰 베팅 <b>${betLabel(bet)}</b> — 지면 잃고, 이기면 2배 획득</div>`
+      : `<div style="font-size:12px;color:#8fa0b4;margin-bottom:14px">베팅 없음(연습)</div>`
     card.innerHTML = `<div style="font-size:15px;color:#cfd4de;margin-bottom:6px">⚔ 배틀 신청</div>` +
-      `<div style="font-size:17px;font-weight:700;color:#fff;margin-bottom:16px"><b style="color:#8fd3ff">${fromName}</b> 님이 배틀을 신청했습니다</div>` +
+      `<div style="font-size:17px;font-weight:700;color:#fff;margin-bottom:12px"><b style="color:#8fd3ff">${fromName}</b> 님이 배틀을 신청했습니다</div>` + betRow +
       `<div style="display:flex;gap:10px"><button class="bmno" style="flex:1;padding:11px;border-radius:9px;border:1px solid #3a4150;background:#242a36;color:#e8ebf0;font-size:14px;cursor:pointer">거절</button>` +
       `<button class="bmyes" style="flex:1;padding:11px;border-radius:9px;border:1px solid #2f6bd8;background:#2f6bd8;color:#fff;font-weight:700;font-size:14px;cursor:pointer">수락 ⚔</button></div>`
     back.appendChild(card); document.body.appendChild(back); sendHotzone()
@@ -3540,8 +3608,9 @@
     card.querySelector('.bmyes').onclick = () => {
       if (!connected()) { close(); return }
       if (window.BattleGacha && window.BattleGacha.deckReady && !window.BattleGacha.deckReady()) { showToast('덱 구성 먼저 완료하세요'); return }
+      if (bet && bet.amt > 0 && betBalance(bet.cur) < bet.amt) { showToast(`${BET_CUR[bet.cur].name} 잔액 부족 — 수락 불가`); if (connected()) net.send(JSON.stringify({ t: 'battle-dec', to: fromId, reason: 'insufficient' })); close(); return }
       net.send(JSON.stringify({ t: 'battle-acc', to: fromId })); close()
-      startBattleMulti(fromId, 1)   // 수락자 = side1
+      startBattleMulti(fromId, 1, bet)   // 수락자 = side1
     }
   }
   // 나가기 확인 팝업 — 나가면 패배 처리(승패 판정과 연관). YES/NO.
@@ -3644,6 +3713,7 @@
     { const c = document.querySelector('.bx-confirm'); if (c) c.remove() }
     if (battleSavedCarve !== undefined) { carve = battleSavedCarve; barDamage = battleSavedBarDmg || 0; carveDirty = true; battleSavedCarve = undefined }   // 원래 작업표시줄 상태 복귀
     if (battleHud) { battleHud.remove(); battleHud = null } sendHotzone()
+    if (connected()) net.send(JSON.stringify({ t: 'battle-state', on: false }))   // 관전자에게 "배틀 종료"
   }
   function buildBattleHud() {
     if (battleHud) battleHud.remove()
@@ -3791,6 +3861,7 @@
   }
   function stepBattle(now) {
     let dt = (now - (battleLastT || now)) / 1000; battleLastT = now; if (dt > 0.1) dt = 0.1
+    if (battlePhase === 'result') { if (battleBet && !battleBetSettled) settleBattleBet(battleWin); if (battleResultAt && now - battleResultAt > 3000) stopBattle(); return }   // 결과 확정 → 베팅 1회 정산 + 3초 뒤 복귀
     // 카운트다운 중엔 시뮬 정지(마나·행군 없음). 화면만 배틀 뷰.
     if (battlePhase === 'countdown') { if (now - battlePhaseAt >= BATTLE_CD_MS) { battlePhase = 'playing'; battleLastT = now } return }
     if (battleAI) battleAI(dt)
@@ -4144,6 +4215,19 @@
     if (!battleActive || !battle || battlePhase !== 'playing') return false
     const m = (radius || 0) + 4 * view.scale   // 폭발 반경 등은 몸통 박스를 확장하는 margin으로 처리
     let hit = false
+    // 멀티: 상대(foeSide 1)는 로컬 유닛이 아니라 고스트 → 고스트 타격 + bghit 릴레이(소유자가 실제 적용), 기지는 bbhit 릴레이.
+    if (battleMulti && foeSide === 1) {
+      for (const g of battleGhosts) {
+        if (g.hp <= 0) continue
+        const gx = battleLaneX(g.L), gdef = window.BattleData.UNITS[g.type] || {}
+        if (inUnitBody(x, y, gx, battleUnitFeetY(gx, gdef.flying), g.type, gdef.size, m)) {
+          g.hp -= dmg; if (connected()) net.send(JSON.stringify({ t: 'bghit', to: battleMulti.oppId, uid: g.uid, dmg, slow: 0, slowDur: 0, kb: 0 })); hit = true
+        }
+      }
+      const bx1 = battleLaneX(1)
+      if (Math.abs(x - bx1) <= m + 26 * view.scale && y > antGroundY(bx1) - 104 * view.scale) { if (connected()) net.send(JSON.stringify({ t: 'bbhit', to: battleMulti.oppId, dmg })); hit = true }
+      return hit
+    }
     for (const u of battle.state.units) {
       if (u.side !== foeSide || u.hp <= 0) continue
       const ux = battleLaneX(u.L), def = window.BattleData.UNITS[u.type] || {}
@@ -5300,6 +5384,7 @@
 
     all.forEach((p, i) => {
       if (battleActive && p.id !== 'me') return   // 배틀 중엔 다른 피어 숨김
+      if (!battleActive && p.inBattle) return      // 관전자: 배틀 중인 피어는 가림(참여자끼리만 보임)
       ctx.save()
       if (p.id !== 'me') ctx.globalAlpha = peerAlpha(p.id)   // 👁 dim THIS opponent on my screen
       ctx.translate(origins[i].x, origins[i].y)

@@ -154,6 +154,8 @@ wss.on('connection', (ws, req) => {
       broadcast(joinedRoom, { t: 'battle-dec', id, to: msg.to, reason: msg.reason || '' }, id) // 거절/취소
     } else if (msg.t === 'battle-end') {
       broadcast(joinedRoom, { t: 'battle-end', id, to: msg.to, result: msg.result }, id)      // 종료/이탈(승패)
+    } else if (msg.t === 'battle-state') {
+      broadcast(joinedRoom, { t: 'battle-state', id, on: !!msg.on, opp: msg.opp || null }, id) // 배틀 참여 상태(관전자 가리기용)
     } else if (msg.t === 'bunits' && Array.isArray(msg.list)) {
       broadcast(joinedRoom, { t: 'bunits', id, to: msg.to, list: msg.list.slice(0, 40), base: msg.base, mana: msg.mana }, id)  // 내 유닛 목록+기지HP 방송
     } else if (msg.t === 'bghit') {
