@@ -152,7 +152,7 @@
   const IDLE_MS = 5 * 60 * 1000      // no key/mouse input for 5 min → 자리비움(away)
   me.lastInput = performance.now()   // for the 자리비움(away) animation
   me.away = false
-  me.hp = parseInt(localStorage.getItem('catHp') || String(CAT_HP), 10); if (!(me.hp >= 0) || me.hp > CAT_HP) me.hp = CAT_HP
+  me.hp = CAT_HP; localStorage.setItem('catHp', String(CAT_HP))   // 오버레이 캐릭터 체력 개념 제거 → 항상 풀피(파괴/부서짐 없음)
   if (!isHatOwned(me.hat)) { me.hat = 'none'; localStorage.setItem('hat', 'none') }   // hats locked for now
   while (me.slots.length < 3) me.slots.push('none')
   const peers = new Map()
@@ -2640,10 +2640,9 @@
     else if (connected()) net.send(JSON.stringify({ t: 'hit', target: cat.id, power, shock: shock ? 1 : 0 }))
   }
   function damageMyCat(dmg, byId) {
-    if (me.safeMode) return                // 🕊️ peace mode: invincible 9999-HP dome absorbs everything
-    if (!(dmg > 0) || me.hp <= 0) return   // already at 0 → no re-trigger until healed (resetCatHp)
-    me.hp = Math.max(0, me.hp - dmg); localStorage.setItem('catHp', String(me.hp))
-    if (me.hp === 0) onCatDestroyed(byId)
+    // 오버레이: 캐릭터 "체력" 개념 제거 — 무기에 맞아도 HP 감소·파괴(부서지는 연출) 없음.
+    // 충돌 연출(피격 번쩍 hitUntil/쇼크)은 applyCatHit·'hit' 핸들러에서 이미 처리되므로 그대로 유지된다.
+    // (배틀 모드의 기지 HP는 battle.state.baseHp로 완전히 별개 — 영향 없음.)
   }
   function onCatDestroyed(byId) {   // desk fully wrecked; count toward the achievement (reset in the shop)
     destroyCount++; localStorage.setItem('destroys', String(destroyCount))
@@ -2826,9 +2825,9 @@
       if (plB) { damagePlatform(plB, GAT_DMG); spawnSpark(p.x, p.y); gbullets.splice(i, 1); continue }
       // 배틀 적 유닛/기지 (게틀링도 오버레이 그대로 배틀에서 작동)
       if (battleActive && battle && battlePhase === 'playing' && battleHitAt(p.x, p.y, GAT_DMG * BATTLE_W_MULT, 6 * s)) { spawnSpark(p.x, p.y); gbullets.splice(i, 1); continue }
-      // local ants
+      // local ants (몸통 히트박스 — 스프라이트 유닛은 발밑이 아닌 몸통 전체)
       let hitLocalAnt = false
-      for (const an of ants) if (!an.dead && Math.hypot(p.x - an.x, p.y - an.y) < 14 * s) { antTakeDmg(an, GAT_DMG); if (an.dead) addAntKill(); hitLocalAnt = true; break }
+      for (const an of ants) if (!an.dead && antBodyHit(p.x, p.y, an.x, an.y, an.sprite, an.size)) { antTakeDmg(an, GAT_DMG); if (an.dead) addAntKill(); hitLocalAnt = true; break }
       if (hitLocalAnt) { spawnSpark(p.x, p.y); gbullets.splice(i, 1); continue }
       // remote ants
       { const ah = missileHitsAnt(p.x, p.y); if (ah) { if (!ah.local && connected()) net.send(JSON.stringify({ t: 'ant-hit', target: ah.pid, ant: ah.id, dmg: GAT_DMG })); spawnSpark(p.x, p.y); gbullets.splice(i, 1); continue } }
@@ -3524,24 +3523,14 @@
     drawBattleBaseHp(battleLaneX(0), 0); drawBattleBaseHp(battleLaneX(1), 1)
     drawBattleFX(now)   // 카운트다운 / 승패 연출(화면 중앙)
   }
-  // 자동 쉴드 시각화: 유닛을 감싸는 반투명 육각 돔 + 상단 쉴드 게이지. 방어 순간(shieldflash) 밝게 번쩍.
+  // 자동 쉴드 시각화 = 기존 오버레이 쉴드 돔(drawHexDome) 재사용. HP 저하 색/깜빡임/벌집·림 그대로.
   function drawBattleShield(x, y, s, u, now) {
-    const cx = x, cy = y - 22 * s, R = 20 * s
+    const r = 30 * s, cyb = y - 4 * s   // 발밑 라인에 돔 바닥, 위로 몸통을 덮음
+    const hp01 = u.shMax ? u.shHp / u.shMax : 1
     const fl = battleShieldFlash[u.uid] && now - battleShieldFlash[u.uid] < 220 ? 1 - (now - battleShieldFlash[u.uid]) / 220 : 0
-    const sf = u.shMax ? u.shHp / u.shMax : 1
     ctx.save()
-    // 돔(육각 반구)
-    ctx.beginPath()
-    for (let a = 0; a <= 6; a++) { const ang = Math.PI + (a / 6) * Math.PI; const px = cx + Math.cos(ang) * R, py = cy + Math.sin(ang) * R * 0.9; a === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py) }
-    ctx.closePath()
-    const g = ctx.createRadialGradient(cx, cy, R * 0.2, cx, cy, R)
-    g.addColorStop(0, `rgba(150,215,255,${0.06 + fl * 0.35})`); g.addColorStop(1, `rgba(90,180,255,${0.12 + fl * 0.4})`)
-    ctx.fillStyle = g; ctx.fill()
-    ctx.strokeStyle = `rgba(150,220,255,${0.55 + fl * 0.45})`; ctx.lineWidth = (1.4 + fl * 1.6) * s; ctx.stroke()
-    // 상단 쉴드 게이지(가느다란 하늘색 바)
-    const bw = 20 * s
-    ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.fillRect(x - bw / 2, y - 50 * s, bw, 2.4 * s)
-    ctx.fillStyle = '#7fd3ff'; ctx.fillRect(x - bw / 2, y - 50 * s, bw * sf, 2.4 * s)
+    drawHexDome(x, cyb, r, hp01, now, true)   // ← 기존 함수 재사용
+    if (fl > 0) { ctx.globalAlpha = fl; ctx.strokeStyle = 'rgba(230,248,255,0.95)'; ctx.lineWidth = 3 * s; ctx.beginPath(); ctx.arc(x, cyb, r, Math.PI, 2 * Math.PI); ctx.stroke() }   // 방어 순간 번쩍
     ctx.restore()
   }
   // ── 기존 오버레이 메카/인간 아트를 배틀 유닛으로 재사용(새 그림 X) ──
@@ -3919,16 +3908,23 @@
     ant.hp -= dmg; ant.hitAt = performance.now(); spawnBlood(ant.x, ant.y, Math.min(dmg + 1, 3)); spawnSpark(ant.x, ant.y - 6 * view.scale)   // 피격 순간 스파크(충돌 연출)
     if (ant.hp <= 0) { ant.dead = true; ant.deadAt = performance.now(); spawnBlood(ant.x, ant.y, 12); addBloodStain(ant.x, ant.y, 11 * view.scale) }   // death: bigger burst + lingering stain
   }
+  // 소환체의 실제 몸통 히트박스. 스프라이트 유닛은 크게(2.86×) 그려지므로 발밑 원이 아니라
+  // 몸통 높이(발밑~머리)를 덮어야 미사일/총알이 몸에 맞는다(기존엔 발밑 18px만 검사 → 몸통 관통 지나감).
+  function antBodyHit(x, y, ax, ay, sprite, size) {
+    const sz = size || 1
+    const halfW = (sprite ? 17 : 12) * view.scale * sz
+    const bodyH = (sprite ? 60 : 16) * view.scale * sz
+    return Math.abs(x - ax) < halfW && y < ay + 8 * view.scale && y > ay - bodyH
+  }
   function missileHitsAnt(x, y) {
-    const rr = 18 * view.scale   // cover the ant's full sprite so a direct hit detonates on it (not just splash)
-    for (const a of ants) if (!a.dead && Math.hypot(x - a.x, y - a.y) < rr) return { local: true, ant: a, hp: a.hp }
+    for (const a of ants) if (!a.dead && antBodyHit(x, y, a.x, a.y, a.sprite, a.size)) return { local: true, ant: a, hp: a.hp }
     const now = performance.now()
     for (const [pid, rec] of remoteAnts) {
       if (now - rec.ts > 800) continue
       for (const a of rec.items.values()) {
         if (a.dead) continue
         const s = remoteAntScreenPos(pid, a); if (!s) continue
-        if (Math.hypot(x - s.x, y - s.y) < rr) return { local: false, pid, id: a.id, hp: a.hp || 1 }
+        if (antBodyHit(x, y, s.x, s.y, a.sp, a.sz)) return { local: false, pid, id: a.id, hp: a.hp || 1 }
       }
     }
     return null
