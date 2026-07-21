@@ -971,21 +971,47 @@
   // ---------- ⚔ 무기 설정 팝업 (오버레이 단축키 3슬롯) — 배틀 UI 룩(.bg-back) 재사용 ----------
   function openWeaponLoadout() {
     const back = document.createElement('div'); back.className = 'bg-back'
-    const card = document.createElement('div'); card.className = 'bg-card'; card.style.width = 'min(360px,92vw)'; back.appendChild(card)
+    const card = document.createElement('div'); card.className = 'bg-card'; card.style.width = 'min(430px,92vw)'; back.appendChild(card)
     const close = () => { back.remove(); sendHotzone() }
     back.addEventListener('mousedown', (ev) => { if (ev.target === back) close() })
     card.innerHTML = `<div class="bg-head"><div class="bg-title">⚔ 무기 설정</div><button class="bg-x">✕</button></div>` +
-      `<div class="bg-sub" style="margin-bottom:10px">오버레이(재미용) 단축키로 쓸 무기를 고르세요. 🔒 = 미획득(가챠로 획득).</div>`
+      `<div class="bg-sub" style="margin-bottom:10px">단축키 슬롯을 고른 뒤(위) 아래 무기를 탭하면 배정돼요. 🔒 = 미획득(가챠로 획득).</div>`
     card.querySelector('.bg-x').onclick = close
-    for (let i = 0; i < 3; i++) {
-      const row = document.createElement('div'); row.style.cssText = 'display:flex;align-items:center;gap:10px;margin-bottom:8px'
-      const lb = document.createElement('span'); lb.textContent = slotKeyLabel(i); lb.style.cssText = 'width:66px;color:#aeb4c0;font-size:13px'
-      const sel = document.createElement('select'); sel.style.cssText = 'flex:1;padding:7px;border-radius:8px;background:#242a36;color:#e8ebf0;border:1px solid #3a4150;font-size:14px'
-      for (const id of SLOT_CHOICES) { const opt = document.createElement('option'); opt.value = id; opt.textContent = (weaponUsable(id) ? '' : '🔒 ') + (WEAPONS[id] || id); sel.appendChild(opt) }
-      sel.value = me.slots[i] || 'none'
-      sel.onchange = () => { const v = sel.value; if (!weaponUsable(v)) { sel.value = me.slots[i] || 'none'; return } me.slots[i] = v; localStorage.setItem('slots', JSON.stringify(me.slots)); if (battleActive) buildBattleHud(); pushState() }
-      row.append(lb, sel); card.appendChild(row)
+    const body = document.createElement('div'); card.appendChild(body)
+    // 무기 이모지/이름 (WEAPONS 라벨 '🚀 미사일' → 이모지 + 이름 분리)
+    const emojiOf = (id) => (WEAPONS[id] || '❔ ').split(' ')[0]
+    const nameOf = (id) => { const l = WEAPONS[id] || id; const e = emojiOf(id); return l.slice(e.length).trim() || l }
+    let sel = 0   // 선택된 슬롯
+    function render() {
+      // 상단: 슬롯 3칸(단축키 라벨 + 배정 무기)
+      const slotHtml = me.slots.map((id, i) => {
+        const on = sel === i, has = id && id !== 'none'
+        return `<div class="wl-slot ${on ? 'on' : ''}" data-slot="${i}" style="flex:1;min-width:0;cursor:pointer;border-radius:10px;padding:8px 6px;text-align:center;background:${on ? 'rgba(74,163,255,.16)' : '#1c2029'};border:1px solid ${on ? '#4aa3ff' : '#2b2f39'};position:relative">
+          <div style="font-size:10px;color:#ffd86b;font-weight:700">${slotKeyLabel(i)}</div>
+          <div style="font-size:24px;line-height:1.2;margin-top:2px">${has ? emojiOf(id) : '·'}</div>
+          <div style="font-size:10px;color:#cfd4de;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${has ? nameOf(id) : '비어있음'}</div>
+          ${has ? `<button class="wl-clr" data-clr="${i}" title="비우기" style="position:absolute;top:-6px;right:-6px;width:17px;height:17px;border-radius:50%;background:#c0392b;color:#fff;border:none;font-size:11px;cursor:pointer;line-height:1">✕</button>` : ''}
+        </div>`
+      }).join('')
+      // 하단: 무기 그리드(none 제외)
+      const cells = SLOT_CHOICES.filter((id) => id !== 'none').map((id) => {
+        const usable = weaponUsable(id), inSlot = me.slots.includes(id)
+        return `<div class="bg-cell ${usable ? '' : 'locked'} ${inSlot ? 'indeck' : ''}" data-wid="${id}" title="${nameOf(id)}">
+          <div class="e" style="font-size:26px">${emojiOf(id)}</div><div class="n">${nameOf(id)}</div>
+          ${usable ? (inSlot ? '<div class="dk">슬롯 ✓</div>' : '') : '<div class="lk">🔒</div>'}</div>`
+      }).join('')
+      body.innerHTML = `<div style="display:flex;gap:6px;margin-bottom:12px">${slotHtml}</div>
+        <div class="bg-rgroup" style="margin-bottom:6px">무기 · 소환체</div><div class="bg-grid">${cells}</div>`
+      body.querySelectorAll('[data-slot]').forEach((el) => el.onclick = () => { sel = +el.dataset.slot; render() })
+      body.querySelectorAll('[data-clr]').forEach((b) => b.onclick = (ev) => { ev.stopPropagation(); assign(+b.dataset.clr, 'none') })
+      body.querySelectorAll('.bg-cell[data-wid]').forEach((c) => c.onclick = () => {
+        const id = c.dataset.wid
+        if (!weaponUsable(id)) { showToast(`🔒 ${nameOf(id)} — 상점/가챠로 먼저 획득하세요`); return }
+        assign(sel, id); sel = (sel + 1) % 3   // 배정 후 다음 슬롯으로 자동 이동
+      })
     }
+    function assign(i, id) { me.slots[i] = id; localStorage.setItem('slots', JSON.stringify(me.slots)); if (battleActive) buildBattleHud(); pushState(); render() }
+    render()
     document.body.appendChild(back); sendHotzone()
   }
 
