@@ -316,18 +316,7 @@
       el.appendChild(row)
     }
     // (레거시 미사일/개미/낙뢰 게이지 제거 — 이제 보유 시 기본 최대로 작동)
-    // 🩹 HP reset (consumable)
-    const r2 = document.createElement('div'); r2.className = 'shop-row'
-    const n2 = document.createElement('span'); n2.className = 'nm'; n2.textContent = '🩹 체력 리셋'; r2.appendChild(n2)
-    const hpTxt = document.createElement('span'); hpTxt.className = 'use'; hpTxt.textContent = `HP ${Math.round(me.hp * 10) / 10}/${CAT_HP}`; r2.appendChild(hpTxt)
-    if (me.hp >= CAT_HP) { const s = document.createElement('span'); s.className = 'shop-owned'; s.textContent = '가득'; r2.appendChild(s) }
-    else { const b2 = document.createElement('button'); b2.className = 'shop-buy'; b2.textContent = '🪙500'; b2.disabled = tapCount < 500; b2.onclick = () => buyHpReset(); r2.appendChild(b2) }
-    el.appendChild(r2)
-  }
-  function buyHpReset() {
-    if (me.hp >= CAT_HP) return
-    if (!spendCoins(500)) { showToast('🪙 재화 부족 — 500 필요'); return }
-    resetCatHp(); showToast('🩹 체력 회복 완료!'); renderShop(); pushState()
+    // (오버레이 캐릭터 체력 개념 제거 → 🩹 체력 리셋 상품 삭제)
   }
   function buyMissileUpgrade() {
     if (missileUp >= 5) return
@@ -3379,6 +3368,29 @@
   const BATTLE_PAD = 90
   const BATTLE_UNIT_SCALE = 2.86   // 배틀 유닛 렌더 배율 (2.2 → ×1.3 확대)
   function battleLaneX(L) { const W = canvas.clientWidth; return BATTLE_PAD + L * (W - 2 * BATTLE_PAD) }   // side0 기지=좌
+  // ── 소환체 디자인별 충돌박스 (스프라이트 로컬 기준: 발밑=0, 위로 h, 좌우 반폭 w). 실제 렌더 스케일을 곱해 사용.
+  // 개미 이족 스프라이트는 발~머리(더듬이 포함) ≈ 42, 반폭 ≈ 15. 무기별로 조금씩 다름. 메카/인간은 자체 아트라 화면단위 별도 지정.
+  const UNIT_HB_LOCAL = {
+    _default: { w: 15, h: 43 }, ant: { w: 13, h: 38 },
+    scout: { w: 13, h: 37 }, kamikaze: { w: 15, h: 42 }, medic: { w: 15, h: 43 },
+    rifleman: { w: 16, h: 43 }, grenadier: { w: 16, h: 43 }, shielder: { w: 17, h: 45 },
+    drone: { w: 18, h: 30 }, freezer: { w: 15, h: 43 }, worker: { w: 14, h: 40 },
+    commander: { w: 18, h: 47 }, sniper: { w: 15, h: 45 }, boss: { w: 20, h: 46 },
+  }
+  function unitHitboxScreen(sprite, size) {   // { halfW, top } — 발밑에서 위로 top, 좌우 halfW (화면 px)
+    const sz = size || 1
+    if (sprite === 'mechaAnt') return { halfW: 38 * view.scale, top: 132 * view.scale }     // 자체 메카 아트(≈2.7× 렌더)
+    if (sprite === 'mechaHuman') return { halfW: 43 * view.scale, top: 148 * view.scale }
+    if (sprite === 'human') return { halfW: 26 * view.scale, top: 112 * view.scale }
+    const b = UNIT_HB_LOCAL[sprite] || UNIT_HB_LOCAL._default
+    const s = view.scale * BATTLE_UNIT_SCALE * sz
+    return { halfW: b.w * s, top: b.h * s }
+  }
+  // (x,y)가 발밑(fx,feetY) 기준 유닛 몸통 박스에 들어가는지. margin으로 확장(폭발 반경 등).
+  function inUnitBody(x, y, fx, feetY, sprite, size, margin) {
+    const hb = unitHitboxScreen(sprite, size), m = margin || 0
+    return Math.abs(x - fx) < hb.halfW + m && y < feetY + 5 * view.scale + m && y > feetY - hb.top - m
+  }
   function startBattleSolo() {
     if (!(window.BattleSim && window.BattleData)) { showToast('배틀 모듈 로드 안 됨'); return }
     if (window.BattleGacha && window.BattleGacha.deckReady && !window.BattleGacha.deckReady()) { showToast('덱 구성을 완료하세요 — 소환체 3개 이상, 무기 1개 이상'); return }
@@ -3692,16 +3704,16 @@
   // 지정한 side(foeSide)의 유닛/기지에만 데미지. 투사체 소유 side에 따라 상대만 맞게(양측 유닛 무기 재사용 일관).
   function battleHitSide(x, y, dmg, radius, foeSide) {
     if (!battleActive || !battle || battlePhase !== 'playing') return false
-    const R = (radius || 0) + 22 * view.scale
+    const m = (radius || 0) + 4 * view.scale   // 폭발 반경 등은 몸통 박스를 확장하는 margin으로 처리
     let hit = false
     for (const u of battle.state.units) {
       if (u.side !== foeSide || u.hp <= 0) continue
       const ux = battleLaneX(u.L), def = window.BattleData.UNITS[u.type] || {}
-      const uy = antGroundY(ux) - (def.flying ? 34 * view.scale : 0) - 18 * view.scale
-      if (Math.hypot(x - ux, y - uy) <= R) { battle.hitUnit(u.uid, dmg); hit = true }
+      const feetY = antGroundY(ux) - (def.flying ? 34 * view.scale : 0)
+      if (inUnitBody(x, y, ux, feetY, u.type, def.size, m)) { battle.hitUnit(u.uid, dmg); hit = true }
     }
     const bx = battleLaneX(foeSide)   // 그 side의 기지
-    if (Math.abs(x - bx) <= R + 12 * view.scale && y > antGroundY(bx) - 104 * view.scale) { battle.hitBase(foeSide, dmg); hit = true }
+    if (Math.abs(x - bx) <= m + 26 * view.scale && y > antGroundY(bx) - 104 * view.scale) { battle.hitBase(foeSide, dmg); hit = true }
     return hit
   }
   // 플레이어 오버레이 무기(미사일 등)는 항상 적(side1) 타격.
@@ -3748,12 +3760,11 @@
   // 미사일이 적 유닛/기지에 닿았는지(폭발 트리거용 근접 판정)
   function battleMissileHitsEnemy(x, y) {
     if (!battle) return false
-    const hitR = 20 * view.scale
     for (const u of battle.state.units) {
       if (u.side === 0 || u.hp <= 0) continue
       const ux = battleLaneX(u.L), def = window.BattleData.UNITS[u.type] || {}
-      const uy = antGroundY(ux) - (def.flying ? 34 * view.scale : 0) - 18 * view.scale
-      if (Math.abs(x - ux) < hitR && Math.abs(y - uy) < 26 * view.scale) return true
+      const feetY = antGroundY(ux) - (def.flying ? 34 * view.scale : 0)
+      if (inUnitBody(x, y, ux, feetY, u.type, def.size, 2 * view.scale)) return true
     }
     const bx = battleLaneX(1)
     if (Math.abs(x - bx) < 26 * view.scale && y > antGroundY(bx) - 96 * view.scale) return true
@@ -3781,18 +3792,18 @@
     bproj.push({ x: fx, y: fy, vx, vy, bside: ev.side, dmg: ev.dmg, pow: ev.dmg, kind, aoe: (ev.atkType === 'aoe' || kind === 'grenade') ? (ev.aoeR || 0.05) : 0, slow: ev.slow, slowDur: ev.slowDur, born: performance.now(), life: PROJ_LIFE[kind] })
   }
   function stepBattleProj(now, dt) {
-    const W = canvas.clientWidth, grav = 900 * view.scale, hitR = 18 * view.scale
+    const W = canvas.clientWidth, grav = 900 * view.scale
     for (let i = bproj.length - 1; i >= 0; i--) {
       const p = bproj[i]
       if (p.kind === 'grenade') p.vy += grav * dt
       p.x += p.vx * dt; p.y += p.vy * dt
       let done = false
-      // 적 유닛 충돌
+      // 적 유닛 충돌 (디자인별 몸통 박스)
       for (const u of battle.state.units) {
         if (u.side === p.bside || u.hp <= 0) continue
         const ux = battleLaneX(u.L), def = window.BattleData.UNITS[u.type] || {}
-        const uy = antGroundY(ux) - (def.flying ? 34 * view.scale : 0) - 18 * view.scale
-        if (Math.abs(p.x - ux) < hitR && Math.abs(p.y - uy) < 24 * view.scale) {
+        const feetY = antGroundY(ux) - (def.flying ? 34 * view.scale : 0)
+        if (inUnitBody(p.x, p.y, ux, feetY, u.type, def.size, 2 * view.scale)) {
           const before = u.hp
           if (p.aoe) { for (const e of battle.state.units) if (e.side !== p.bside && e.hp > 0 && Math.abs(battleLaneX(e.L) - p.x) < p.aoe * W) battle.hitUnit(e.uid, p.dmg, p.slow, p.slowDur); addEffect(p.x, p.y, 1); done = true }
           else { battle.hitUnit(u.uid, p.dmg, p.slow, p.slowDur); spawnSpark(p.x, p.y); if (p.pow > before) { p.pow -= before } else { done = true } }   // 관통: 파워 > 대상 HP면 뚫고 진행
@@ -3916,10 +3927,8 @@
   // 소환체의 실제 몸통 히트박스. 스프라이트 유닛은 크게(2.86×) 그려지므로 발밑 원이 아니라
   // 몸통 높이(발밑~머리)를 덮어야 미사일/총알이 몸에 맞는다(기존엔 발밑 18px만 검사 → 몸통 관통 지나감).
   function antBodyHit(x, y, ax, ay, sprite, size) {
-    const sz = size || 1
-    const halfW = (sprite ? 17 : 12) * view.scale * sz
-    const bodyH = (sprite ? 60 : 16) * view.scale * sz
-    return Math.abs(x - ax) < halfW && y < ay + 8 * view.scale && y > ay - bodyH
+    if (!sprite) { const rr = 12 * view.scale * (size || 1); return Math.hypot(x - ax, y - ay) < rr }   // 기본 개미: 작은 원
+    return inUnitBody(x, y, ax, ay, sprite, size, 0)   // 스프라이트 유닛: 디자인별 몸통 박스(발~머리)
   }
   function missileHitsAnt(x, y) {
     for (const a of ants) if (!a.dead && antBodyHit(x, y, a.x, a.y, a.sprite, a.size)) return { local: true, ant: a, hp: a.hp }
@@ -4757,7 +4766,7 @@
     const all = [me, ...peers.values()]
     allRef = all
     me.away = (now - (me.lastInput || now)) > IDLE_MS   // 5-min 자리비움
-    if (me.hp > 0 && me.hp < CAT_HP && now - (catRegenAt || 0) > 10000) { catRegenAt = now; me.hp = Math.min(CAT_HP, me.hp + 1); localStorage.setItem('catHp', String(me.hp)) }   // +1 HP / 10s natural regen
+    // (오버레이 캐릭터 체력 개념 제거 → HP 자연 회복 없음)
     // forward WASD/Q/E to the overlay when 10 ants can merge OR the mecha is active
     const wantAntKeys = me.mechaActive || me.mechaMerging || (antMax() >= 10 && ants.filter((a) => !a.dead && !a.falling).length >= 10)
     if (wantAntKeys !== antKeysSent) { antKeysSent = wantAntKeys; if (inputSource.antMechaControl) inputSource.antMechaControl(wantAntKeys) }

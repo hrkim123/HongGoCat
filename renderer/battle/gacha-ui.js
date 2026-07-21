@@ -451,13 +451,7 @@
       const buyRow = `<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
         <div class="bg-chip" style="flex:1">💎 젬 구매 — ${D.GEM.countPerGem.toLocaleString()} 카운트 = 💎1</div>
         <button class="bg-btn primary" id="buygem" ${cnt < D.GEM.countPerGem ? 'disabled' : ''}>💎1 구매</button></div>`
-      let hpRow = ''
-      if (hpBridge) {
-        const hp = Math.round(hpBridge.get() * 10) / 10, full = hp >= hpBridge.max, canHeal = !full && cnt >= hpBridge.cost
-        hpRow = `<div style="display:flex;gap:8px;align-items:center;margin-bottom:14px">
-          <div class="bg-chip" style="flex:1">🩹 체력 리셋 — HP ${hp}/${hpBridge.max}</div>
-          ${full ? '<span class="bg-fbtn" style="cursor:default">가득</span>' : `<button class="bg-btn" id="healhp" ${canHeal ? '' : 'disabled'}>🪙${hpBridge.cost.toLocaleString()}</button>`}</div>`
-      }
+      const hpRow = ''   // 오버레이 캐릭터 체력 개념 제거 → 체력 리셋 상품 삭제
       let ups = ''
       if (U) {
         const owned = G.catalog().filter((e) => e.owned && U.spec(e.id))
@@ -475,8 +469,6 @@
 
       const bg = body.querySelector('#buygem')
       if (bg) bg.onclick = () => { if (countBridge && countBridge.get() >= D.GEM.countPerGem) { countBridge.spend(D.GEM.countPerGem); G.addGems(1); render() } }
-      const hb = body.querySelector('#healhp')
-      if (hb) hb.onclick = () => { if (hpBridge && hpBridge.heal()) render() }
       body.querySelectorAll('[data-up]').forEach((b) => b.onclick = () => { if (U) { U.upgrade(b.dataset.up); render() } })
     }
     render()
