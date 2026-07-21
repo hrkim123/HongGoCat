@@ -45,17 +45,22 @@
       if (!(opts && opts.free) && st.mana[side] < cost) return false
       if (!(opts && opts.free)) st.mana[side] -= cost
       const s = statsFor(type)
-      const hp = s.hp + (s.shield ? s.shield.absorb : 0)   // 쉴드는 실효 HP로 단순화
+      const sh = s.battleShield || null   // 자동 쉴드(레벨 반영). 실효 HP엔 미포함(별도 게이지)
+      const hp = s.hp + (s.shield ? s.shield.absorb : 0)   // (구)shield는 실효 HP로 단순화
       const startL = (opts && opts.atL != null) ? clamp(opts.atL, 0, 1) : (side === 0 ? 0 : 1)   // atL: 특정 위치 소환(여왕 앞 등)
       const chargeCd = s.atk && s.atk.charge ? (s.atk.cd || 1) : 0   // 충전형은 첫 발도 충전부터(cdLeft를 cd로 초기화)
       const u = { uid: uidSeq++, side, type, L: startL, dir: side === 0 ? 1 : -1, hp, maxHp: hp, stats: s, cdLeft: chargeCd }
-      if (base.battleShield) { u.shMax = base.battleShield.absorb; u.shHp = u.shMax; u.shHitAt = -1e9; u.shCooldown = base.battleShield.cooldown } // 자동 쉴드
-      if (base.summon) u.summonCd = base.summon.every || 4   // 생산형(여왕): 소환 타이머
+      if (sh) { u.shMax = sh.absorb; u.shHp = u.shMax; u.shHitAt = -1e9; u.shCooldown = sh.cooldown } // 자동 쉴드(레벨 반영)
+      if (s.summon) u.summonCd = s.summon.every || 4   // 생산형(여왕): 소환 타이머(레벨 반영)
       // 넉백(냥코풍): kb회수만큼 HP 임계에서 뒤로 밀림. 임계 = maxHp*k/(kb+1) 내림차순.
-      const kb = base.kb != null ? base.kb : 2   // 기본 2회. 탱커/보스는 낮게(데이터에서 지정)
+      const kb = s.kb != null ? s.kb : 2   // 기본 2회. 탱커/보스는 낮게(데이터에서 지정)
       u.kbList = []; for (let k = kb; k >= 1; k--) u.kbList.push(hp * k / (kb + 1))
       st.units.push(u)
       st.events.push({ type: 'spawn', uid: u.uid, side, unit: type })
+      // Lv5 기믹 물량(개미): 같은 코스트로 추가 1기(무료). 약간 뒤(같은 진영 방향)에 소환.
+      if (s.spawnCount > 1 && !(opts && opts._extra)) {
+        for (let k = 1; k < s.spawnCount; k++) spawn(side, type, { free: true, _extra: true, atL: clamp(startL - u.dir * 0.02 * k, 0, 1) })
+      }
       return true
     }
 
@@ -126,7 +131,7 @@
       // 지휘 개미 오라: 살아있는 커맨더 주변(같은 side) 아군 공격/속도 버프(최대치 적용, 중첩 X)
       for (const u of st.units) { u._auraAtk = 0; u._auraSpd = 0 }
       for (const c of st.units) {
-        if (c.hp <= 0) continue; const cd = D.UNITS[c.type]; const aura = cd && cd.aura; if (!aura) continue
+        if (c.hp <= 0) continue; const aura = (c.stats && c.stats.aura) || (D.UNITS[c.type] && D.UNITS[c.type].aura); if (!aura) continue
         for (const u of st.units) { if (u.side !== c.side || u.hp <= 0) continue; if (Math.abs(u.L - c.L) <= aura.range) { u._auraAtk = Math.max(u._auraAtk, aura.atk || 0); u._auraSpd = Math.max(u._auraSpd, aura.speed || 0) } }
       }
 
@@ -147,7 +152,12 @@
           const ally = nearestAllyHurt(u, range)
           if (ally) {
             acting = true; u.cdLeft -= dt
-            if (u.cdLeft <= 0) { u.cdLeft = u.stats.atk.cd || 1; const heal = u.stats.atk.heal || 3; ally.hp = Math.min(ally.maxHp, ally.hp + heal); st.events.push({ type: 'heal', by: u.uid, target: ally.uid, medL: u.L, healL: ally.L, side: u.side }) }
+            if (u.cdLeft <= 0) {
+              u.cdLeft = u.stats.atk.cd || 1; const heal = u.stats.atk.heal || 3
+              if (u.stats.atk.healAoe) {   // Lv5: 범위 힐 — 사거리 내 다친 아군 전원
+                for (const e of st.units) { if (e.side === u.side && e.hp > 0 && e.hp < e.maxHp && Math.abs(e.L - u.L) <= range) { e.hp = Math.min(e.maxHp, e.hp + heal); st.events.push({ type: 'heal', by: u.uid, target: e.uid, medL: u.L, healL: e.L, side: u.side }) } }
+              } else { ally.hp = Math.min(ally.maxHp, ally.hp + heal); st.events.push({ type: 'heal', by: u.uid, target: ally.uid, medL: u.L, healL: ally.L, side: u.side }) }
+            }
           }
         } else if (atkType === 'suicide') {   // 카미카제: 적/기지 접촉 시 자폭(광역) + 자신 사망
           const inTgt = tgt && td <= range, inBase = distBase <= Math.max(range, cfg.baseRange)
@@ -171,14 +181,14 @@
               u.cdLeft = u.stats.atk.cd || 1
               const dmg = Math.round((u.stats.atk.dmg || 1) * (1 + (u._auraAtk || 0)))   // 오라 공격 버프
               if (isMelee) {   // 근접: 즉시(접촉). kbHit=명중 시 강제 넉백(망치개미), aoeR=범위 슬램(주변 전원)
-                const kbHit = !!u.stats.atk.kbHit, slamR = u.stats.atk.aoeR || 0
+                const kbHit = !!u.stats.atk.kbHit, slamR = u.stats.atk.aoeR || 0, stun = u.stats.atk.stun || 0
                 if (inTgt) {
-                  if (slamR > 0) {   // 범위 슬램: 주변 적 전원 타격 + (kbHit면) 매번 강제 넉백
-                    for (const e of st.units) if (e.side !== u.side && e.hp > 0 && Math.abs(e.L - u.L) <= slamR) { applyDamage(e, dmg, u.side); if (kbHit) applyKb(e, true) }
+                  if (slamR > 0) {   // 범위 슬램: 주변 적 전원 타격 + (kbHit면) 매번 강제 넉백 + (stun이면) 스턴
+                    for (const e of st.units) if (e.side !== u.side && e.hp > 0 && Math.abs(e.L - u.L) <= slamR) { applyDamage(e, dmg, u.side); if (kbHit) applyKb(e, true); if (stun) e.frozenUntil = Math.max(e.frozenUntil || 0, st.t + stun) }
                     for (const g of st.ghosts) if (g.hp > 0 && Math.abs(g.L - u.L) <= slamR) st.events.push({ type: 'ghosthit', uid: g.uid, dmg, kb: kbHit })
                     st.events.push({ type: 'hit', by: u.uid, target: tgt.uid, dmg, slamL: u.L, slamR })
                   } else if (tgtGhost) st.events.push({ type: 'ghosthit', uid: tgt.uid, dmg, kb: kbHit })
-                  else { applyDamage(tgt, dmg, u.side); if (kbHit) applyKb(tgt, true); st.events.push({ type: 'hit', by: u.uid, target: tgt.uid, dmg }) }
+                  else { applyDamage(tgt, dmg, u.side); if (kbHit) applyKb(tgt, true); if (stun) tgt.frozenUntil = Math.max(tgt.frozenUntil || 0, st.t + stun); st.events.push({ type: 'hit', by: u.uid, target: tgt.uid, dmg }) }
                 } else { const es = u.side === 0 ? 1 : 0; st.baseHp[es] = Math.max(0, st.baseHp[es] - dmg); st.events.push({ type: 'basehit', side: es, dmg }) }
               } else {   // 원거리: 실제 투사체 발사(컨트롤러가 처리). ghost=true면 명중 시 릴레이.
                 st.events.push({ type: 'fire', by: u.uid, side: u.side, fromL: u.L, dir: u.dir, dmg, atkType, aoeR: u.stats.atk.aoeR || 0, slow: u.stats.atk.slow || 0, slowDur: u.stats.atk.slowDur || 0, targetUid: inTgt ? tgt.uid : null, toL: inTgt ? tgt.L : (u.side === 0 ? 1 : 0), ghost: !!(inTgt && tgtGhost) })
@@ -189,10 +199,11 @@
 
         u._acting = acting   // 교전/조준 중(렌더에서 충전 연출 판단용)
         const baseDef = D.UNITS[u.type]
-        // 생산형(여왕 개미): summonCd마다 지정 유닛을 바로 앞에 소환
-        if (baseDef && baseDef.summon && u.summonCd != null) {
+        // 생산형(여왕 개미): summonCd마다 지정 유닛을 바로 앞에 소환(소환 간격은 레벨 반영)
+        const sumDef = (u.stats && u.stats.summon) || (baseDef && baseDef.summon)
+        if (sumDef && u.summonCd != null) {
           u.summonCd -= dt
-          if (u.summonCd <= 0) { u.summonCd = baseDef.summon.every || 4; spawn(u.side, baseDef.summon.unit, { free: true, atL: clamp(u.L + u.dir * 0.03, 0, 1) }) }
+          if (u.summonCd <= 0) { u.summonCd = sumDef.every || 4; spawn(u.side, sumDef.unit, { free: true, atL: clamp(u.L + u.dir * 0.03, 0, 1) }) }
         }
 
         // 이동: 오라 속도 버프 + 감속(slow). 근접 교전/사격 중엔 정지.

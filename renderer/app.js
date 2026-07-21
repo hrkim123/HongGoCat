@@ -4133,7 +4133,8 @@
     const tx = tu ? battleLaneX(tu.L) : battleLaneX(ev.toL)
     const ty = tu ? (battleUnitFeetY(tx, tdef.flying) - 20 * view.scale) : (antGroundY(tx) - 60 * view.scale)   // 적 몸통/기지 높이 조준
     const spd = PROJ_SPD[kind] * view.scale
-    const burst = (kind === 'bullet' && def.atk && def.atk.burst > 1) ? def.atk.burst : 1   // 라이플 3연발 등
+    const atkL = (byU && byU.stats && byU.stats.atk) || def.atk || {}   // 레벨 반영 스탯(연발 Lv5 기믹 등)
+    const burst = (kind === 'bullet' && atkL.burst > 1) ? atkL.burst : 1   // 라이플 3연발·Lv5 4연발 등
     const nowP = performance.now()
     for (let b = 0; b < burst; b++) {
       let vx, vy, bx = fx, by = fy
