@@ -3454,6 +3454,8 @@
     const top = Math.max(0, usableBottom() - (A.CELL_H * s + 34))   // 34 = BAR_SPACE(렌더와 동일)
     return top + (A.BUBBLE_H + A.DESK_Y) * s
   }
+  // 대공 가능 = 원거리(proj/aoe) 공격 유닛. 근접(melee)·자폭(suicide)·힐·무공격은 공중 못 때림([[battle-melee-no-air]]).
+  function battleCanHitAir(u) { const t = u && u.atk && u.atk.type; return t === 'proj' || t === 'aoe' }
   // ── 소환체 디자인별 충돌박스 (스프라이트 로컬 기준: 발밑=0, 위로 h, 좌우 반폭 w). 실제 렌더 스케일을 곱해 사용.
   // 개미 이족 스프라이트는 발~머리(더듬이 포함) ≈ 42, 반폭 ≈ 15. 무기별로 조금씩 다름. 메카/인간은 자체 아트라 화면단위 별도 지정.
   const UNIT_HB_LOCAL = {
@@ -3670,8 +3672,11 @@
       // 앞줄: 활성 소환 카드
       front.forEach((id) => {
         const u = window.BattleData.UNITS[id]; if (!u) return
-        const b = mkCard('rgba(255,255,255,.06)', 'rgba(255,255,255,.14)'); b.dataset.id = id; b.title = u.name; b.style.position = 'relative'
-        b.innerHTML = `<div style="pointer-events:none">${window.BattleArt ? window.BattleArt.icon(id, 32) : ''}</div><div style="color:#8fd3ff;font-weight:600;font-size:11px">💧${u.cost}</div>` +
+        const b = mkCard('rgba(255,255,255,.06)', 'rgba(255,255,255,.14)'); b.dataset.id = id; b.title = u.name + (battleCanHitAir(u) ? ' · 대공 가능' : ' · 지상 전용(공중 못 때림)'); b.style.position = 'relative'
+        const aa = battleCanHitAir(u)
+          ? `<div style="position:absolute;top:2px;left:3px;font-size:9px;color:#8ff0c8;text-shadow:0 1px 2px #000;pointer-events:none" title="대공 가능">✈</div>`
+          : `<div style="position:absolute;top:2px;left:3px;font-size:9px;opacity:.6;pointer-events:none" title="지상 전용(공중 못 때림)">⛰</div>`
+        b.innerHTML = aa + `<div style="pointer-events:none">${window.BattleArt ? window.BattleArt.icon(id, 32) : ''}</div><div style="color:#8fd3ff;font-weight:600;font-size:11px">💧${u.cost}</div>` +
           `<div class="bhcd" style="position:absolute;inset:0;border-radius:9px;background:rgba(10,14,20,.72);display:none;align-items:center;justify-content:center;color:#cfd4de;font-size:13px;font-weight:700;pointer-events:none"></div>`
         b.onclick = () => {   // 냥코풍: 재출격 쿨다운 중이면 거부
           const now = performance.now()
@@ -3802,7 +3807,15 @@
     for (const e of battle.drainEvents()) {
       if (e.type === 'hit') { battleAtkAt[e.by] = now; if (e.slamL != null) { const sx = battleLaneX(e.slamL), sy = antGroundY(sx); addEffect(sx, sy - 14 * view.scale, 2); for (let k = 0; k < 6; k++) spawnDebris(sx + (Math.random() - 0.5) * (e.slamR || 0.1) * canvas.clientWidth, sy, 1, k % 2 ? '#d9c08a' : '#b8901e') } }   // 망치 범위 슬램 충격파
       else if (e.type === 'fire') { battleAtkAt[e.by] = now; battleFire(e) }   // 원거리 → 실제 투사체 발사
-      else if (e.type === 'die') { if (fellUids.has(e.uid)) battleFalls.push({ id: e.unit, L: e.L, side: e.side, born: now, vy: 1 }); else battleDead.push({ id: e.unit, L: e.L, side: e.side, born: now }) }
+      else if (e.type === 'die') {
+        const ddef = window.BattleData.UNITS[e.unit] || {}
+        if (fellUids.has(e.uid)) battleFalls.push({ id: e.unit, L: e.L, side: e.side, born: now, vy: 1 })
+        else if (ddef.flying) {   // 공중 유닛: 격추 → 공중 높이에서 회전하며 추락 + 폭발 퍼프
+          const ax = battleLaneX(e.L), ay = battleUnitFeetY(ax, true)
+          battleFalls.push({ id: e.unit, L: e.L, side: e.side, born: now, vy: 0.5, air: true, rot: 0, vr: (e.side === 0 ? 1 : -1) * 0.14 })
+          addEffect(ax, ay - 12 * view.scale, 2); for (let k = 0; k < 7; k++) spawnSpark(ax + (Math.random() - 0.5) * 26 * view.scale, ay - Math.random() * 22 * view.scale)
+        } else battleDead.push({ id: e.unit, L: e.L, side: e.side, born: now })
+      }
       else if (e.type === 'shieldblock' || e.type === 'shieldbreak') { battleShieldFlash[e.uid] = now }   // 쉴드가 막음 → 번쩍 연출
       else if (e.type === 'heal') battleHealFx.push({ medL: e.medL, healL: e.healL, born: now })           // 메딕 힐 → 초록 십자(본인+대상)
       else if (e.type === 'boom') { const bx = battleLaneX(e.L), by = antGroundY(bx) - 20 * view.scale; addEffect(bx, by, 3); for (let k = 0; k < 12; k++) spawnSpark(bx + (Math.random() - 0.5) * (e.aoeR || 0.05) * canvas.clientWidth, by + (Math.random() - 0.5) * 30 * view.scale); if (inTaskbar(bx, antGroundY(bx))) carveTaskbar(bx, 0.6, false) }   // 카미카제 자폭
@@ -3818,7 +3831,7 @@
       net.send(JSON.stringify({ t: 'bunits', to: battleMulti.oppId, list, base: battle.state.baseHp[0], mana: +battle.state.mana[0].toFixed(1) }))
     }
     for (let i = battleHealFx.length - 1; i >= 0; i--) if (now - battleHealFx[i].born > 650) battleHealFx.splice(i, 1)
-    for (let i = battleFalls.length - 1; i >= 0; i--) { const f = battleFalls[i]; f.vy += 0.8; f._y = (f._y || 0) + f.vy; if (f._y > canvas.clientHeight + 60) battleFalls.splice(i, 1) }   // 구멍으로 낙하
+    for (let i = battleFalls.length - 1; i >= 0; i--) { const f = battleFalls[i]; f.vy += 0.8; f._y = (f._y || 0) + f.vy; if (f.air) f.rot = (f.rot || 0) + (f.vr || 0); if (f._y > canvas.clientHeight + 60) battleFalls.splice(i, 1) }   // 구멍 낙하 / 공중 격추 추락
     stepBattleProj(now, dt)
     stepCannon(now, dt)   // 베이스 캐논 충전/스윕
     stepTurrets(now)      // 기지 터렛 자동 포격
@@ -3902,7 +3915,14 @@
       for (const L of [h.medL, h.healL]) { const hx = battleLaneX(L), hy = antGroundY(hx) - 46 * view.scale - (1 - a) * 10 * view.scale; ctx.save(); ctx.globalAlpha = Math.max(0, a); ctx.fillStyle = '#3ad06a'; const r = 5 * view.scale; ctx.fillRect(hx - r / 3, hy - r, r * 0.66, r * 2); ctx.fillRect(hx - r, hy - r / 3, r * 2, r * 0.66); ctx.restore() }
     }
     for (const d of battleDead) { const p = Math.min(1, (now - d.born) / 900); window.BattleSprites.draw(ctx, d.id, { x: battleLaneX(d.L), y: antGroundY(battleLaneX(d.L)), scale: view.scale * BATTLE_UNIT_SCALE, facing: d.side === 0 ? 1 : -1, state: 'death', t: 0, deathT: p }) }
-    for (const f of battleFalls) { const fx = battleLaneX(f.L), fy = antGroundY(fx) + (f._y || 0); ctx.save(); ctx.globalAlpha = Math.max(0, 1 - (f._y || 0) / (canvas.clientHeight * 0.8)); window.BattleSprites.draw(ctx, f.id, { x: fx, y: fy, scale: view.scale * BATTLE_UNIT_SCALE * (window.BattleData.UNITS[f.id] ? (window.BattleData.UNITS[f.id].size || 1) : 1), facing: f.side === 0 ? 1 : -1, state: 'walk', t: now / 1000 }); ctx.restore() }   // 구멍으로 떨어지는 유닛
+    for (const f of battleFalls) {
+      const fx = battleLaneX(f.L), sz = view.scale * BATTLE_UNIT_SCALE * (window.BattleData.UNITS[f.id] ? (window.BattleData.UNITS[f.id].size || 1) : 1)
+      const base = f.air ? battleUnitFeetY(fx, true) : antGroundY(fx), fy = base + (f._y || 0)
+      ctx.save(); ctx.globalAlpha = Math.max(0, 1 - (f._y || 0) / (canvas.clientHeight * 0.8))
+      if (f.air) { ctx.translate(fx, fy - 18 * sz / (BATTLE_UNIT_SCALE)); ctx.rotate(f.rot || 0); ctx.translate(-fx, -(fy - 18 * sz / (BATTLE_UNIT_SCALE))) }   // 격추: 회전하며 추락
+      window.BattleSprites.draw(ctx, f.id, { x: fx, y: fy, scale: sz, facing: f.side === 0 ? 1 : -1, state: f.air ? 'death' : 'walk', t: now / 1000, deathT: f.air ? Math.min(1, (now - f.born) / 500) : 0 })
+      ctx.restore()
+    }   // 구멍 낙하 / 공중 격추(회전 추락)
     drawBattleTurret(turretBaseX(0), 0, now); drawBattleTurret(turretBaseX(1), 1, now)   // 각 진영 포탑(고양이 옆 책상 위, 상대 바라봄)
     drawBattleProj(now)   // 투사체(총알·포탄·에너지·수류탄 등)
     // 기지 HP 바 (양 끝 고양이 위)

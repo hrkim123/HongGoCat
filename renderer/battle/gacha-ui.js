@@ -123,7 +123,8 @@
     const a = e.atk || {}
     const atk = a.type === 'melee' ? `근접 ${a.dmg}` : a.type === 'proj' ? `원거리 ${a.dmg}${a.burst ? ' ×' + a.burst + '연발' : ''}`
       : a.type === 'aoe' ? `광역 ${a.dmg}` : a.type === 'none' ? '공격 없음' : ''
-    return `코스트 ${e.cost} · HP ${e.hp} · ${atk}${e.flying ? ' · 공중' : ''}`
+    const air = (a.type === 'proj' || a.type === 'aoe') ? ' · ✈대공' : (a.type === 'melee' || a.type === 'suicide') ? ' · ⛰지상전용' : ''
+    return `코스트 ${e.cost} · HP ${e.hp} · ${atk}${e.flying ? ' · 공중' : ''}${air}`
   }
   function openInfo(id) {
     const e = (D.UNITS[id] ? { id, ...D.UNITS[id] } : { id, ...D.WEAPONS[id] })
