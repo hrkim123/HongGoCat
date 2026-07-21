@@ -3431,7 +3431,7 @@
   let battleCannon = { charge: 0 }, cannonSweep = null, battleCannonEl = null
   const CANNON_FULL_SEC = 25, CANNON_SWEEP_SEC = 0.85, CANNON_DMG = 20, CANNON_BASE_DMG = 8
   // 기지 터렛(포탑): 각 진영 책상 위, 상대 방향. 내 진영에 근접한 적에게 자동 포물선 포탄(메카 포탄 궤도 재사용, 디자인/폭발은 별도).
-  let battleTurretCd = [0, 0]
+  let battleTurretCd = [0, 0], battleTurretAim = [0, 0], battleTurretFire = [0, 0], battleTurretTgtL = [null, null]
   const TURRET_RANGE = 0.34, TURRET_CD = 2400, TURRET_DMG = 14
   let battleSavedCarve, battleSavedBarDmg = 0
   let battlePhase = 'idle', battlePhaseAt = 0, battleWin = false, battleConfetti = []   // 'countdown' | 'playing' | 'result'
@@ -3473,7 +3473,7 @@
     battle = window.BattleSim.newBattle({ speedScale: 0.38 })   // 냥코풍 느린 행군(전략성). 0.44 → 0.38
     battleAtkAt = {}; battleShieldFlash = {}; battleHealFx = []; battleFalls = []; battleDead = []; bproj.length = 0
     battleGhosts = []; battleGhostBase = battle.state.baseHpMax; bunitsLastSend = 0; unitReadyAt = {}
-    battleCannon = { charge: 0 }; cannonSweep = null; battleTurretCd = [0, 0]; buildCannonUI()
+    battleCannon = { charge: 0 }; cannonSweep = null; battleTurretCd = [0, 0]; battleTurretAim = [0, 0]; battleTurretFire = [0, 0]; battleTurretTgtL = [null, null]; buildCannonUI()
     battleResultAt = 0; battleLastT = performance.now(); battleActive = true
     battlePhase = 'countdown'; battlePhaseAt = performance.now(); battleConfetti = []   // 3·2·1·START 후 시작
     battleSavedCarve = carve ? carve.slice() : null; battleSavedBarDmg = barDamage; resetTaskbarDig(false)   // 배틀은 복원된(깨끗한) 작업표시줄로 시작
@@ -3610,7 +3610,7 @@
       let target = null, bd = TURRET_RANGE
       const enemies = (battleMulti && side === 0) ? battleGhosts : battle.state.units.filter((u) => u.side !== side && u.hp > 0)
       for (const e of enemies) { const d = Math.abs(e.L - baseL); if (d < bd) { bd = d; target = e } }
-      if (target) { fireTurretShell(side, target.L); battleTurretCd[side] = now + TURRET_CD }
+      if (target) { fireTurretShell(side, target.L); battleTurretCd[side] = now + TURRET_CD; battleTurretFire[side] = now; battleTurretTgtL[side] = target.L }
     }
   }
   function stopBattle() {
@@ -3842,23 +3842,34 @@
     drawBattleBaseHp(battleLaneX(0), 0); drawBattleBaseHp(battleLaneX(1), 1)
     drawBattleFX(now)   // 카운트다운 / 승패 연출(화면 중앙)
   }
-  // 기지 포탑 — 책상 위, 상대 방향(냥코 포탑 느낌). 발사 직후 반동 + 포구 화염.
+  function lerpAngle(a, b, t) { let d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return a + d * t }
+  // 기지 포탑 — 냥코 베이스 대포탑 느낌(크고 묵직한 금속 캐논). 포신이 타겟을 조준해 회전 + 발사 반동·포구 화염·연기.
   function drawBattleTurret(baseX, side, now) {
-    const s = view.scale, face = side === 0 ? 1 : -1
-    const gy = antGroundY(baseX), x = baseX + face * 6 * s
-    const kick = (battleTurretCd[side] && now - (battleTurretCd[side] - TURRET_CD) < 200) ? -3 * s : 0   // 발사 직후 살짝 반동
-    ctx.save(); ctx.translate(x + kick * face, 0)
-    // 받침대(모래주머니/철제)
-    ctx.fillStyle = '#4a4e5a'; ctx.beginPath(); ctx.moveTo(-14 * s, gy); ctx.lineTo(14 * s, gy); ctx.lineTo(10 * s, gy - 16 * s); ctx.lineTo(-10 * s, gy - 16 * s); ctx.closePath(); ctx.fill()
-    ctx.fillStyle = '#5a6070'; ctx.beginPath(); ctx.arc(0, gy - 16 * s, 9 * s, Math.PI, 0); ctx.fill()   // 회전 포탑 돔
-    ctx.strokeStyle = '#2b2f39'; ctx.lineWidth = 1.4 * s; ctx.beginPath(); ctx.arc(0, gy - 16 * s, 9 * s, Math.PI, 0); ctx.stroke()
-    // 포신(상대 방향으로 약간 위로)
-    ctx.save(); ctx.translate(0, gy - 18 * s); ctx.rotate(face * -0.35)
-    ctx.fillStyle = '#3a3e48'; ctx.fillRect(0, -3.2 * s, face * 24 * s, 6.4 * s)
-    ctx.fillStyle = '#22252c'; ctx.fillRect(face * 20 * s, -4 * s, face * 5 * s, 8 * s)   // 포구
+    const s = view.scale * 1.8, face = side === 0 ? 1 : -1
+    const gy = antGroundY(baseX), x = baseX + face * 8 * view.scale
+    const tint = antColor(side === 0 ? me.skin : ((peers.get(battleMulti && battleMulti.oppId) || {}).tint || 'gray'))
+    const metal = mixHex('#8a90a0', tint, 0.35), dark = mixHex('#4a4e5a', tint, 0.3), hi = mixHex('#c9cfdb', tint, 0.35), accent = '#d94b46'
+    const pivotX = x, pivotY = gy - 20 * s
+    // 조준: 최근 타겟 방향으로 포신 회전(부드럽게). 없으면 전방 살짝 위.
+    let desired
+    if (battleTurretTgtL[side] != null && now - (battleTurretFire[side] || 0) < TURRET_CD + 600) { const tx = battleLaneX(battleTurretTgtL[side]), ty = antGroundY(tx) - 18 * view.scale; desired = Math.atan2(ty - pivotY, (tx - pivotX)) } else { const cx = battleLaneX(0.5); desired = Math.atan2((gy - 40 * view.scale) - pivotY, (cx - pivotX)) }
+    battleTurretAim[side] = lerpAngle(battleTurretAim[side] || (face >= 0 ? -0.3 : Math.PI + 0.3), desired, 0.14)
+    const fired = now - (battleTurretFire[side] || -1e9), recoil = fired < 200 ? -(1 - fired / 200) * 6 * s : 0
+    ctx.save(); ctx.translate(x, gy); ctx.lineJoin = 'round'
+    // 받침대(사다리꼴) + 볼트
+    ctx.fillStyle = dark; ctx.beginPath(); ctx.moveTo(-18 * s, 0); ctx.lineTo(18 * s, 0); ctx.lineTo(13 * s, -14 * s); ctx.lineTo(-13 * s, -14 * s); ctx.closePath(); ctx.fill()
+    ctx.fillStyle = metal; roundRect(-14 * s, -30 * s, 28 * s, 18 * s, 5 * s); ctx.fill()   // 몸통
+    ctx.fillStyle = hi; roundRect(-14 * s, -30 * s, 28 * s, 5 * s, 4 * s); ctx.fill()        // 상단 하이라이트
+    ctx.fillStyle = accent; ctx.beginPath(); ctx.arc(0, -21 * s, 3 * s, 0, 7); ctx.fill()    // 중앙 코어
+    // 회전 포신(pivot = 돔 중심)
+    ctx.save(); ctx.translate(0, -20 * s); ctx.rotate(battleTurretAim[side])
+    ctx.fillStyle = dark; ctx.beginPath(); ctx.arc(0, 0, 11 * s, 0, 7); ctx.fill()           // 힌지 돔
+    ctx.fillStyle = metal; roundRect(recoil, -6 * s, 34 * s, 12 * s, 3 * s); ctx.fill()       // 포신
+    ctx.fillStyle = hi; ctx.fillRect(recoil + 2 * s, -5 * s, 30 * s, 2.5 * s)                 // 포신 라인
+    ctx.fillStyle = '#22252c'; roundRect(28 * s + recoil, -7 * s, 7 * s, 14 * s, 2 * s); ctx.fill()  // 포구
+    if (fired < 130) { const fl = 1 - fired / 130; ctx.fillStyle = 'rgba(255,224,140,' + (0.9 * fl) + ')'; ctx.beginPath(); ctx.arc((40 + recoil / s) * s, 0, (7 + fl * 5) * s, 0, 7); ctx.fill(); ctx.fillStyle = 'rgba(255,150,60,' + (0.8 * fl) + ')'; ctx.beginPath(); ctx.arc(38 * s, 0, 4 * s, 0, 7); ctx.fill() }   // 포구 화염
     ctx.restore()
-    // 포신 밑동 힌지
-    ctx.fillStyle = '#2b2f39'; ctx.beginPath(); ctx.arc(0, gy - 18 * s, 3.2 * s, 0, 7); ctx.fill()
+    ctx.fillStyle = dark; ctx.beginPath(); ctx.arc(0, -20 * s, 4 * s, 0, 7); ctx.fill()       // 회전축
     ctx.restore()
   }
   // 자동 쉴드 시각화 = 기존 오버레이 쉴드 돔(drawHexDome) 재사용. HP 저하 색/깜빡임/벌집·림 그대로.
