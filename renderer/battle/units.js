@@ -36,7 +36,7 @@
   const UNITS = {
     ant: {
       name: '개미', cat: 'unit', rarity: 'common', starter: true, cost: 1, hp: 20,
-      speed: 0.18, atk: { type: 'melee', dmg: 5, range: 0.02, cd: 0.6 },
+      speed: 0.18, atk: { type: 'melee', dmg: 5, range: 0.02, cd: 0.6 }, kb: 3,
       art: 'ant', size: 1.0, // 기본 근접 물량 (근접 8.3dps)
     },
     rifleman: {
@@ -51,19 +51,19 @@
     },
     shielder: {
       name: '쉴더', cat: 'unit', rarity: 'uncommon', cost: 2, hp: 45,
-      speed: 0.10, atk: { type: 'none' },
+      speed: 0.10, atk: { type: 'none' }, kb: 1,
       battleShield: { absorb: 30, cooldown: 4 }, // 실효HP 75. 앞면 자동 쉴드(30 흡수·4s 무피격 시 재충전). 순수 탱커
       art: 'ant-shield', size: 1.2,
     },
     mechaAnt: {
       name: '메카 개미', cat: 'unit', rarity: 'rare', cost: 5, hp: 85,
-      speed: 0.09, atk: { type: 'proj', dmg: 12, range: 0.26, cd: 1.1 }, // 대포 연사 완화(0.5→1.1) = ≈10.9dps. 실효HP 100
+      speed: 0.09, atk: { type: 'proj', dmg: 12, range: 0.26, cd: 1.1 }, kb: 1, // 대포 연사 완화(0.5→1.1) = ≈10.9dps. 실효HP 100
       battleShield: { absorb: 15, cooldown: 5 },
       art: 'mecha', size: 1.6, // 기존 메카 아트·포물선 대포 재사용
     },
     mechaHuman: {
       name: '메카 인간폼', cat: 'unit', rarity: 'legend', cost: 7, hp: 120,
-      speed: 0.12, atk: { type: 'proj', dmg: 15, range: 0.28, cd: 1.05, charge: 1.0 }, // 에너지포 = 1초 충전 후 최대 빔(오버레이 ECANNON_MS 동일). ≈14dps
+      speed: 0.12, atk: { type: 'proj', dmg: 15, range: 0.28, cd: 1.05, charge: 1.0 }, kb: 1, // 에너지포 = 1초 충전 후 최대 빔(오버레이 ECANNON_MS 동일). ≈14dps
       battleShield: { absorb: 20, cooldown: 6 },
       art: 'human', size: 1.7, flying: true, // 공중 타입(구멍 무시). 기존 건담폼 아트·에너지포 재사용
     },
@@ -75,7 +75,7 @@
     // ── 신규 소환체 (밸런스 v2) ──
     scout: {
       name: '정찰 개미', cat: 'unit', rarity: 'common', cost: 1, hp: 12,
-      speed: 0.30, atk: { type: 'melee', dmg: 3, range: 0.02, cd: 0.7 }, art: 'scout', size: 0.9, // 고속 러셔
+      speed: 0.30, atk: { type: 'melee', dmg: 3, range: 0.02, cd: 0.7 }, kb: 3, art: 'scout', size: 0.9, // 고속 러셔
     },
     kamikaze: {
       name: '폭탄 개미', cat: 'unit', rarity: 'uncommon', cost: 3, hp: 22,
@@ -99,7 +99,7 @@
     },
     commander: {
       name: '지휘 개미', cat: 'unit', rarity: 'rare', cost: 6, hp: 75,
-      speed: 0.10, atk: { type: 'melee', dmg: 6, range: 0.03, cd: 1.0 }, aura: { range: 0.12, atk: 0.2, speed: 0.2 }, art: 'commander', size: 1.4, // 주변 아군 +20% 오라(구현 예정)
+      speed: 0.10, atk: { type: 'melee', dmg: 6, range: 0.03, cd: 1.0 }, kb: 1, aura: { range: 0.12, atk: 0.2, speed: 0.2 }, art: 'commander', size: 1.4, // 주변 아군 +20% 오라(구현 예정)
     },
     sniper: {
       name: '저격 개미', cat: 'unit', rarity: 'rare', cost: 5, hp: 18,
@@ -107,7 +107,7 @@
     },
     boss: {
       name: '여왕 개미', cat: 'unit', rarity: 'legend', cost: 10, hp: 320,
-      speed: 0.06, atk: { type: 'none' }, support: true,
+      speed: 0.06, atk: { type: 'none' }, support: true, kb: 0,
       summon: { unit: 'rifleman', every: 5 }, // 직접 공격 X → 5초마다 라이플 솔저를 바로 앞에 1마리 소환(생산형 결전병기)
       art: 'boss', size: 2.0,
     },

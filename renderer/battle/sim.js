@@ -9,6 +9,7 @@
   const U = window.BattleUpgrade
 
   const DEFAULTS = { baseHp: 100, manaCap: 10, manaRegen: 0.5, baseRange: 0.03, speedScale: 1 }
+  const KB_DUR = 0.45, KB_BACK = 0.16   // 넉백: 0.45초간 뒤로 밀림(레인비율/초). 밀리는 동안 공격 X
 
   function statsFor(type) {
     if (U && U.computeUnitStats) { const s = U.computeUnitStats(type); if (s) return s }
@@ -47,6 +48,9 @@
       const u = { uid: uidSeq++, side, type, L: startL, dir: side === 0 ? 1 : -1, hp, maxHp: hp, stats: s, cdLeft: chargeCd }
       if (base.battleShield) { u.shMax = base.battleShield.absorb; u.shHp = u.shMax; u.shHitAt = -1e9; u.shCooldown = base.battleShield.cooldown } // 자동 쉴드
       if (base.summon) u.summonCd = base.summon.every || 4   // 생산형(여왕): 소환 타이머
+      // 넉백(냥코풍): kb회수만큼 HP 임계에서 뒤로 밀림. 임계 = maxHp*k/(kb+1) 내림차순.
+      const kb = base.kb != null ? base.kb : 2   // 기본 2회. 탱커/보스는 낮게(데이터에서 지정)
+      u.kbList = []; for (let k = kb; k >= 1; k--) u.kbList.push(hp * k / (kb + 1))
       st.units.push(u)
       st.events.push({ type: 'spawn', uid: u.uid, side, unit: type })
       return true
@@ -80,6 +84,12 @@
         if (dmg <= 0) { st.events.push({ type: 'shieldblock', uid: target.uid, L: target.L, side: target.side }); return }
       }
       target.hp -= dmg
+      // 넉백: 남은 HP가 다음 임계 이하로 내려가면(가능한 만큼) 뒤로 밀림. 얼거나 죽으면 스킵.
+      if (target.hp > 0 && target.kbList && target.kbList.length && !(target.frozenUntil && target.frozenUntil > st.t)) {
+        let bumped = false
+        while (target.kbList.length && target.hp <= target.kbList[0]) { target.kbList.shift(); bumped = true }
+        if (bumped) { target.kbUntil = st.t + KB_DUR; st.events.push({ type: 'knockback', uid: target.uid, L: target.L, side: target.side }) }
+      }
       if (target.hp <= 0) { target.hp = 0; st.events.push({ type: 'die', uid: target.uid, side: target.side, L: target.L, unit: target.type }) }
     }
 
@@ -107,6 +117,7 @@
         if (u.hp <= 0) continue
         if (u.shMax != null && u.shHp < u.shMax && st.t - u.shHitAt >= u.shCooldown) u.shHp = u.shMax // 피격 없이 cooldown초 지나야 재충전
         if (u.frozenUntil && u.frozenUntil > st.t) continue   // ❄ 빙결: 이동·공격 정지
+        if (u.kbUntil && u.kbUntil > st.t) { u.L = clamp(u.L - u.dir * KB_BACK * dt, 0, 1); continue }   // 넉백: 뒤로 밀리는 동안 공격 X
         const range = (u.stats.atk && u.stats.atk.range) || 0.02
         const enemyBaseL = u.side === 0 ? 1 : 0
         const { e: tgt, d: td, ghost: tgtGhost } = nearestEnemy(u)

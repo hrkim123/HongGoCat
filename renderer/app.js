@@ -3462,7 +3462,7 @@
   function _enterBattle() {   // 솔로/멀티 공통 진입 셋업
     clearMySummons()   // 배틀 진입 = 깨끗한 상태: 오버레이 소환체·무기·터렛·메카/인간·투사체·블랙홀 전부 제거
     littleBoys.length = 0; debris.length = 0; bloodStains.length = 0   // 낙하 폭탄·잔해도 정리
-    battle = window.BattleSim.newBattle({ speedScale: 0.44 })   // 냥코풍 느린 행군 (0.55 → ×0.8)
+    battle = window.BattleSim.newBattle({ speedScale: 0.38 })   // 냥코풍 느린 행군(전략성). 0.44 → 0.38
     battleAtkAt = {}; battleShieldFlash = {}; battleHealFx = []; battleFalls = []; battleDead = []; bproj.length = 0
     battleGhosts = []; battleGhostBase = battle.state.baseHpMax; bunitsLastSend = 0
     battleResultAt = 0; battleLastT = performance.now(); battleActive = true
@@ -3637,6 +3637,7 @@
       else if (e.type === 'heal') battleHealFx.push({ medL: e.medL, healL: e.healL, born: now })           // 메딕 힐 → 초록 십자(본인+대상)
       else if (e.type === 'boom') { const bx = battleLaneX(e.L), by = antGroundY(bx) - 20 * view.scale; addEffect(bx, by, 3); for (let k = 0; k < 12; k++) spawnSpark(bx + (Math.random() - 0.5) * (e.aoeR || 0.05) * canvas.clientWidth, by + (Math.random() - 0.5) * 30 * view.scale); if (inTaskbar(bx, antGroundY(bx))) carveTaskbar(bx, 0.6, false) }   // 카미카제 자폭
       else if (e.type === 'freeze') { const fx = battleLaneX(e.L), fy = antGroundY(fx) - 22 * view.scale; for (let k = 0; k < 10; k++) spawnSpark(fx + (Math.random() - 0.5) * 30 * view.scale, fy + (Math.random() - 0.5) * 40 * view.scale) }   // 빙결 순간
+      else if (e.type === 'knockback') { const kx = battleLaneX(e.L), ky = antGroundY(kx); addEffect(kx, ky - 12 * view.scale, 1); for (let k = 0; k < 4; k++) spawnSpark(kx + (Math.random() - 0.5) * 24 * view.scale, ky - Math.random() * 20 * view.scale) }   // 넉백: 먼지/충격
       else if (e.type === 'ghosthit') { if (battleMulti && connected()) net.send(JSON.stringify({ t: 'bghit', to: battleMulti.oppId, uid: e.uid, dmg: e.dmg, slow: e.slow || 0, slowDur: e.slowDur || 0 })) }   // 멀티: 상대 유닛 피격 릴레이(근접/광역)
       else if (e.type === 'basehit') { if (battleMulti && e.side === 1 && connected()) net.send(JSON.stringify({ t: 'bbhit', to: battleMulti.oppId, dmg: e.dmg })) }   // 멀티: 상대 기지 피격 릴레이(근접)
     }
