@@ -3997,6 +3997,19 @@
     } else if (battle.state.winner != null && battlePhase !== 'result') { battlePhase = 'result'; battleResultAt = now; battleWin = battle.state.winner === 0; seedBattleConfetti(); if (battleWin) recordBattleWin() }   // 솔로 승리 업적
     if (battleResultAt && now - battleResultAt > 3000) stopBattle()   // 결과 연출 3초 뒤 원래 화면 복귀
   }
+  // 진영 구분 마커 — 유닛 머리 위 작은 삼각형(▼). 내편(side0)=파랑 / 상대(side1)=빨강.
+  function drawTeamMarker(x, feetY, side, type, sizeMul) {
+    const hb = unitHitboxScreen(type, sizeMul || 1)
+    const topY = feetY - hb.top - 6 * view.scale   // 머리 위 살짝
+    const col = side === 0 ? '#4aa3ff' : '#ff5a4a'
+    const w = 6 * view.scale, h = 7 * view.scale
+    ctx.save()
+    ctx.fillStyle = 'rgba(0,0,0,0.45)'   // 외곽 그림자(가독성)
+    ctx.beginPath(); ctx.moveTo(x - w - 1, topY - h - 1); ctx.lineTo(x + w + 1, topY - h - 1); ctx.lineTo(x, topY + 1); ctx.closePath(); ctx.fill()
+    ctx.fillStyle = col                  // ▼ 아래를 가리키는 삼각형(유닛 지목)
+    ctx.beginPath(); ctx.moveTo(x - w, topY - h); ctx.lineTo(x + w, topY - h); ctx.lineTo(x, topY); ctx.closePath(); ctx.fill()
+    ctx.restore()
+  }
   function drawBattleUnits(now) {
     if (!battle || !window.BattleSprites) return
     const st = battle.state
@@ -4006,6 +4019,7 @@
       const knocked = u.kbUntil && u.kbUntil > battle.state.t   // 넉백 중엔 공격 연출(총구 섬광·차지) 억제
       const facing = u.side === 0 ? 1 : -1, atk = !knocked && battleAtkAt[u.uid] && now - battleAtkAt[u.uid] < 380
       const s = view.scale * BATTLE_UNIT_SCALE * (def.size || 1)
+      drawTeamMarker(x, y, u.side, u.type, def.size || 1)   // 진영 구분: 머리 위 삼각형(내편 파랑 / 상대 빨강)
       // 커맨더 오라 링(바닥, 유닛 뒤) — 주변 아군 버프 범위 표시
       if (def.aura) { const rad = def.aura.range * (canvas.clientWidth - 2 * BATTLE_PAD); ctx.save(); ctx.globalAlpha = 0.5 + 0.2 * Math.sin(now / 300); ctx.strokeStyle = 'rgba(255,210,90,.5)'; ctx.lineWidth = 2 * view.scale; ctx.beginPath(); ctx.ellipse(x, antGroundY(x), rad, rad * 0.18, 0, 0, Math.PI * 2); ctx.stroke(); ctx.restore() }
       // 메카/인간 = 기존 오버레이 아트 그대로 재사용(새로 안 만듦). 쉴드도 form별(돔/판넬) 원본 함수 재사용.
@@ -4057,6 +4071,7 @@
       if (g.hp <= 0) continue
       const gdef = window.BattleData.UNITS[g.type] || {}, gx = battleLaneX(g.L), gy = battleUnitFeetY(gx, gdef.flying)
       const gs = view.scale * BATTLE_UNIT_SCALE * (gdef.size || 1)
+      drawTeamMarker(gx, gy, 1, g.type, gdef.size || 1)   // 상대(고스트) = 빨강 머리 위 삼각형
       if (g.type === 'mechaAnt') drawOverlayMechaAt(gx, gy, 0.43 * (gdef.size || 1.6), -1, 0, now, { walking: true, shHp01: g.shHp > 0 ? 1 : null })
       else if (g.type === 'mechaHuman') drawOverlayMechaAt(gx, gy, 0.46 * (gdef.size || 1.7), -1, 1, now, { walking: false, shHp01: g.shHp > 0 ? 1 : null })
       else if (g.type === 'human') drawOverlayHumanAt(gx, gy, 0.80 * (gdef.size || 1.3), -1, now)
