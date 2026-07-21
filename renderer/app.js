@@ -3409,13 +3409,18 @@
 
   // ---------- 배틀 모드 (오버레이 통합: 실제 작업표시줄 위 · 별도 캔버스 아님) ----------
   let battleActive = false, battle = null, battleAI = null, battleLastT = 0, battleResultAt = 0
-  let battleAtkAt = {}, battleDead = [], battleOpp = null, battleHud = null, battleShieldFlash = {}, battleHealFx = []
+  let battleAtkAt = {}, battleDead = [], battleOpp = null, battleHud = null, battleShieldFlash = {}, battleHealFx = [], battleFalls = []
   let battleSavedCarve, battleSavedBarDmg = 0
   let battlePhase = 'idle', battlePhaseAt = 0, battleWin = false, battleConfetti = []   // 'countdown' | 'playing' | 'result'
   const BATTLE_CD_MS = 3200   // 3·2·1 (각 800ms) + START(800ms)
   const BATTLE_PAD = 90
   const BATTLE_UNIT_SCALE = 2.0   // 배틀 유닛 렌더 배율 (2.86 → ×0.7 축소). 히트박스(unitHitboxScreen)도 이 값에 연동.
   function battleLaneX(L) { const W = canvas.clientWidth; return BATTLE_PAD + L * (W - 2 * BATTLE_PAD) }   // side0 기지=좌
+  // 유닛 발밑 Y. 지상형은 파인 지형(antGroundY)을 따라가고, 공중형은 땅 파임과 무관하게 원래 작업표시줄 라인 위로 고정.
+  function battleUnitFeetY(x, flying) {
+    if (flying) { const tb = taskbarRect(); return (tb ? tb.top : canvas.clientHeight) - 5 * view.scale - 34 * view.scale }
+    return antGroundY(x)
+  }
   // ── 소환체 디자인별 충돌박스 (스프라이트 로컬 기준: 발밑=0, 위로 h, 좌우 반폭 w). 실제 렌더 스케일을 곱해 사용.
   // 개미 이족 스프라이트는 발~머리(더듬이 포함) ≈ 42, 반폭 ≈ 15. 무기별로 조금씩 다름. 메카/인간은 자체 아트라 화면단위 별도 지정.
   const UNIT_HB_LOCAL = {
@@ -3445,7 +3450,7 @@
     battle = window.BattleSim.newBattle({ speedScale: 0.44 })   // 냥코풍 느린 행군 (0.55 → ×0.8)
     battleAI = battle.makeAI(1, ['ant', 'rifleman', 'grenadier', 'mechaAnt', 'mechaHuman'].filter((id) => window.BattleData.UNITS[id]), 1.4)
     battleOpp = Object.assign({ id: 'battleOpp', animal: 'cat', name: '상대', skin: 'gray', pattern: 'solid', hat: 'none', ear: 'pointed', eye: 'oval', mouth: 'smile', tail: 'curl', shape: {}, hp: CAT_HP }, newAnimState())
-    battleAtkAt = {}; battleShieldFlash = {}; battleHealFx = []; battleDead = []; bproj.length = 0; battleResultAt = 0; battleLastT = performance.now(); battleActive = true
+    battleAtkAt = {}; battleShieldFlash = {}; battleHealFx = []; battleFalls = []; battleDead = []; bproj.length = 0; battleResultAt = 0; battleLastT = performance.now(); battleActive = true
     battlePhase = 'countdown'; battlePhaseAt = performance.now(); battleConfetti = []   // 3·2·1·START 후 시작
     battleSavedCarve = carve ? carve.slice() : null; battleSavedBarDmg = barDamage; resetTaskbarDig(false)   // 배틀은 복원된(깨끗한) 작업표시줄로 시작
     buildBattleHud(); sendHotzone(); recordBattlePlay()   // 🏆 배틀 참여 업적
@@ -3544,16 +3549,25 @@
     // 카운트다운 중엔 시뮬 정지(마나·행군 없음). 화면만 배틀 뷰.
     if (battlePhase === 'countdown') { if (now - battlePhaseAt >= BATTLE_CD_MS) { battlePhase = 'playing'; battleLastT = now } return }
     if (battleAI) battleAI(dt); battle.step(dt)
+    // 지상 유닛 구멍 낙하: 지형이 관통될 만큼 파이면 그 위 지상 유닛은 아래로 떨어져 제거(공중형 제외). 참호 전략.
+    const fellUids = new Set()
+    for (const u of battle.state.units) {
+      const def = window.BattleData.UNITS[u.type] || {}
+      if (def.flying || u.hp <= 0) continue
+      const ux = battleLaneX(u.L)
+      if (taskbarHoleAt(ux)) { fellUids.add(u.uid); battle.hitUnit(u.uid, 1e9); spawnFallFx(ux, antGroundY(ux)) }
+    }
     for (const e of battle.drainEvents()) {
       if (e.type === 'hit') battleAtkAt[e.by] = now
       else if (e.type === 'fire') { battleAtkAt[e.by] = now; battleFire(e) }   // 원거리 → 실제 투사체 발사
-      else if (e.type === 'die') battleDead.push({ id: e.unit, L: e.L, side: e.side, born: now })
+      else if (e.type === 'die') { if (fellUids.has(e.uid)) battleFalls.push({ id: e.unit, L: e.L, side: e.side, born: now, vy: 1 }); else battleDead.push({ id: e.unit, L: e.L, side: e.side, born: now }) }
       else if (e.type === 'shieldblock' || e.type === 'shieldbreak') { battleShieldFlash[e.uid] = now }   // 쉴드가 막음 → 번쩍 연출
       else if (e.type === 'heal') battleHealFx.push({ medL: e.medL, healL: e.healL, born: now })           // 메딕 힐 → 초록 십자(본인+대상)
       else if (e.type === 'boom') { const bx = battleLaneX(e.L), by = antGroundY(bx) - 20 * view.scale; addEffect(bx, by, 3); for (let k = 0; k < 12; k++) spawnSpark(bx + (Math.random() - 0.5) * (e.aoeR || 0.05) * canvas.clientWidth, by + (Math.random() - 0.5) * 30 * view.scale); if (inTaskbar(bx, antGroundY(bx))) carveTaskbar(bx, 0.6, false) }   // 카미카제 자폭
       else if (e.type === 'freeze') { const fx = battleLaneX(e.L), fy = antGroundY(fx) - 22 * view.scale; for (let k = 0; k < 10; k++) spawnSpark(fx + (Math.random() - 0.5) * 30 * view.scale, fy + (Math.random() - 0.5) * 40 * view.scale) }   // 빙결 순간
     }
     for (let i = battleHealFx.length - 1; i >= 0; i--) if (now - battleHealFx[i].born > 650) battleHealFx.splice(i, 1)
+    for (let i = battleFalls.length - 1; i >= 0; i--) { const f = battleFalls[i]; f.vy += 0.8; f._y = (f._y || 0) + f.vy; if (f._y > canvas.clientHeight + 60) battleFalls.splice(i, 1) }   // 구멍으로 낙하
     stepBattleProj(now, dt)
     for (let i = battleDead.length - 1; i >= 0; i--) if (now - battleDead[i].born > 900) battleDead.splice(i, 1)
     updateBattleHud()
@@ -3565,7 +3579,7 @@
     const st = battle.state
     for (const u of st.units) {
       const x = battleLaneX(u.L), def = window.BattleData.UNITS[u.type] || {}
-      const y = antGroundY(x) - (def.flying ? 34 * view.scale : 0)
+      const y = battleUnitFeetY(x, def.flying)
       const facing = u.side === 0 ? 1 : -1, atk = battleAtkAt[u.uid] && now - battleAtkAt[u.uid] < 380
       const s = view.scale * BATTLE_UNIT_SCALE * (def.size || 1)
       // 커맨더 오라 링(바닥, 유닛 뒤) — 주변 아군 버프 범위 표시
@@ -3617,6 +3631,7 @@
       for (const L of [h.medL, h.healL]) { const hx = battleLaneX(L), hy = antGroundY(hx) - 46 * view.scale - (1 - a) * 10 * view.scale; ctx.save(); ctx.globalAlpha = Math.max(0, a); ctx.fillStyle = '#3ad06a'; const r = 5 * view.scale; ctx.fillRect(hx - r / 3, hy - r, r * 0.66, r * 2); ctx.fillRect(hx - r, hy - r / 3, r * 2, r * 0.66); ctx.restore() }
     }
     for (const d of battleDead) { const p = Math.min(1, (now - d.born) / 900); window.BattleSprites.draw(ctx, d.id, { x: battleLaneX(d.L), y: antGroundY(battleLaneX(d.L)), scale: view.scale * BATTLE_UNIT_SCALE, facing: d.side === 0 ? 1 : -1, state: 'death', t: 0, deathT: p }) }
+    for (const f of battleFalls) { const fx = battleLaneX(f.L), fy = antGroundY(fx) + (f._y || 0); ctx.save(); ctx.globalAlpha = Math.max(0, 1 - (f._y || 0) / (canvas.clientHeight * 0.8)); window.BattleSprites.draw(ctx, f.id, { x: fx, y: fy, scale: view.scale * BATTLE_UNIT_SCALE * (window.BattleData.UNITS[f.id] ? (window.BattleData.UNITS[f.id].size || 1) : 1), facing: f.side === 0 ? 1 : -1, state: 'walk', t: now / 1000 }); ctx.restore() }   // 구멍으로 떨어지는 유닛
     drawBattleProj(now)   // 투사체(총알·포탄·에너지·수류탄 등)
     // 기지 HP 바 (양 끝 고양이 위)
     drawBattleBaseHp(battleLaneX(0), 0); drawBattleBaseHp(battleLaneX(1), 1)
@@ -3798,7 +3813,7 @@
     for (const u of battle.state.units) {
       if (u.side !== foeSide || u.hp <= 0) continue
       const ux = battleLaneX(u.L), def = window.BattleData.UNITS[u.type] || {}
-      const feetY = antGroundY(ux) - (def.flying ? 34 * view.scale : 0)
+      const feetY = battleUnitFeetY(ux, def.flying)
       if (inUnitBody(x, y, ux, feetY, u.type, def.size, m)) { battle.hitUnit(u.uid, dmg); hit = true }
     }
     const bx = battleLaneX(foeSide)   // 그 side의 기지
@@ -3857,7 +3872,7 @@
     for (const u of battle.state.units) {
       if (u.side === 0 || u.hp <= 0) continue
       const ux = battleLaneX(u.L), def = window.BattleData.UNITS[u.type] || {}
-      const feetY = antGroundY(ux) - (def.flying ? 34 * view.scale : 0)
+      const feetY = battleUnitFeetY(ux, def.flying)
       if (inUnitBody(x, y, ux, feetY, u.type, def.size, 2 * view.scale)) return true
     }
     const bx = battleLaneX(1)
@@ -3873,12 +3888,12 @@
     const def = window.BattleData.UNITS[type] || {}
     const s = view.scale * BATTLE_UNIT_SCALE * (def.size || 1), face = ev.side === 0 ? 1 : -1
     const mz = PROJ_MUZZLE[type] || PROJ_MUZZLE._default
-    const laneX = battleLaneX(ev.fromL), feetY = antGroundY(laneX) - (def.flying ? 34 * view.scale : 0)
+    const laneX = battleLaneX(ev.fromL), feetY = battleUnitFeetY(laneX, def.flying)
     const fx = laneX + face * mz.x * s, fy = feetY - mz.y * s   // 실제 총구 위치에서 발사
     const tu = ev.targetUid != null ? battle.unitByUid(ev.targetUid) : null
     const tdef = tu ? (window.BattleData.UNITS[tu.type] || {}) : null
     const tx = tu ? battleLaneX(tu.L) : battleLaneX(ev.toL)
-    const ty = tu ? (antGroundY(tx) - (tdef.flying ? 34 * view.scale : 0) - 20 * view.scale) : (antGroundY(tx) - 60 * view.scale)   // 적 몸통/기지 높이 조준
+    const ty = tu ? (battleUnitFeetY(tx, tdef.flying) - 20 * view.scale) : (antGroundY(tx) - 60 * view.scale)   // 적 몸통/기지 높이 조준
     const spd = PROJ_SPD[kind] * view.scale
     const burst = (kind === 'bullet' && def.atk && def.atk.burst > 1) ? def.atk.burst : 1   // 라이플 3연발 등
     const nowP = performance.now()
@@ -3904,7 +3919,7 @@
       for (const u of battle.state.units) {
         if (u.side === p.bside || u.hp <= 0) continue
         const ux = battleLaneX(u.L), def = window.BattleData.UNITS[u.type] || {}
-        const feetY = antGroundY(ux) - (def.flying ? 34 * view.scale : 0)
+        const feetY = battleUnitFeetY(ux, def.flying)
         if (inUnitBody(p.x, p.y, ux, feetY, u.type, def.size, 2 * view.scale)) {
           const before = u.hp
           if (p.aoe) { for (const e of battle.state.units) if (e.side !== p.bside && e.hp > 0 && Math.abs(battleLaneX(e.L) - p.x) < p.aoe * W) battle.hitUnit(e.uid, p.dmg, p.slow, p.slowDur); addEffect(p.x, p.y, 1); done = true }

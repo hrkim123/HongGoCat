@@ -91,15 +91,20 @@
     if (o.state === 'attack') { const yy = -40 - (((o.t || 0) * 22) % 14); c.fillStyle = 'rgba(120,220,140,0.95)'; c.fillRect(4, yy, 1.8, 5.4); c.fillRect(2.2, yy + 1.8, 5.4, 1.8) }  // 회복 십자
     c.restore()
   }
-  function drawDrone(c, o) {   // 말벌 드론 — 노랑·검정 줄무늬 + 파닥이는 날개 + 침(공중)
-    antLower(c, o, { body: '#e0a72a', bodyD: '#7a5a10' })
-    c.strokeStyle = '#2a2114'; c.lineWidth = 1.4
-    for (const yy of [-27, -24, -21]) { c.beginPath(); c.moveTo(-9, yy); c.lineTo(3, yy); c.stroke() }   // 줄무늬
-    c.fillStyle = '#3a2a14'; c.beginPath(); c.moveTo(-11, -19); c.lineTo(-16, -17); c.lineTo(-11, -22.5); c.closePath(); c.fill()   // 침
-    const wf = Math.sin((o.t || 0) * 40) * 0.15
-    c.globalAlpha = 0.5; c.fillStyle = '#dff2ff'; ell(c, -2, -31, 8, 3.4, -0.5 + wf); ell(c, 3, -31, 8, 3.4, 0.5 - wf); c.globalAlpha = 1   // 날개
-    antUpper(c, { body: '#e0a72a', bodyD: '#7a5a10', goggles: true })
+  function drawDrone(c, o) {   // 말벌 드론(공중) — 다리 X. 둥근 몸통 + 파닥이는 작은 날개 + 침. 이동 시 빠르게 파닥.
+    const ph = o.t || 0, cy = -12 + Math.sin(ph * 3) * 1.5   // 몸통 중심(상하 부유)
+    const fq = o.state === 'idle' ? 10 : 30, flap = Math.abs(Math.sin(ph * fq))   // 이동/공격 시 빠른 파닥
+    c.save(); c.globalAlpha = 0.55; c.fillStyle = '#dff4ff'   // 날개(반투명, 파닥)
+    for (const sgn of [-1, 1]) { c.save(); c.translate(sgn * 3, cy - 6); c.rotate(sgn * (0.35 + flap * 0.75)); ell(c, sgn * 6, 0, 9, 3.2, 0); c.restore() }
     c.restore()
+    c.fillStyle = '#2a2114'; c.beginPath(); c.moveTo(-12, cy + 2); c.lineTo(-18, cy + 4); c.lineTo(-12, cy - 1); c.closePath(); c.fill()   // 침(꼬리)
+    c.fillStyle = '#e0a72a'; ell(c, -6, cy + 1, 9, 7, 0)   // 둥근 복부
+    c.strokeStyle = '#2a2114'; c.lineWidth = 1.5; for (const dx of [-9, -6, -3]) { c.beginPath(); c.moveTo(dx, cy - 4); c.lineTo(dx, cy + 6); c.stroke() }   // 줄무늬
+    c.fillStyle = '#c78f1e'; circ(c, 3, cy, 4.5)   // 흉부
+    c.fillStyle = '#3a2a14'; circ(c, 9, cy - 1, 3.6)   // 머리
+    c.fillStyle = '#fff'; circ(c, 10.6, cy - 1.5, 1.2); c.fillStyle = '#111'; circ(c, 11.1, cy - 1.5, 0.6)   // 눈
+    c.strokeStyle = '#2a2114'; c.lineWidth = 0.9; c.beginPath(); c.moveTo(10, cy - 4); c.lineTo(13, cy - 8); c.stroke()   // 더듬이
+    if (o.state === 'attack' && (o.flash || Math.floor(ph * 20) % 3 === 0)) { c.fillStyle = '#ffe08a'; circ(c, 12, cy - 1, 2) }
   }
   function drawFreezer(c, o) {   // 얼음 개미 — 하늘색 몸 + 등 얼음결정 + 서리 총
     const f = antLower(c, o, { body: '#8fd0e8', bodyD: '#4a8aa8', recoil: true })
@@ -150,7 +155,7 @@
     c.fillStyle = '#e24b6a'; circ(c, 6, -41, 1.1)
     c.restore()
   }
-  // 기본 개미(사족 크롤러) — 'ant' + 미구현 폴백
+  // 기본 개미(사족 크롤러) — 'ant' 고유 디자인 + 미구현 _default 폴백. (각 유닛 디자인은 서로 달라도 됨)
   function drawAntBasic(c, o) {
     const ph = o.t || 0, sw = o.state === 'walk' ? Math.sin(ph * 8) * 3 : 0
     const body = '#7a5230', bodyD = '#4a3018'
