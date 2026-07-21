@@ -3524,11 +3524,18 @@
       const y = antGroundY(x) - (def.flying ? 34 * view.scale : 0)
       const facing = u.side === 0 ? 1 : -1, atk = battleAtkAt[u.uid] && now - battleAtkAt[u.uid] < 380
       const s = view.scale * BATTLE_UNIT_SCALE * (def.size || 1)
-      // 메카/인간 = 기존 오버레이 아트 그대로 재사용(새로 안 만듦)
-      if (u.type === 'mechaAnt') drawOverlayMechaAt(x, y, 0.62 * (def.size || 1.6), facing, 0, now)
-      else if (u.type === 'mechaHuman') drawOverlayMechaAt(x, y, 0.66 * (def.size || 1.7), facing, 1, now)
+      // 메카/인간 = 기존 오버레이 아트 그대로 재사용(새로 안 만듦). 쉴드도 form별(돔/판넬) 원본 함수 재사용.
+      const sh01 = u.shHp > 0 && u.shMax ? u.shHp / u.shMax : null
+      if (u.type === 'mechaAnt') drawOverlayMechaAt(x, y, 0.62 * (def.size || 1.6), facing, 0, now, { walking: true, shHp01: sh01 })
+      else if (u.type === 'mechaHuman') {
+        // 공중형: 걷기 모션 제거 + 진행 방향으로 살짝 기울임(멈추면 복귀)
+        const moving = !atk, tgtLean = moving ? facing * 0.16 : 0
+        u._lean = (u._lean || 0) + (tgtLean - (u._lean || 0)) * 0.12
+        drawOverlayMechaAt(x, y, 0.66 * (def.size || 1.7), facing, 1, now, { walking: false, lean: u._lean, shHp01: sh01 })
+      }
       else if (u.type === 'human') drawOverlayHumanAt(x, y, 1.15 * (def.size || 1.3), facing, now)
       else window.BattleSprites.draw(ctx, u.type, { x, y, scale: s, facing, state: atk ? 'attack' : 'walk', t: u.uid * 0.37 + now / 1000, flash: atk })
+      const isMecha = u.type === 'mechaAnt' || u.type === 'mechaHuman'
       // 원거리 공격 순간 총구/포구 섬광(재사용 아트 위에 얹어 "발사"가 보이게)
       const ranged = def.atk && def.atk.type && def.atk.type !== 'none' && def.atk.type !== 'melee' && def.atk.type !== 'heal'
       if (atk && ranged && now - battleAtkAt[u.uid] < 160) {
@@ -3536,8 +3543,13 @@
         ctx.fillStyle = 'rgba(255,224,140,.95)'; ctx.beginPath(); ctx.arc(mx, my, 5 * s, 0, 7); ctx.fill()
         ctx.fillStyle = 'rgba(255,157,58,.9)'; ctx.beginPath(); ctx.arc(mx + facing * 3 * s, my, 3 * s, 0, 7); ctx.fill()
       }
-      // 자동 쉴드(shHp) — 반투명 돔 + 방어 순간 번쩍(메카/메카인간폼/쉴더가 실제로 막는 게 보이게)
-      if (u.shHp > 0) drawBattleShield(x, y, s, u, now)
+      // 자동 쉴드 — 메카/인간폼은 drawOverlayMechaAt 안에서 form별(돔/판넬) 원본 쉴드로 그려짐.
+      // 그 외 쉴드 유닛(쉴더 등)만 여기서 반구 돔으로.
+      if (u.shHp > 0 && !isMecha) drawBattleShield(x, y, s, u, now)
+      if (u.shHp > 0 && isMecha) {   // 방어 순간 번쩍만 공통으로
+        const fl = battleShieldFlash[u.uid] && now - battleShieldFlash[u.uid] < 220 ? 1 - (now - battleShieldFlash[u.uid]) / 220 : 0
+        if (fl > 0) { ctx.save(); ctx.globalAlpha = fl * 0.8; ctx.strokeStyle = 'rgba(230,248,255,0.95)'; ctx.lineWidth = 3 * s; ctx.beginPath(); ctx.arc(x, y - 30 * s, 26 * s, 0, 7); ctx.stroke(); ctx.restore() }
+      }
       const w = 24 * s, f = u.hp / u.maxHp
       ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(x - w / 2, y - 44 * s, w, 3.5)
       ctx.fillStyle = f > 0.4 ? '#7ecb7e' : '#e24b4a'; ctx.fillRect(x - w / 2, y - 44 * s, w * f, 3.5)
@@ -3561,17 +3573,24 @@
   // ── 기존 오버레이 메카/인간 아트를 배틀 유닛으로 재사용(새 그림 X) ──
   // drawMecha/drawHuman은 me.* 전역에 묶여 있어, 값을 잠시 바꿔 그린 뒤 즉시 복구(try/finally 보장).
   // 크기는 (x,y) 기준 스케일 변환으로 조절(원본 함수 수정 없이).
-  function drawOverlayMechaAt(x, y, k, facing, form, now) {
-    const sv = { x: me.mechaX, y: me.mechaY, f: me.mechaFace, form: me.mechaForm, thr: me.mechaThrust, chg: me.mechaCharging }
+  function drawOverlayMechaAt(x, y, k, facing, form, now, opts) {
+    opts = opts || {}
+    const walking = opts.walking !== false, lean = opts.lean || 0, sh = opts.shHp01
+    const sv = { x: me.mechaX, y: me.mechaY, f: me.mechaFace, form: me.mechaForm, thr: me.mechaThrust, chg: me.mechaCharging, dep: me.mechaShieldDeploy, shp: me.mechaShieldHp, sang: me.mechaShieldAng }
     const cx = cursor.x, cy = cursor.y
     ctx.save()
     try {
-      ctx.translate(x, y); ctx.scale(k, k); ctx.translate(-x, -y)
+      ctx.translate(x, y); ctx.scale(k, k); if (lean) ctx.rotate(lean); ctx.translate(-x, -y)   // lean = 진행 방향 기울임(공중형)
       me.mechaX = x; me.mechaY = y; me.mechaFace = facing; me.mechaForm = form; me.mechaThrust = form >= 1; me.mechaCharging = false
       cursor.x = x + facing * 500; cursor.y = y - 40   // 전방 조준(대포 각도용)
-      drawMecha(now, true)
+      drawMecha(now, walking)
+      if (sh != null && sh > 0) {   // 쉴드도 기존 함수 재사용 → 개미폼=반구 돔 / 인간폼=판넬(자동 form 분기)
+        me.mechaShieldDeploy = 1; me.mechaShieldHp = sh * MSHIELD_HP; me.mechaShieldAng = facing >= 0 ? 0 : Math.PI
+        drawMechaShield(now)
+      }
     } finally {
       me.mechaX = sv.x; me.mechaY = sv.y; me.mechaFace = sv.f; me.mechaForm = sv.form; me.mechaThrust = sv.thr; me.mechaCharging = sv.chg
+      me.mechaShieldDeploy = sv.dep; me.mechaShieldHp = sv.shp; me.mechaShieldAng = sv.sang
       cursor.x = cx; cursor.y = cy; ctx.restore()
     }
   }
@@ -3743,12 +3762,17 @@
     const ty = tu ? (antGroundY(tx) - 22 * view.scale) : (antGroundY(tx) - 40 * view.scale)
     const cxs = cursor.x, cys = cursor.y; cursor.x = tx; cursor.y = ty   // 타겟(상대 소환체/기지) 조준
     const now = performance.now()
-    if (which === 'shell') {   // 메카개미 = 기존 포물선 대포(fireMechaShell)
+    if (which === 'shell') {   // 메카개미 = 기존 포물선 대포(fireMechaShell). 궤도를 타겟에 착탄하도록 조정.
       const sv = { x: me.mechaX, y: me.mechaY, cg: me.mechaCharge, f: me.mechaFace }
-      me.mechaX = laneX; me.mechaY = antGroundY(laneX) - 30 * view.scale
-      me.mechaCharge = Math.max(0.3, Math.min(1, Math.abs(tx - laneX) / (0.55 * canvas.clientWidth)))   // 거리→발사력(포물선 사거리)
+      me.mechaX = laneX; me.mechaY = antGroundY(laneX) - 30 * view.scale; me.mechaCharge = 0.6
       const before = mechaShells.length; fireMechaShell(now)
-      for (let k = before; k < mechaShells.length; k++) { mechaShells[k].bfoe = foe; mechaShells[k].bdmg = dmg }
+      const a = MSHELL_GRAV * view.scale
+      for (let k = before; k < mechaShells.length; k++) {
+        const sh = mechaShells[k]; sh.bfoe = foe; sh.bdmg = dmg
+        const T = Math.max(28, Math.min(82, Math.abs(tx - sh.x) / (6 * view.scale)))   // 비행 프레임(멀수록 길게 = 더 높은 포물선)
+        sh.vx = (tx - sh.x) / T
+        sh.vy = (ty - sh.y - 0.5 * a * T * T) / T   // T프레임 뒤 (tx,ty)에 착탄하는 포물선(적 위치 반영)
+      }
       me.mechaX = sv.x; me.mechaY = sv.y; me.mechaCharge = sv.cg; me.mechaFace = sv.f
     } else if (which === 'energy') {   // 메카인간폼 = 기존 에너지포(fireEnergyCannon)
       const sv = { x: me.mechaX, y: me.mechaY, cg: me.mechaCharge, f: me.mechaFace }
