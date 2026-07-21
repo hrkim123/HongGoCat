@@ -499,6 +499,9 @@
   // Compares the last-seen version (localStorage) to the current app version; lists every changelog
   // entry between them (first run just shows the current version). Add newest versions at the TOP.
   const CHANGELOG = {
+    '1.0.6': [
+      '업데이트 노트가 1.0.x 버전부터 안 뜨던 문제 수정 — 이제 이전 버전부터 최신까지 변경 내역을 한 번에 보여줘요',
+    ],
     '1.0.5': [
       '배틀/플랫폼 그리기 모드 = 독점 입력 (바탕화면·다른 클릭 차단)',
       '미사일 유지시간 제거 — 화면 밖으로 나가거나 부딪힐 때만 사라짐',
