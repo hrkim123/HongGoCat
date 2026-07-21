@@ -3360,39 +3360,31 @@
   }
   function buildBattleHud() {
     if (battleHud) battleHud.remove()
-    const deck = (window.BattleGacha && window.BattleGacha.getDeck) ? window.BattleGacha.getDeck().units : []
+    const deck = (window.BattleGacha && window.BattleGacha.getDeck) ? window.BattleGacha.getDeck() : { units: [], weapons: [] }
     const h = document.createElement('div'); h.className = 'no-drag'
-    h.style.cssText = 'position:fixed;z-index:2147483000;background:rgba(8,10,14,.85);border:1px solid #2b2f39;border-radius:12px;padding:8px 10px;width:300px;font-family:system-ui,"맑은 고딕",sans-serif'
+    h.style.cssText = 'position:fixed;z-index:2147483000;background:linear-gradient(180deg,#141821,#0d0f14);border:1px solid #333a47;border-radius:14px;padding:8px 11px 11px;width:344px;font-family:system-ui,"맑은 고딕",sans-serif;box-shadow:0 10px 34px rgba(0,0,0,.55)'
     const pos = JSON.parse(localStorage.getItem('battle.hudpos') || 'null')
-    h.style.left = (pos ? pos.x : 12) + 'px'; h.style.top = (pos ? pos.y : Math.max(20, canvas.clientHeight - 260)) + 'px'
-    h.innerHTML = '<div class="bhgrip" style="font-size:11px;color:#7f8797;cursor:move;margin-bottom:6px;user-select:none">⠿ 마나 · 덱 (드래그) · <span style="color:#e57373;cursor:pointer" class="bhx">나가기</span></div>' +
-      '<div class="bhmana" style="display:flex;gap:3px;align-items:center;margin-bottom:8px"><div class="bhsegs" style="display:flex;gap:3px;flex:1"></div><span class="bhval" style="font-size:11px;color:#cfd4de"></span></div>' +
-      '<div class="bhdeck" style="display:flex;gap:5px"></div>'
-    const segs = h.querySelector('.bhsegs'); for (let i = 0; i < 10; i++) { const s = document.createElement('div'); s.style.cssText = 'flex:1;height:9px;border-radius:2px;background:rgba(255,255,255,.14)'; segs.appendChild(s) }
-    const dk = h.querySelector('.bhdeck')
-    deck.forEach((id) => {
-      const u = window.BattleData.UNITS[id]; if (!u) return
-      const b = document.createElement('div'); b.dataset.id = id; b.title = u.name
-      b.style.cssText = 'flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:5px 2px;border-radius:8px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);cursor:pointer;user-select:none'
-      const icon = window.BattleArt ? window.BattleArt.icon(id, 30) : ''
-      b.innerHTML = `<div style="pointer-events:none">${icon}</div><div style="color:#8fd3ff;font-weight:600;font-size:11px">${u.cost}</div>`
-      b.onclick = () => { if (battle && battle.spawn(0, id)) updateBattleHud() }; dk.appendChild(b)
-    })
-    // 무기(덱) — 아이콘 표시 (전투 개편에서 실제 발사 연결)
-    const wdeck = (window.BattleGacha && window.BattleGacha.getDeck) ? window.BattleGacha.getDeck().weapons : []
-    wdeck.forEach((id) => {
-      const w = window.BattleData.WEAPONS[id]; if (!w) return
-      const b = document.createElement('div'); b.title = w.name + ' (무기)'
-      b.style.cssText = 'flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:5px 2px;border-radius:8px;background:rgba(74,163,255,.12);border:1px solid rgba(74,163,255,.35);cursor:pointer;user-select:none'
-      b.innerHTML = `<div style="pointer-events:none">${window.BattleArt ? window.BattleArt.icon(id, 30) : ''}</div><div style="color:#8fd3ff;font-weight:600;font-size:10px">${w.mana != null ? w.mana : '무기'}</div>`
-      b.onclick = () => showToast('무기 발사는 전투 개편(오버레이 투사체 재사용)에서 연결됩니다')
-      dk.appendChild(b)
-    })
-    const rb = document.createElement('div'); rb.style.cssText = 'margin-top:6px;text-align:center;padding:5px;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);color:#cfd4de;font-size:11px;cursor:pointer;user-select:none'; rb.textContent = '🧱 작업표시줄 복원 (마나 2)'
-    rb.onclick = () => { if (battle && battle.state.mana[0] >= 2) { battle.state.mana[0] -= 2; resetTaskbarDig(false); updateBattleHud() } else showToast('마나 부족(2 필요)') }
-    h.appendChild(rb)
+    h.style.left = (pos ? pos.x : 12) + 'px'; h.style.top = (pos ? pos.y : Math.max(20, canvas.clientHeight - 300)) + 'px'
+    const lbl = (t) => `<div style="font-size:10px;color:#7f8797;letter-spacing:.4px;margin:9px 0 4px">${t}</div>`
+    h.innerHTML =
+      `<div class="bhgrip" style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#9aa0ab;cursor:move;user-select:none;margin-bottom:7px"><span>⚔ 배틀 · ⠿ 이동</span><span class="bhx" style="color:#e57373;cursor:pointer">✕ 나가기</span></div>` +
+      `<div style="display:flex;gap:4px;align-items:center"><span style="font-size:10px;color:#aeb4c0;width:26px">마나</span><div class="bhsegs" style="display:flex;gap:2px;flex:1"></div><span class="bhval" style="font-size:11px;color:#cfd4de;white-space:nowrap;width:70px;text-align:right"></span></div>` +
+      lbl('🐜 소환체 (클릭 소환)') + `<div class="bhunits" style="display:flex;gap:5px"></div>` +
+      lbl('⚔ 무기 (마나 소모 발사)') + `<div class="bhweaps" style="display:flex;gap:5px"></div>` +
+      lbl('🛠 기능') + `<div class="bhfns" style="display:flex;gap:5px"></div>`
+    const segs = h.querySelector('.bhsegs'); for (let i = 0; i < 10; i++) { const s = document.createElement('div'); s.style.cssText = 'flex:1;height:8px;border-radius:2px;background:rgba(255,255,255,.14)'; segs.appendChild(s) }
+    const mkCard = (bg, bd) => { const b = document.createElement('div'); b.style.cssText = `flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:1px;padding:5px 2px;border-radius:9px;background:${bg};border:1px solid ${bd};cursor:pointer;user-select:none`; return b }
+    const uw = h.querySelector('.bhunits')
+    deck.units.forEach((id) => { const u = window.BattleData.UNITS[id]; if (!u) return; const b = mkCard('rgba(255,255,255,.06)', 'rgba(255,255,255,.14)'); b.dataset.id = id; b.title = u.name; b.innerHTML = `<div style="pointer-events:none">${window.BattleArt ? window.BattleArt.icon(id, 32) : ''}</div><div style="color:#8fd3ff;font-weight:600;font-size:11px">💧${u.cost}</div>`; b.onclick = () => { if (battle && battle.spawn(0, id)) updateBattleHud() }; uw.appendChild(b) })
+    if (!deck.units.length) uw.innerHTML = '<span style="font-size:11px;color:#7f8797">덱에 소환체 없음</span>'
+    const ww = h.querySelector('.bhweaps')
+    deck.weapons.forEach((id) => { const w = window.BattleData.WEAPONS[id]; if (!w) return; const b = mkCard('rgba(74,163,255,.12)', 'rgba(74,163,255,.38)'); b.dataset.wid = id; b.title = w.name + ' (무기)'; b.innerHTML = `<div style="pointer-events:none">${window.BattleArt ? window.BattleArt.icon(id, 32) : ''}</div><div style="color:#8fd3ff;font-weight:600;font-size:10px">💧${w.mana != null ? w.mana : 2}</div>`; b.onclick = () => battleWeaponFire(id); ww.appendChild(b) })
+    if (!deck.weapons.length) ww.innerHTML = '<span style="font-size:11px;color:#7f8797">덱에 무기 없음</span>'
+    const fw = h.querySelector('.bhfns')
+    const rb = document.createElement('div'); rb.style.cssText = 'flex:1;text-align:center;padding:8px 2px;border-radius:9px;background:rgba(180,140,90,.14);border:1px solid rgba(180,140,90,.4);color:#e6d3b8;font-size:12px;cursor:pointer;user-select:none'; rb.innerHTML = '🧱 작업표시줄 복구 <span style="color:#ffd86b;font-weight:600">💧1</span>'
+    rb.onclick = () => { if (battle && battle.state.mana[0] >= 1) { battle.state.mana[0] -= 1; resetTaskbarDig(false); updateBattleHud() } else showToast('마나 부족 (1 필요)') }
+    fw.appendChild(rb)
     h.querySelector('.bhx').onclick = () => stopBattle()
-    // drag (pointer capture — 견고)
     const grip = h.querySelector('.bhgrip'); grip.style.touchAction = 'none'
     grip.addEventListener('pointerdown', (e) => {
       if (e.target.classList.contains('bhx')) return
@@ -3409,7 +3401,8 @@
     const mana = battle.state.mana[0], buff = battle.state.manaBuff ? (battle.state.manaBuff[0] || 0) : 0
     battleHud.querySelectorAll('.bhsegs div').forEach((s, i) => s.style.background = i < Math.floor(mana) ? '#4aa3ff' : 'rgba(255,255,255,.14)')
     const v = battleHud.querySelector('.bhval'); if (v) v.textContent = `${mana.toFixed(1)}/${battle.state.cfg.manaCap}` + (buff > 0 ? ` ⚡+${buff.toFixed(1)}` : '')
-    battleHud.querySelectorAll('.bhdeck [data-id]').forEach((b) => { const u = window.BattleData.UNITS[b.dataset.id]; b.style.opacity = (u && mana >= (u.cost || 1)) ? '1' : '0.4' })
+    battleHud.querySelectorAll('.bhunits [data-id]').forEach((b) => { const u = window.BattleData.UNITS[b.dataset.id]; b.style.opacity = (u && mana >= (u.cost || 1)) ? '1' : '0.4' })
+    battleHud.querySelectorAll('.bhweaps [data-wid]').forEach((b) => { const w = window.BattleData.WEAPONS[b.dataset.wid]; b.style.opacity = (w && mana >= (w.mana != null ? w.mana : 2)) ? '1' : '0.4' })
   }
   function stepBattle(now) {
     let dt = (now - (battleLastT || now)) / 1000; battleLastT = now; if (dt > 0.1) dt = 0.1
@@ -3462,9 +3455,23 @@
     if (type === 'boss') return 'shellbig'
     return 'bullet'   // rifleman/drone/freezer/scout = 게틀링 총알 크기
   }
-  const PROJ_SPD = { bullet: 560, sniper: 950, shell: 400, shellbig: 340, energy: 440, adogen: 320, grenade: 300 }
-  const PROJ_LIFE = { bullet: 1500, sniper: 1500, shell: 3000, shellbig: 3000, energy: 3000, adogen: 2200, grenade: 3000 }
-  const PROJ_DIG = { bullet: 0.15, sniper: 0.2, shell: 1.2, shellbig: 1.7, energy: 0.6, adogen: 0.9, grenade: 1.5 }
+  const PROJ_SPD = { bullet: 560, sniper: 950, shell: 400, shellbig: 340, energy: 440, adogen: 320, grenade: 300, missile: 620 }
+  const PROJ_LIFE = { bullet: 1500, sniper: 1500, shell: 3000, shellbig: 3000, energy: 3000, adogen: 2200, grenade: 3000, missile: 3500 }
+  const PROJ_DIG = { bullet: 0.15, sniper: 0.2, shell: 1.2, shellbig: 1.7, energy: 0.6, adogen: 0.9, grenade: 1.5, missile: 1.8 }
+  // 무기(덱) 배틀 발사 — 내 기지에서 상대 쪽으로 실제 투사체
+  function battleWeaponFire(id) {
+    const w = window.BattleData.WEAPONS[id]; if (!w || !battle) return
+    const cost = w.mana != null ? w.mana : 2
+    if (battle.state.mana[0] < cost) { showToast(`마나 부족 (${cost} 필요)`); return }
+    battle.state.mana[0] -= cost; updateBattleHud()
+    const fx = battleLaneX(0), fy = antGroundY(fx) - 40 * view.scale
+    const shots = id === 'gatling' ? 5 : 1, kind = id === 'missile' ? 'missile' : (id === 'gatling' ? 'bullet' : 'shell')
+    const dmg = id === 'missile' ? 18 : (id === 'gatling' ? 3 : 12), pow = id === 'missile' ? 40 : dmg
+    for (let k = 0; k < shots; k++) {
+      const spd = PROJ_SPD[kind] * view.scale, jitter = (Math.random() - 0.5) * 0.12
+      bproj.push({ x: fx, y: fy, vx: spd, vy: spd * jitter, bside: 0, dmg, pow, kind, aoe: id === 'missile' ? 0.05 : 0, slow: 0, slowDur: 0, born: performance.now(), life: PROJ_LIFE[kind] })
+    }
+  }
   function battleFire(ev) {
     const byU = battle.unitByUid(ev.by); const kind = projKindFor(byU ? byU.type : 'ant')
     const fx = battleLaneX(ev.fromL), fy = antGroundY(fx) - 20 * view.scale
@@ -3512,6 +3519,7 @@
       else if (p.kind === 'energy') { ctx.fillStyle = 'rgba(150,225,255,.92)'; ctx.beginPath(); ctx.arc(p.x, p.y, 6.5 * s, 0, 7); ctx.fill() }
       else if (p.kind === 'adogen') { ctx.fillStyle = 'rgba(130,205,255,.88)'; ctx.beginPath(); ctx.arc(p.x, p.y, 7 * s, 0, 7); ctx.fill() }
       else if (p.kind === 'grenade') { ctx.fillStyle = '#3f6b2a'; ctx.beginPath(); ctx.arc(p.x, p.y, 4.5 * s, 0, 7); ctx.fill(); ctx.fillStyle = '#2a4a1a'; ctx.fillRect(p.x - 1, p.y - 6 * s, 2, 3 * s) }
+      else if (p.kind === 'missile') { ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(Math.atan2(p.vy, p.vx)); ctx.fillStyle = '#d0d4da'; ctx.fillRect(-6 * s, -2 * s, 12 * s, 4 * s); ctx.fillStyle = '#e24b4a'; ctx.beginPath(); ctx.moveTo(6 * s, -2 * s); ctx.lineTo(10 * s, 0); ctx.lineTo(6 * s, 2 * s); ctx.fill(); ctx.fillStyle = '#ff9d3a'; ctx.beginPath(); ctx.arc(-7 * s, 0, 2.5 * s, 0, 7); ctx.fill(); ctx.restore() }
     }
   }
   // peer ants: normalized X → my screen; pinned to MY taskbar line so they always crawl on it

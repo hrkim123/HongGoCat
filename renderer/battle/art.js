@@ -76,9 +76,19 @@
     missile: '🚀', gatling: '🔫', shield: '🛡', net: '🕸️', human: '🕺', lightning: '⚡', adogen: '🔵', blackhole: '🕳',
     scout: '🐜', kamikaze: '💣', medic: '🩹', drone: '🐝', freezer: '❄️', worker: '🐜', commander: '🚩', sniper: '🎯', boss: '👑' }
 
+  // 실제 배틀 스프라이트가 있는 유닛은 그 리소스를 렌더해 아이콘으로(이족보행 등 실제 모습 일치)
+  function spriteImg(id, px) {
+    try {
+      const cv = document.createElement('canvas'); cv.width = px; cv.height = px
+      const g = cv.getContext('2d')
+      window.BattleSprites.draw(g, id, { x: px / 2, y: px * 0.9, scale: px / 50, state: 'idle', t: 0, facing: 1 })
+      return `<img src="${cv.toDataURL()}" width="${px}" height="${px}" style="display:inline-block;vertical-align:middle">`
+    } catch (_) { return null }
+  }
   function icon(e, size) {
     const id = typeof e === 'string' ? e : (e && e.id)
     const px = size || 30
+    if (window.BattleSprites && window.BattleSprites.has && window.BattleSprites.has(id)) { const im = spriteImg(id, px); if (im) return im }
     const inner = ART[id] ? ART[id]() : null
     if (inner) return `<svg viewBox="0 0 48 48" width="${px}" height="${px}" xmlns="http://www.w3.org/2000/svg" style="display:inline-block;vertical-align:middle">${inner}</svg>`
     return `<span style="font-size:${Math.round(px * 0.9)}px;line-height:1">${EMOJI[id] || '🐜'}</span>`
