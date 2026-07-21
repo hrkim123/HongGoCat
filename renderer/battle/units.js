@@ -35,9 +35,9 @@
   // DPS = dmg×(burst||1)/cd. 실효HP = hp + battleShield.absorb. 사거리(range)·속도는 레인비율.
   const UNITS = {
     ant: {
-      name: '개미', cat: 'unit', rarity: 'common', starter: true, cost: 1, hp: 58,
+      name: '개미', cat: 'unit', rarity: 'common', starter: true, cost: 1, hp: 48,
       speed: 0.18, atk: { type: 'melee', dmg: 5, range: 0.02, cd: 0.6 }, kb: 1,
-      art: 'ant', size: 1.0, // 기본 근접 물량 (근접 8.3dps). HP↑·넉백↓(근접 이점)
+      art: 'ant', size: 1.0, // 기본 근접 물량 (근접 8.3dps). HP↑·넉백↓(근접 이점) — 과효율 완화 58→48
     },
     rifleman: {
       name: '라이플 솔저', cat: 'unit', rarity: 'common', cost: 2, hp: 24,
@@ -51,8 +51,8 @@
     },
     shielder: {
       name: '쉴더', cat: 'unit', rarity: 'uncommon', cost: 2, hp: 80,
-      speed: 0.10, atk: { type: 'none' }, kb: 1,
-      battleShield: { absorb: 30, cooldown: 4 }, // 실효HP 75. 앞면 자동 쉴드(30 흡수·4s 무피격 시 재충전). 순수 탱커
+      speed: 0.10, atk: { type: 'melee', dmg: 1, range: 0.03, cd: 2.0, kbHit: true }, kb: 1, // 방패 밀치기: 저데미지지만 명중 시 앞 적 넉백(라인 저지 탱커)
+      battleShield: { absorb: 30, cooldown: 4 }, // 실효HP 110(hp80+쉴드30). 앞면 자동 쉴드(30 흡수·4s 무피격 시 재충전)
       art: 'ant-shield', size: 1.2,
     },
     mechaAnt: {
@@ -86,11 +86,11 @@
       speed: 0.10, atk: { type: 'heal', heal: 5, range: 0.10, cd: 1.2 }, support: true, art: 'medic', size: 1.0, // 아군 회복. 서포트: 아군 뒤에서 대기·전진
     },
     drone: {
-      name: '말벌 드론', cat: 'unit', rarity: 'uncommon', cost: 4, hp: 30,
+      name: '말벌 드론', cat: 'unit', rarity: 'uncommon', cost: 3, hp: 30,
       speed: 0.16, atk: { type: 'proj', dmg: 6, range: 0.16, cd: 1.0 }, flying: true, art: 'drone', size: 1.0, // 공중 견제(6dps, 사거리 0.22→0.16)
     },
     freezer: {
-      name: '얼음 개미', cat: 'unit', rarity: 'rare', cost: 4, hp: 28,
+      name: '얼음 개미', cat: 'unit', rarity: 'rare', cost: 3, hp: 28,
       speed: 0.11, atk: { type: 'proj', dmg: 4, range: 0.16, cd: 1.4, slow: 0.5, slowDur: 2 }, art: 'freezer', size: 1.0, // 저뎀+50% 감속 유틸(사거리 0.22→0.16)
     },
     worker: {
