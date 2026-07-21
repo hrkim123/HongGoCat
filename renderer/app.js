@@ -121,6 +121,9 @@
     if (id === 'none' || id === 'missile') return true
     return isOwned(id)
   }
+  // 오버레이 단축키 슬롯에 넣을 수 있는 항목: 고정 오버레이 무기 + 스프라이트 소환체 전부(fireWeapon dispatch 기준)
+  const SLOT_FIXED = ['missile', 'shield', 'ant', 'blackhole', 'gatling', 'human', 'lightning', 'net']
+  function slotEligible(id) { return SLOT_FIXED.includes(id) || !!(window.BattleSprites && window.BattleSprites.has && window.BattleSprites.has(id)) }
   const SHIELD_DUR = 10000, SHIELD_CD = 3000      // 10s active, then 3s cooldown
   // A real "shield plate" that floats OUT in front of the cat (not a sector from the center)
   // and orbits toward the cursor. SHIELD_DIST = how far out it hovers; SHIELD_SPAN = its
@@ -1034,7 +1037,11 @@
       heal: () => { if (me.hp >= CAT_HP || !spendCoins(500)) return false; resetCatHp(); pushState(); return true },
     })
     window.BattleGachaUI.setBridges({
-      weapon: () => openWeaponLoadout(),         // ⚔ 무기 설정: 전용 팝업(오버레이 단축키 슬롯)
+      weapon: () => (window.BattleGachaUI.openWeaponSlots ? window.BattleGachaUI.openWeaponSlots() : openWeaponLoadout()),   // ⚔ 무기 설정: 컬렉션 UI 재사용(희귀도 정렬·필터)
+      weaponSlots: () => ({ keys: [0, 1, 2].map((i) => slotKeyLabel(i)), slots: me.slots.slice() }),   // 현재 슬롯(단축키+배정)
+      setWeaponSlot: (i, id) => { me.slots[i] = id; localStorage.setItem('slots', JSON.stringify(me.slots)); if (battleActive) buildBattleHud(); pushState() },
+      slotEligible: (id) => slotEligible(id),     // 슬롯에 넣을 수 있는 항목인가
+      slotUsable: (id) => weaponUsable(id),       // 보유(사용 가능)한가
       achievements: () => openAchv(),            // 🏆 업적: 기존 팝업
       // 📋 방 정보: 현재 멀티방 접속자(닉네임+누적 카운트+배틀 전적) + 배틀 신청 버튼
       roomInfo: () => ({

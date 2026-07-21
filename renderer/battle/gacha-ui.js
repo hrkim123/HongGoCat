@@ -592,6 +592,66 @@
     mount(back)
   }
 
+  // ── 무기 설정(오버레이 단축키 슬롯) — 컬렉션 UI 재사용(희귀도 그룹·필터·아이콘·? 설명) ──
+  function catEntry(id) { return D.UNITS[id] ? { id, ...D.UNITS[id] } : (D.WEAPONS[id] ? { id, ...D.WEAPONS[id] } : { id, name: id, rarity: 'common' }) }
+  function openWeaponSlots() {
+    ensureStyle2()
+    const B = bridges
+    const { back, close } = makeBack()
+    const card = document.createElement('div'); card.className = 'bg-card'; back.appendChild(card)
+    card.innerHTML = `<div class="bg-head"><div class="bg-title">⚔ 무기 설정 · 단축키 슬롯</div><button class="bg-x">✕</button></div>` +
+      `<div class="bg-sub" style="margin-bottom:8px">슬롯을 고른 뒤(위) 아래에서 무기/소환체를 탭하면 그 단축키에 배정돼요. 🔒 = 미획득.</div>`
+    card.querySelector('.bg-x').onclick = close
+    const body = document.createElement('div'); card.appendChild(body)
+    let fCat = 'weapon', fRar = 'all', sel = 0
+    const RORDER = ['legend', 'rare', 'uncommon', 'common']
+    function cellHtml(e, slots, keys) {
+      const info = D.RARITY[e.rarity] || D.RARITY.common, si = slots.indexOf(e.id), inSlot = si >= 0
+      const tag = e.cat === 'weapon' ? '무기' : `코스트 ${e.cost}`
+      return `<div class="bg-cell ${e.owned ? '' : 'locked'} ${inSlot ? 'indeck' : ''}" data-id="${e.id}" title="${e.name}" style="border-color:${e.owned ? info.color : '#2b2f39'};background:${e.owned ? info.color + '18' : '#1c2029'}">
+        <button class="bg-help" data-help="${e.id}" title="설명">?</button>
+        <div class="e">${iconFor(e, 36)}</div><div class="n">${e.name}</div>` +
+        (e.owned ? `<div class="lv">${tag}</div>${inSlot ? `<div class="dk">${keys[si]}</div>` : ''}` : `<div class="lk">🔒 미획득</div>`) + `</div>`
+    }
+    function render() {
+      const st = (B.weaponSlots ? B.weaponSlots() : { keys: ['', '', ''], slots: ['none', 'none', 'none'] })
+      const slots = st.slots, keys = st.keys
+      // 상단: 단축키 슬롯 3칸
+      const slotChips = slots.map((id, i) => {
+        const has = id && id !== 'none', e = has ? catEntry(id) : null, on = sel === i
+        return `<div class="wl-slot ${on ? 'on' : ''}" data-slot="${i}" style="flex:1;min-width:0;cursor:pointer;border-radius:10px;padding:7px 5px;text-align:center;background:${on ? 'rgba(74,163,255,.16)' : '#1c2029'};border:1px solid ${on ? '#4aa3ff' : '#2b2f39'};position:relative">
+          <div style="font-size:10px;color:#ffd86b;font-weight:700">${keys[i] || '-'}</div>
+          <div style="height:30px;display:flex;align-items:center;justify-content:center;margin-top:2px">${has ? iconFor(e, 28) : '<span style="color:#5f6b7a;font-size:20px">·</span>'}</div>
+          <div style="font-size:10px;color:#cfd4de;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${has ? e.name : '비어있음'}</div>
+          ${has ? `<button class="wl-clr" data-clr="${i}" title="비우기" style="position:absolute;top:-6px;right:-6px;width:17px;height:17px;border-radius:50%;background:#c0392b;color:#fff;border:none;font-size:11px;cursor:pointer;line-height:1">✕</button>` : ''}
+        </div>`
+      }).join('')
+      const catBtns = [['weapon', '⚔ 무기'], ['unit', '🐜 소환체']]
+        .map(([k, n]) => `<button class="bg-fbtn ${fCat === k ? 'on' : ''}" data-fc="${k}">${n}</button>`).join('')
+      const rarBtns = [['all', '전체'], ['common', '일반'], ['uncommon', '고급'], ['rare', '희귀'], ['legend', '전설']]
+        .map(([k, n]) => `<button class="bg-fbtn ${fRar === k ? 'on' : ''}" data-fr="${k}" style="${fRar === k && k !== 'all' ? 'border-color:' + D.RARITY[k].color : ''}">${n}</button>`).join('')
+      const items = G.catalog().filter((e) => e.cat === fCat && (!B.slotEligible || B.slotEligible(e.id)))
+      let listHtml
+      if (fRar === 'all') {
+        listHtml = RORDER.map((rk) => { const info = D.RARITY[rk], gi = items.filter((e) => e.rarity === rk); if (!gi.length) return ''
+          return `<div class="bg-rgroup" style="color:${info.color};font-weight:600;margin-top:10px">${info.name} · ${gi.filter((i) => i.owned).length}/${gi.length}</div><div class="bg-grid">${gi.map((e) => cellHtml(e, slots, keys)).join('')}</div>` }).join('')
+      } else { const gi = items.filter((e) => e.rarity === fRar); listHtml = gi.length ? `<div class="bg-grid">${gi.map((e) => cellHtml(e, slots, keys)).join('')}</div>` : '<div class="bg-sub">해당 희귀도 없음</div>' }
+      body.innerHTML = `<div style="display:flex;gap:6px;margin-bottom:10px">${slotChips}</div>
+        <div class="bg-filters">${catBtns}</div><div class="bg-filters">${rarBtns}</div>${listHtml}`
+      body.querySelectorAll('[data-slot]').forEach((el) => el.onclick = () => { sel = +el.dataset.slot; render() })
+      body.querySelectorAll('[data-clr]').forEach((b) => b.onclick = (ev) => { ev.stopPropagation(); if (B.setWeaponSlot) B.setWeaponSlot(+b.dataset.clr, 'none'); render() })
+      body.querySelectorAll('[data-fc]').forEach((b) => b.onclick = () => { fCat = b.dataset.fc; render() })
+      body.querySelectorAll('[data-fr]').forEach((b) => b.onclick = () => { fRar = b.dataset.fr; render() })
+      body.querySelectorAll('[data-help]').forEach((b) => b.onclick = (ev) => { ev.stopPropagation(); openInfo(b.dataset.help) })
+      body.querySelectorAll('.bg-cell[data-id]').forEach((c) => c.onclick = () => {
+        const id = c.dataset.id
+        if (B.slotUsable && !B.slotUsable(id)) { flashMsg(card, '🔒 미획득 — 가챠/상점에서 먼저 획득'); return }
+        if (B.setWeaponSlot) B.setWeaponSlot(sel, id); sel = (sel + 1) % 3; render()
+      })
+    }
+    render(); mount(back)
+  }
+
   // ── 방 정보(멀티 접속자 목록 + 배틀 신청) ────────────────────────────────
   function openRoomInfo() {
     const { back, close } = makeBack()
@@ -659,5 +719,5 @@
     mount(back)
   }
 
-  window.BattleGachaUI = { openGacha, openCollection, openShop, openMenu, openRoomInfo, openDevPanel, openSpritePreview, setCountBridge, setHpBridge, setBridges, setDev, setDevContext }
+  window.BattleGachaUI = { openGacha, openCollection, openShop, openMenu, openRoomInfo, openWeaponSlots, openDevPanel, openSpritePreview, setCountBridge, setHpBridge, setBridges, setDev, setDevContext }
 })()
