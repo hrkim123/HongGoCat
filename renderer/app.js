@@ -3426,13 +3426,15 @@
   let battleMulti = null, battleInvite = null, battleIncoming = null
   let battleGhosts = [], battleGhostBase = 100, bunitsLastSend = 0   // 상대(고스트) 유닛 + 상대 기지 HP
   let unitReadyAt = {}   // 유닛별 재출격 쿨다운(냥코풍): 소환 후 일정 시간 재소환 불가
+  let battleUnitOrder = []   // 배틀-로컬 소환체 순서(앞 5 활성 + 뒤 5 벤치). 벤치 탭 → 같은 열 앞뒤 스왑(판 중 전략 교체)
   function redeployCd(id) { const u = window.BattleData.UNITS[id]; return 1500 + (u ? (u.cost || 1) : 1) * 900 }   // 코스트 비례(ms): 개미 2.4s ~ 여왕 10.5s
   // 베이스 캐논(냥코): 시간에 따라 충전, 만충 시 발사 → 내 진영→상대 진영 연쇄 폭발(전원 데미지+넉백). 덱 HUD와 별도 UI.
   let battleCannon = { charge: 0 }, cannonSweep = null, battleCannonEl = null
   const CANNON_FULL_SEC = 25, CANNON_SWEEP_SEC = 0.85, CANNON_DMG = 20, CANNON_BASE_DMG = 8
   // 기지 터렛(포탑): 각 진영 책상 위, 상대 방향. 내 진영에 근접한 적에게 자동 포물선 포탄(메카 포탄 궤도 재사용, 디자인/폭발은 별도).
   let battleTurretCd = [0, 0], battleTurretAim = [0, 0], battleTurretFire = [0, 0], battleTurretTgtL = [null, null]
-  const TURRET_RANGE = 0.34, TURRET_CD = 2400, TURRET_DMG = 14
+  const TURRET_RANGE = 0.18, TURRET_CD = 2400, TURRET_DMG = 8, TURRET_AOE = 0.05   // 사거리 축소(0.34→0.18) · 저데미지 범위공격(14→8, 반경 0.05 레인)
+  const TURRET_LIFT = 58   // 포탑을 책상(작업표시줄) 위로 올리는 높이(px, view.scale 곱해 사용)
   let battleSavedCarve, battleSavedBarDmg = 0
   let battlePhase = 'idle', battlePhaseAt = 0, battleWin = false, battleConfetti = []   // 'countdown' | 'playing' | 'result'
   const BATTLE_CD_MS = 3200   // 3·2·1 (각 800ms) + START(800ms)
@@ -3473,6 +3475,7 @@
     battle = window.BattleSim.newBattle({ speedScale: 0.38 })   // 냥코풍 느린 행군(전략성). 0.44 → 0.38
     battleAtkAt = {}; battleShieldFlash = {}; battleHealFx = []; battleFalls = []; battleDead = []; bproj.length = 0
     battleGhosts = []; battleGhostBase = battle.state.baseHpMax; bunitsLastSend = 0; unitReadyAt = {}
+    { const dk = (window.BattleGacha && window.BattleGacha.getDeck) ? window.BattleGacha.getDeck() : { units: [] }; battleUnitOrder = (dk.units || []).slice(0, 10) }   // 배틀-로컬 순서(스왑용)
     battleCannon = { charge: 0 }; cannonSweep = null; battleTurretCd = [0, 0]; battleTurretAim = [0, 0]; battleTurretFire = [0, 0]; battleTurretTgtL = [null, null]; buildCannonUI()
     battleResultAt = 0; battleLastT = performance.now(); battleActive = true
     battlePhase = 'countdown'; battlePhaseAt = performance.now(); battleConfetti = []   // 3·2·1·START 후 시작
@@ -3555,15 +3558,23 @@
   // 베이스 캐논 UI — 덱 HUD와 별개(상단 중앙, 붉은 테마). 충전 게이지 + 만충 시 발사.
   function buildCannonUI() {
     if (battleCannonEl) battleCannonEl.remove()
-    // 내 기지(좌하단) 쪽에 세로 게이지 버튼 — 포탑에서 발사되는 특수 캐논. 게이지가 다 차면 클릭 발사.
+    // 내 진영 포탑 상단에 얹히는 작은 "원형" 캐논 버튼. 링 게이지가 다 차면 클릭 발사(위치는 drawBattleTurret이 매 프레임 갱신).
     const el = document.createElement('div'); el.className = 'no-drag bmcfire'
-    el.style.cssText = 'position:fixed;left:14px;bottom:96px;z-index:2147483000;width:64px;height:80px;border-radius:12px;border:2px solid #5a2b30;background:#160c0e;overflow:hidden;cursor:default;user-select:none;font-family:system-ui,"맑은 고딕",sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.5)'
+    el.style.cssText = 'position:fixed;left:14px;top:200px;z-index:2147483000;width:44px;height:44px;border-radius:50%;cursor:default;user-select:none;font-family:system-ui,"맑은 고딕",sans-serif;filter:drop-shadow(0 4px 10px rgba(0,0,0,.5))'
     el.innerHTML =
-      `<div class="bmcfill" style="position:absolute;left:0;bottom:0;width:100%;height:0;background:linear-gradient(180deg,#ff8a5c,#ffd24a);opacity:.85"></div>` +
-      `<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none">` +
-      `<div style="font-size:22px;line-height:1">💥</div><div class="bmclbl" style="font-size:10px;font-weight:700;color:#ffd9c0;margin-top:2px">캐논</div></div>`
+      `<div class="bmcring" style="position:absolute;inset:0;border-radius:50%;background:conic-gradient(#ffd24a 0deg, rgba(90,43,48,.55) 0deg)"></div>` +
+      `<div class="bmcbtn" style="position:absolute;inset:3px;border-radius:50%;background:radial-gradient(circle at 50% 34%,#301619,#160c0e);border:1px solid #5a2b30;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none">` +
+      `<div style="font-size:15px;line-height:1">💥</div><div class="bmclbl" style="font-size:7px;font-weight:700;color:#ffd9c0;letter-spacing:.3px">캐논</div></div>`
     el.onclick = () => battleCannonFire()
     document.body.appendChild(el); battleCannonEl = el
+  }
+  // 캐논 버튼을 포탑 상단(cx, topY) 위에 중앙 정렬로 배치
+  function positionCannonButton(cx, topY) {
+    if (!battleCannonEl) return
+    const d = battleCannonEl.offsetWidth || 44
+    battleCannonEl.style.left = Math.round(cx - d / 2) + 'px'
+    battleCannonEl.style.top = Math.round(topY - d) + 'px'
+    battleCannonEl.style.bottom = 'auto'
   }
   function battleCannonFire() {
     if (!battle || battlePhase !== 'playing' || !battleCannon || battleCannon.charge < 1 || cannonSweep) return
@@ -3594,12 +3605,12 @@
   // 기지 터렛 기본 공격: 근접한 적에게 포물선 포탄(메카 포탄 궤도) 발사
   function fireTurretShell(side, tL) {
     const baseX = battleLaneX(side === 0 ? 0 : 1), face = side === 0 ? 1 : -1
-    const sx = baseX + face * 20 * view.scale, sy = antGroundY(baseX) - 60 * view.scale   // 포탑 포구
+    const sx = baseX + face * 20 * view.scale, sy = antGroundY(baseX) - (60 + TURRET_LIFT) * view.scale   // 포탑 포구(책상 위로 올린 높이 반영)
     const tx = battleLaneX(tL), ty = antGroundY(tx) - 18 * view.scale
     const grav = 900 * view.scale                                          // stepBattleProj와 동일(초 단위)
     const T = Math.max(0.5, Math.min(1.4, Math.abs(tx - sx) / (360 * view.scale)))   // 비행 시간(초)
     const vx = (tx - sx) / T, vy = (ty - sy - 0.5 * grav * T * T) / T       // T초 뒤 (tx,ty)에 착탄하는 포물선
-    bproj.push({ x: sx, y: sy, vx, vy, bside: side, dmg: TURRET_DMG, pow: TURRET_DMG, kind: 'turret', kb: true, aoe: 0, slow: 0, slowDur: 0, born: performance.now(), life: PROJ_LIFE.turret })
+    bproj.push({ x: sx, y: sy, vx, vy, bside: side, dmg: TURRET_DMG, pow: TURRET_DMG, kind: 'turret', kb: true, aoe: TURRET_AOE, slow: 0, slowDur: 0, born: performance.now(), life: PROJ_LIFE.turret })   // 범위 폭발 포탄
   }
   function stepTurrets(now) {
     if (battlePhase !== 'playing' || !battle) return
@@ -3634,25 +3645,50 @@
     h.innerHTML =
       `<div class="bhgrip" style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#9aa0ab;cursor:move;user-select:none;margin-bottom:7px"><span>⚔ 배틀 · ⠿ 이동</span><span class="bhx" style="color:#e57373;cursor:pointer">✕ 나가기</span></div>` +
       `<div style="display:flex;gap:4px;align-items:center"><span style="font-size:10px;color:#aeb4c0;width:26px">마나</span><div class="bhsegs" style="display:flex;gap:2px;flex:1"></div><span class="bhval" style="font-size:11px;color:#cfd4de;white-space:nowrap;width:70px;text-align:right"></span></div>` +
-      lbl('🐜 소환체 (클릭 소환)') + `<div class="bhunits" style="display:flex;gap:5px"></div>` +
+      lbl('🐜 소환체 (앞줄 클릭 소환 · 뒷줄 탭하면 교체)') + `<div class="bhbench" style="display:flex;gap:5px;margin-bottom:3px;min-height:1px"></div><div class="bhunits" style="display:flex;gap:5px"></div>` +
       lbl('⚔ 무기 (단축키로 발사 · 마나 소모)') + `<div class="bhweaps" style="display:flex;gap:5px"></div>` +
       lbl('🛠 기능') + `<div class="bhfns" style="display:flex;gap:5px"></div>`
     const segs = h.querySelector('.bhsegs'); for (let i = 0; i < 10; i++) { const s = document.createElement('div'); s.style.cssText = 'flex:1;height:8px;border-radius:2px;background:rgba(255,255,255,.14)'; segs.appendChild(s) }
     const mkCard = (bg, bd) => { const b = document.createElement('div'); b.style.cssText = `flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:1px;padding:5px 2px;border-radius:9px;background:${bg};border:1px solid ${bd};cursor:pointer;user-select:none`; return b }
-    const uw = h.querySelector('.bhunits')
-    deck.units.forEach((id) => {
-      const u = window.BattleData.UNITS[id]; if (!u) return
-      const b = mkCard('rgba(255,255,255,.06)', 'rgba(255,255,255,.14)'); b.dataset.id = id; b.title = u.name; b.style.position = 'relative'
-      b.innerHTML = `<div style="pointer-events:none">${window.BattleArt ? window.BattleArt.icon(id, 32) : ''}</div><div style="color:#8fd3ff;font-weight:600;font-size:11px">💧${u.cost}</div>` +
-        `<div class="bhcd" style="position:absolute;inset:0;border-radius:9px;background:rgba(10,14,20,.72);display:none;align-items:center;justify-content:center;color:#cfd4de;font-size:13px;font-weight:700;pointer-events:none"></div>`
-      b.onclick = () => {   // 냥코풍: 재출격 쿨다운 중이면 거부
-        const now = performance.now()
-        if (now < (unitReadyAt[id] || 0)) { showToast(`${u.name} 재출격 대기 ${((unitReadyAt[id] - now) / 1000).toFixed(1)}초`); return }
-        if (battle && battle.spawn(0, id)) { unitReadyAt[id] = now + redeployCd(id); updateBattleHud() }
+    const uw = h.querySelector('.bhunits'), bw = h.querySelector('.bhbench')
+    if (!battleUnitOrder.length) battleUnitOrder = (deck.units || []).slice(0, 10)
+    // 앞줄(활성) 카드 + 뒷줄(벤치·실루엣) 카드를 열 단위로 렌더. 벤치 탭 → 같은 열 앞뒤 스왑.
+    function renderDeckRows(uwEl, bwEl) {
+      uwEl.innerHTML = ''; bwEl.innerHTML = ''
+      const front = battleUnitOrder.slice(0, 5), bench = battleUnitOrder.slice(5, 10)
+      const cols = front.length
+      // 앞줄: 활성 소환 카드
+      front.forEach((id) => {
+        const u = window.BattleData.UNITS[id]; if (!u) return
+        const b = mkCard('rgba(255,255,255,.06)', 'rgba(255,255,255,.14)'); b.dataset.id = id; b.title = u.name; b.style.position = 'relative'
+        b.innerHTML = `<div style="pointer-events:none">${window.BattleArt ? window.BattleArt.icon(id, 32) : ''}</div><div style="color:#8fd3ff;font-weight:600;font-size:11px">💧${u.cost}</div>` +
+          `<div class="bhcd" style="position:absolute;inset:0;border-radius:9px;background:rgba(10,14,20,.72);display:none;align-items:center;justify-content:center;color:#cfd4de;font-size:13px;font-weight:700;pointer-events:none"></div>`
+        b.onclick = () => {   // 냥코풍: 재출격 쿨다운 중이면 거부
+          const now = performance.now()
+          if (now < (unitReadyAt[id] || 0)) { showToast(`${u.name} 재출격 대기 ${((unitReadyAt[id] - now) / 1000).toFixed(1)}초`); return }
+          if (battle && battle.spawn(0, id)) { unitReadyAt[id] = now + redeployCd(id); updateBattleHud() }
+        }
+        uwEl.appendChild(b)
+      })
+      // 뒷줄: 벤치(실루엣) — 앞줄 각 열 위에 정렬. 탭하면 같은 열 앞뒤 스왑.
+      for (let i = 0; i < cols; i++) {
+        const benchId = bench[i], bu = benchId && window.BattleData.UNITS[benchId]
+        const cell = document.createElement('div')
+        cell.style.cssText = 'flex:1;min-width:0;display:flex;align-items:center;justify-content:center;height:26px;border-radius:7px'
+        if (bu) {
+          cell.title = `${bu.name} · 탭하면 앞줄과 교체`; cell.style.cursor = 'pointer'
+          cell.style.background = 'rgba(255,255,255,.03)'; cell.style.border = '1px dashed rgba(255,255,255,.14)'
+          cell.innerHTML = `<div style="filter:grayscale(1);opacity:.5;pointer-events:none;transform:scale(.72)">${window.BattleArt ? window.BattleArt.icon(benchId, 24) : ''}</div>`
+          cell.onclick = () => {   // 같은 열 앞(i) ↔ 뒤(i+5) 스왑
+            const t = battleUnitOrder[i]; battleUnitOrder[i] = battleUnitOrder[i + 5]; battleUnitOrder[i + 5] = t
+            renderDeckRows(uwEl, bwEl); updateBattleHud(); showToast(`🔄 ${bu.name} 교체`)
+          }
+        } else { cell.style.visibility = 'hidden' }   // 벤치 없는 열은 폭 유지용 빈칸
+        bwEl.appendChild(cell)
       }
-      uw.appendChild(b)
-    })
-    if (!deck.units.length) uw.innerHTML = '<span style="font-size:11px;color:#7f8797">덱에 소환체 없음</span>'
+    }
+    renderDeckRows(uw, bw)
+    if (!battleUnitOrder.length) uw.innerHTML = '<span style="font-size:11px;color:#7f8797">덱에 소환체 없음</span>'
     const ww = h.querySelector('.bhweaps')
     deck.weapons.forEach((id, wi) => {
       const w = window.BattleData.WEAPONS[id]; if (!w) return
@@ -3693,12 +3729,12 @@
     document.body.appendChild(h); battleHud = h
   }
   function updateBattleHud() {
-    if (battleCannonEl && battleCannon) {   // 캐논 세로 게이지 버튼
-      const full = battleCannon.charge >= 1, fill = battleCannonEl.querySelector('.bmcfill'), lbl = battleCannonEl.querySelector('.bmclbl')
-      if (fill) fill.style.height = Math.round(battleCannon.charge * 100) + '%'
+    if (battleCannonEl && battleCannon) {   // 캐논 원형 링 게이지 버튼
+      const full = battleCannon.charge >= 1, ring = battleCannonEl.querySelector('.bmcring'), lbl = battleCannonEl.querySelector('.bmclbl')
+      const deg = Math.round(battleCannon.charge * 360)
+      if (ring) ring.style.background = `conic-gradient(${full ? '#ff8a3a' : '#ffd24a'} ${deg}deg, rgba(90,43,48,.55) ${deg}deg)`
       battleCannonEl.style.cursor = full ? 'pointer' : 'default'
-      battleCannonEl.style.borderColor = full ? '#ff6b4a' : '#5a2b30'
-      battleCannonEl.style.boxShadow = full ? '0 0 16px rgba(255,120,60,.7)' : '0 8px 24px rgba(0,0,0,.5)'
+      battleCannonEl.style.filter = full ? 'drop-shadow(0 0 10px rgba(255,120,60,.85))' : 'drop-shadow(0 4px 10px rgba(0,0,0,.5))'
       if (lbl) lbl.textContent = full ? '발사!' : '캐논'
     }
     if (!battleHud || !battle) return
@@ -3846,16 +3882,23 @@
   // 기지 포탑 — 냥코 베이스 대포탑 느낌(크고 묵직한 금속 캐논). 포신이 타겟을 조준해 회전 + 발사 반동·포구 화염·연기.
   function drawBattleTurret(baseX, side, now) {
     const s = view.scale * 1.8, face = side === 0 ? 1 : -1
-    const gy = antGroundY(baseX), x = baseX + face * 8 * view.scale
+    const gy = antGroundY(baseX), lift = TURRET_LIFT * view.scale, by = gy - lift   // by = 책상 위로 올린 포탑 발치
+    const x = baseX + face * 8 * view.scale
     const tint = antColor(side === 0 ? me.skin : ((peers.get(battleMulti && battleMulti.oppId) || {}).tint || 'gray'))
     const metal = mixHex('#8a90a0', tint, 0.35), dark = mixHex('#4a4e5a', tint, 0.3), hi = mixHex('#c9cfdb', tint, 0.35), accent = '#d94b46'
-    const pivotX = x, pivotY = gy - 20 * s
+    const pivotX = x, pivotY = by - 20 * s
     // 조준: 최근 타겟 방향으로 포신 회전(부드럽게). 없으면 전방 살짝 위.
     let desired
     if (battleTurretTgtL[side] != null && now - (battleTurretFire[side] || 0) < TURRET_CD + 600) { const tx = battleLaneX(battleTurretTgtL[side]), ty = antGroundY(tx) - 18 * view.scale; desired = Math.atan2(ty - pivotY, (tx - pivotX)) } else { const cx = battleLaneX(0.5); desired = Math.atan2((gy - 40 * view.scale) - pivotY, (cx - pivotX)) }
     battleTurretAim[side] = lerpAngle(battleTurretAim[side] || (face >= 0 ? -0.3 : Math.PI + 0.3), desired, 0.14)
     const fired = now - (battleTurretFire[side] || -1e9), recoil = fired < 200 ? -(1 - fired / 200) * 6 * s : 0
-    ctx.save(); ctx.translate(x, gy); ctx.lineJoin = 'round'
+    // 책상 위 지지대(기둥) — 바닥(gy)에서 포탑 발치(by)까지 세워 "책상에 설치된" 느낌
+    ctx.save(); ctx.lineJoin = 'round'
+    ctx.fillStyle = dark; roundRect(x - 10 * s, by - 2 * s, 20 * s, lift + 4 * s, 3 * s); ctx.fill()
+    ctx.fillStyle = mixHex(dark, '#000000', 0.25); ctx.fillRect(x + 5 * s, by, 4 * s, lift)   // 기둥 음영
+    ctx.fillStyle = mixHex('#2a2d35', tint, 0.2); ctx.beginPath(); ctx.ellipse(x, gy, 16 * s, 4 * s, 0, 0, 7); ctx.fill()   // 바닥 발판
+    ctx.restore()
+    ctx.save(); ctx.translate(x, by); ctx.lineJoin = 'round'
     // 받침대(사다리꼴) + 볼트
     ctx.fillStyle = dark; ctx.beginPath(); ctx.moveTo(-18 * s, 0); ctx.lineTo(18 * s, 0); ctx.lineTo(13 * s, -14 * s); ctx.lineTo(-13 * s, -14 * s); ctx.closePath(); ctx.fill()
     ctx.fillStyle = metal; roundRect(-14 * s, -30 * s, 28 * s, 18 * s, 5 * s); ctx.fill()   // 몸통
@@ -3871,6 +3914,8 @@
     ctx.restore()
     ctx.fillStyle = dark; ctx.beginPath(); ctx.arc(0, -20 * s, 4 * s, 0, 7); ctx.fill()       // 회전축
     ctx.restore()
+    // 내 진영(side0) 포탑 상단 좌표를 캐논 버튼 배치에 사용(포탑 위에 얹기)
+    if (side === 0 && battleCannonEl) positionCannonButton(x, by - 34 * s)
   }
   // 자동 쉴드 시각화 = 기존 오버레이 쉴드 돔(drawHexDome) 재사용. HP 저하 색/깜빡임/벌집·림 그대로.
   function drawBattleShield(x, y, s, u, now) {
@@ -4168,7 +4213,7 @@
         const feetY = battleUnitFeetY(ux, def.flying)
         if (inUnitBody(p.x, p.y, ux, feetY, u.type, def.size, 2 * view.scale)) {
           const before = u.hp
-          if (isTurret) { battle.hitUnit(u.uid, p.dmg, 0, 0, true); turretBoom(p.x, p.y); done = true }   // 터렛: 명중 폭발 + 강제 넉백
+          if (isTurret) { for (const e of battle.state.units) if (e.side !== p.bside && e.hp > 0 && Math.abs(battleLaneX(e.L) - p.x) < (p.aoe || TURRET_AOE) * W) battle.hitUnit(e.uid, p.dmg, 0, 0, true); turretBoom(p.x, p.y); done = true }   // 터렛: 착탄 지점 범위 폭발 + 전원 강제 넉백(저데미지)
           else if (p.aoe) { for (const e of battle.state.units) if (e.side !== p.bside && e.hp > 0 && Math.abs(battleLaneX(e.L) - p.x) < p.aoe * W) battle.hitUnit(e.uid, p.dmg, p.slow, p.slowDur); addEffect(p.x, p.y, 1); done = true }
           else { battle.hitUnit(u.uid, p.dmg, p.slow, p.slowDur); spawnSpark(p.x, p.y); if (p.pow > before) { p.pow -= before } else { done = true } }   // 관통: 파워 > 대상 HP면 뚫고 진행
           break
@@ -4181,8 +4226,8 @@
           if (g.hp <= 0) continue
           const gx = battleLaneX(g.L), gdef = window.BattleData.UNITS[g.type] || {}
           if (inUnitBody(p.x, p.y, gx, battleUnitFeetY(gx, gdef.flying), g.type, gdef.size, 2 * view.scale)) {
-            if (!isTurret && p.aoe) { for (const e of battleGhosts) if (e.hp > 0 && Math.abs(battleLaneX(e.L) - p.x) < p.aoe * W && connected()) net.send(JSON.stringify({ t: 'bghit', to: battleMulti.oppId, uid: e.uid, dmg: p.dmg, slow: p.slow || 0, slowDur: p.slowDur || 0 })); addEffect(p.x, p.y, 1) }
-            else { if (connected()) net.send(JSON.stringify({ t: 'bghit', to: battleMulti.oppId, uid: g.uid, dmg: p.dmg, slow: p.slow || 0, slowDur: p.slowDur || 0, kb: (isTurret || p.kb) ? 1 : 0 })); isTurret ? turretBoom(p.x, p.y) : spawnSpark(p.x, p.y) }
+            if (p.aoe) { for (const e of battleGhosts) if (e.hp > 0 && Math.abs(battleLaneX(e.L) - p.x) < p.aoe * W) { if (connected()) net.send(JSON.stringify({ t: 'bghit', to: battleMulti.oppId, uid: e.uid, dmg: p.dmg, slow: p.slow || 0, slowDur: p.slowDur || 0, kb: isTurret ? 1 : 0 })); e.hp -= p.dmg }; isTurret ? turretBoom(p.x, p.y) : addEffect(p.x, p.y, 1); done = true; break }
+            else { if (connected()) net.send(JSON.stringify({ t: 'bghit', to: battleMulti.oppId, uid: g.uid, dmg: p.dmg, slow: p.slow || 0, slowDur: p.slowDur || 0, kb: p.kb ? 1 : 0 })); spawnSpark(p.x, p.y) }
             g.hp -= p.dmg; done = true; break
           }
         }

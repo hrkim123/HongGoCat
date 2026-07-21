@@ -41,12 +41,12 @@
     },
     rifleman: {
       name: '라이플 솔저', cat: 'unit', rarity: 'common', cost: 2, hp: 24,
-      speed: 0.13, atk: { type: 'proj', dmg: 4, range: 0.22, cd: 1.3, burst: 3, projSpeed: 1.4 },
-      art: 'ant-soldier', size: 1.0, // 3연발×4 = cd1.3당 12 (≈9.2dps). 기본 원거리
+      speed: 0.13, atk: { type: 'proj', dmg: 4, range: 0.16, cd: 1.3, burst: 3, projSpeed: 1.4 },
+      art: 'ant-soldier', size: 1.0, // 3연발×4 = cd1.3당 12 (≈9.2dps). 기본 원거리(사거리 축소 0.22→0.16)
     },
     grenadier: {
       name: '수류탄 솔저', cat: 'unit', rarity: 'common', cost: 3, hp: 28,
-      speed: 0.11, atk: { type: 'aoe', dmg: 9, range: 0.20, cd: 1.8, aoeR: 0.06, arc: true },
+      speed: 0.11, atk: { type: 'aoe', dmg: 9, range: 0.15, cd: 1.8, aoeR: 0.06, arc: true },
       art: 'ant-soldier', size: 1.0, // 범위 딜(광역 5dps)
     },
     shielder: {
@@ -57,19 +57,19 @@
     },
     mechaAnt: {
       name: '메카 개미', cat: 'unit', rarity: 'rare', cost: 5, hp: 85,
-      speed: 0.09, atk: { type: 'proj', dmg: 12, range: 0.26, cd: 1.1 }, kb: 1, // 대포 연사 완화(0.5→1.1) = ≈10.9dps. 실효HP 100
+      speed: 0.09, atk: { type: 'proj', dmg: 12, range: 0.19, cd: 1.1 }, kb: 1, // 대포 연사 완화(0.5→1.1) = ≈10.9dps. 실효HP 100 (사거리 0.26→0.19)
       battleShield: { absorb: 15, cooldown: 5 },
       art: 'mecha', size: 1.6, // 기존 메카 아트·포물선 대포 재사용
     },
     mechaHuman: {
       name: '메카 인간폼', cat: 'unit', rarity: 'legend', cost: 7, hp: 120,
-      speed: 0.12, atk: { type: 'proj', dmg: 15, range: 0.28, cd: 1.05, charge: 1.0 }, kb: 1, // 에너지포 = 1초 충전 후 최대 빔(오버레이 ECANNON_MS 동일). ≈14dps
+      speed: 0.12, atk: { type: 'proj', dmg: 15, range: 0.20, cd: 1.05, charge: 1.0 }, kb: 1, // 에너지포 = 1초 충전 후 최대 빔(오버레이 ECANNON_MS 동일). ≈14dps (사거리 0.28→0.20)
       battleShield: { absorb: 20, cooldown: 6 },
       art: 'human', size: 1.7, flying: true, // 공중 타입(구멍 무시). 기존 건담폼 아트·에너지포 재사용
     },
     human: {
       name: '인간', cat: 'unit', rarity: 'rare', cost: 4, hp: 48,
-      speed: 0.12, atk: { type: 'proj', dmg: 10, range: 0.24, cd: 1.0 }, // 10dps 브루저(아도겐)
+      speed: 0.12, atk: { type: 'proj', dmg: 10, range: 0.17, cd: 1.0 }, // 10dps 브루저(아도겐, 사거리 0.24→0.17)
       art: 'human', size: 1.3,
     },
     // ── 신규 소환체 (밸런스 v2) ──
@@ -87,11 +87,11 @@
     },
     drone: {
       name: '말벌 드론', cat: 'unit', rarity: 'uncommon', cost: 4, hp: 30,
-      speed: 0.16, atk: { type: 'proj', dmg: 6, range: 0.22, cd: 1.0 }, flying: true, art: 'drone', size: 1.0, // 공중 견제(6dps)
+      speed: 0.16, atk: { type: 'proj', dmg: 6, range: 0.16, cd: 1.0 }, flying: true, art: 'drone', size: 1.0, // 공중 견제(6dps, 사거리 0.22→0.16)
     },
     freezer: {
       name: '얼음 개미', cat: 'unit', rarity: 'rare', cost: 4, hp: 28,
-      speed: 0.11, atk: { type: 'proj', dmg: 4, range: 0.22, cd: 1.4, slow: 0.5, slowDur: 2 }, art: 'freezer', size: 1.0, // 저뎀+50% 감속 유틸(빙결 구현 예정)
+      speed: 0.11, atk: { type: 'proj', dmg: 4, range: 0.16, cd: 1.4, slow: 0.5, slowDur: 2 }, art: 'freezer', size: 1.0, // 저뎀+50% 감속 유틸(사거리 0.22→0.16)
     },
     worker: {
       name: '망치 개미', cat: 'unit', rarity: 'uncommon', cost: 3, hp: 45,
@@ -104,7 +104,7 @@
     },
     sniper: {
       name: '저격 개미', cat: 'unit', rarity: 'rare', cost: 5, hp: 18,
-      speed: 0.08, atk: { type: 'proj', dmg: 22, range: 0.42, cd: 2.6 }, art: 'sniper', size: 1.0, // 초장거리 유리대포(8.5dps)
+      speed: 0.08, atk: { type: 'proj', dmg: 22, range: 0.34, cd: 2.6 }, art: 'sniper', size: 1.0, // 초장거리 유리대포(8.5dps, 사거리 0.42→0.34 · 여전히 최장)
     },
     boss: {
       name: '여왕 개미', cat: 'unit', rarity: 'legend', cost: 10, hp: 320,

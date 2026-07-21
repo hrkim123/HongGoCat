@@ -9,7 +9,7 @@
   if (!window.BattleData) { console.error('[battle/gacha] BattleData(units.js) 먼저 로드 필요'); return }
   const D = window.BattleData
   const K = { gems: 'hgbattle.gems', mat: 'hgbattle.mat', owned: 'hgbattle.owned', lvl: 'hgbattle.lvl', deck: 'hgbattle.deck' }
-  const DECK_UNITS = 5, DECK_WEAPONS = 2
+  const DECK_UNITS = 10, DECK_WEAPONS = 2   // 소환체 최대 10(배틀 HUD: 앞 5 활성 + 뒤 5 벤치 스왑)
   const DECK_MIN_UNITS = 3, DECK_MIN_WEAPONS = 1   // 배틀 참여 최소 조건
 
   function loadNum(k) { const n = parseInt(localStorage.getItem(k) || '0', 10); return Number.isFinite(n) ? n : 0 }
