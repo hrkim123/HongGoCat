@@ -3377,6 +3377,7 @@
 
   // ---------- ants (🐜) — crawl on the taskbar, fight enemy ants, die in 3 hits ----------
   const ants = []              // MY ants (I simulate them authoritatively)
+  const summonProj = []        // 오버레이 소환체(원거리/광역)가 쏘는 투사체 — 적 소환체/캐릭터에 명중
   const remoteAnts = new Map() // peerId -> { list:[{id,x,y,hp,dead}], ts }  (x,y relative to peer cat)
   const ANT_HP = 1
   const ANT_DRAW = 2   // ant visual size multiplier (on top of view.scale)
@@ -4434,7 +4435,11 @@
   function drawBattleProj(now) {
     const s = view.scale * 1.5   // 투사체 전체 확대(가시성)
     const t = (now || performance.now()) / 1000
-    for (const p of bproj) {
+    for (const p of bproj) drawOneProj(p, s, t)
+  }
+  // 투사체 1개 그리기(배틀·오버레이 소환 공용). p.kind별 비주얼 재사용.
+  function drawOneProj(p, s, t) {
+    {
       const ang = Math.atan2(p.vy, p.vx), spd = Math.hypot(p.vx, p.vy) || 1
       const ux = p.vx / spd, uy = p.vy / spd   // 진행 방향 단위벡터(꼬리 그리기)
       if (p.kind === 'turret') {
@@ -4609,23 +4614,49 @@
         if (a.y >= floor) { a.y = floor; a.vy = 0; a.onGround = true; a.onPlat = (platY != null && platY <= gy) }
         drawAnt(a, now, false, myCol); continue
       }
-      // target the nearest enemy — an ant OR a gatling turret (both take melee damage)
+      // ── 배틀식 공격: 유닛의 battle atk 패턴대로. 타겟 우선순위 = 적 소환체 → 적 캐릭터(고양이) ──
+      const udef = a.sprite ? (window.BattleData.UNITS[a.sprite] || {}) : null
+      const uatk = (udef && udef.atk) ? udef.atk : { type: 'melee', dmg: (a.sprite ? 5 : 1), range: 0.02, cd: 0.6 }
+      const atkType = uatk.type, cdMs = Math.max(200, (uatk.cd || 0.6) * 1000)
+      const rangePx = Math.max(22 * view.scale, (uatk.range || 0.02) * W * 0.6)
+      const odmg = Math.max(1, Math.round((uatk.dmg || 1) / 6))   // 오버레이 축약 HP 스케일에 맞춘 데미지
+      // 여왕 등 생산 유닛: 적 유무와 무관하게 주기적으로 아군 소환체 생산
+      if (udef && udef.summon) { if (!a.prodAt) a.prodAt = now + (udef.summon.every || 5) * 1000; else if (now >= a.prodAt) { a.prodAt = now + (udef.summon.every || 5) * 1000; summonProduce(a, udef.summon.unit) } }
+      // 타겟: 적 소환체(원격 ant/gatling) 우선, 없으면 가장 가까운 적 캐릭터
       const eAnt = nearestEnemyAnt(a.x), eGat = nearestEnemyGatling(a.x)
-      let tgt = null
       const dAnt = eAnt ? Math.abs(eAnt.s.x - a.x) : Infinity, dGat = eGat ? Math.abs(eGat.x - a.x) : Infinity
-      if (dAnt <= dGat && eAnt) tgt = { x: eAnt.s.x, y: eAnt.s.y, msg: { t: 'ant-hit', target: eAnt.pid, ant: eAnt.s.id, dmg: 1 } }
-      else if (eGat) tgt = { x: eGat.x, y: eGat.y, msg: { t: 'gat-hit', target: eGat.pid, dmg: 1 } }
-      let moving = true
-      if (tgt) {                                // march toward the nearest enemy
+      let tgt = null
+      if (eAnt && dAnt <= dGat) tgt = { x: eAnt.s.x, y: eAnt.s.y, kind: 'rant', pid: eAnt.pid, id: eAnt.s.id }
+      else if (eGat) tgt = { x: eGat.x, y: eGat.y, kind: 'gat', pid: eGat.pid }
+      if (!tgt) { const ec = nearestEnemyCat(a.x); if (ec) tgt = { x: ec.c.x, y: ec.c.y - 22 * view.scale, kind: 'cat', cat: ec.cat } }
+      let moving = true, acting = false
+      if (atkType === 'heal') {                 // 메딕: 주변 다친 아군 소환체 회복(투사체 X)
+        const ally = nearestHurtAlly(a, rangePx)
+        if (ally) { moving = false; acting = true; if (now >= a.atkCd) { a.atkCd = now + cdMs; a.atkFlash = now + 220; ally.hp = Math.min(ally.maxHp || ally.hp, ally.hp + Math.max(1, Math.round((uatk.heal || 3) / 6))); addEffect(ally.x, ally.y - 12 * view.scale, 1) } }
+      } else if (tgt) {
         a.dir = tgt.x >= a.x ? 1 : -1
-        if (Math.abs(tgt.x - a.x) <= 22 && Math.abs((tgt.y != null ? tgt.y : a.y) - a.y) <= 42 * view.scale) {   // melee range: must be at ~ground level too (can't bite an airborne target)
-          moving = false
-          if (now >= a.atkCd) { a.atkCd = now + 600; a.atkFlash = now + 220; spawnBlood(tgt.x, a.y - 4 * view.scale, 5); if (connected()) net.send(JSON.stringify(tgt.msg)) }   // bite: lunge + red burst at the target
+        const dist = Math.abs(tgt.x - a.x)
+        const isMelee = (atkType === 'melee' || atkType === 'suicide')
+        if (isMelee) {                          // 근접/자폭: 접촉 사거리에서
+          if (dist <= Math.max(22 * view.scale, rangePx) && Math.abs((tgt.y != null ? tgt.y : a.y) - a.y) <= 46 * view.scale) {
+            moving = false; acting = true
+            if (now >= a.atkCd) {
+              a.atkCd = now + cdMs; a.atkFlash = now + 220
+              if (atkType === 'suicide') { summonSuicide(a, odmg); continue }   // 자폭: 광역 + 자신 사망
+              summonMeleeHit(tgt, odmg, a)
+            }
+          }
+        } else if (atkType !== 'none') {         // 원거리/광역: 사거리 안에서 멈춰 발사
+          if (dist <= rangePx) {
+            moving = false; acting = true
+            if (now >= a.atkCd) { a.atkCd = now + cdMs; a.atkFlash = now + 160; spawnSummonProj(a, uatk, tgt, odmg, atkType) }
+          }
         }
       } else if (now >= a.wanderUntil) {
         a.wanderUntil = now + 700 + Math.random() * 1400; if (Math.random() < 0.35) a.dir *= -1
       }
-      if (moving) { a.x += a.dir * 0.9; if (a.x < 8) { a.x = 8; a.dir = 1 } if (a.x > W - 8) { a.x = W - 8; a.dir = -1 } a.step += 0.35 }
+      const spd = (udef && udef.speed) ? Math.max(0.5, udef.speed * 5) : 0.9   // 배틀 속도 반영(정찰=빠름)
+      if (moving) { a.x += a.dir * spd; if (a.x < 8) { a.x = 8; a.dir = 1 } if (a.x > W - 8) { a.x = W - 8; a.dir = -1 } a.step += 0.35 }
       const platY = platformFloorAt(a.x, a.y, a.y)   // 서 있는 위치에 그려진 플랫폼이 있나
       if (platY != null) { a.y = platY; a.onPlat = true }                              // 플랫폼 위 계속(따라 걷기)
       else if (a.onPlat) { a.onPlat = false; a.onGround = false; a.vy = 1; drawAnt(a, now, false, myCol); continue }   // 플랫폼 끝 → 낙하 시작
@@ -4634,6 +4665,67 @@
       drawAnt(a, now, !moving, myCol)
     }
   }
+  // ── 오버레이 소환 전투 헬퍼(배틀 atk 패턴 재사용) ──
+  function nearestEnemyCat(x) { let best = null, bd = Infinity; for (let i = 0; i < catPos.length; i++) { const cat = allRef[i], c = catPos[i]; if (!cat || !c || cat.id === 'me') continue; const d = Math.abs(c.x - x); if (d < bd) { bd = d; best = { cat, c } } } return best }
+  function nearestHurtAlly(a, rangePx) { let best = null, bd = Infinity; for (const o of ants) { if (o === a || o.dead) continue; if ((o.maxHp || o.hp) <= o.hp) continue; const d = Math.abs(o.x - a.x); if (d <= rangePx && d < bd) { bd = d; best = o } } return best }
+  function summonMeleeHit(tgt, dmg, a) {
+    spawnBlood(tgt.x, (tgt.y != null ? tgt.y : a.y) - 4 * view.scale, 4)
+    if (tgt.kind === 'rant') { if (connected()) net.send(JSON.stringify({ t: 'ant-hit', target: tgt.pid, ant: tgt.id, dmg })) }
+    else if (tgt.kind === 'gat') { if (connected()) net.send(JSON.stringify({ t: 'gat-hit', target: tgt.pid, dmg })) }
+    else if (tgt.kind === 'cat' && tgt.cat) applyCatHit(tgt.cat, dmg, performance.now())
+  }
+  function summonSuicide(a, dmg) {   // 카미카제: 접촉 자폭 — 주변 적 소환체/캐릭터 광역 + 자신 사망
+    const R = 60 * view.scale, now = performance.now()
+    addEffect(a.x, a.y - 8 * view.scale, 3); spawnBlood(a.x, a.y, 10)
+    for (const [pid, rec] of remoteAnts) { for (const e of rec.items.values()) { if (e.dead) continue; const sp = remoteAntScreenPos(pid, e); if (sp && Math.hypot(sp.x - a.x, sp.y - a.y) <= R && connected()) net.send(JSON.stringify({ t: 'ant-hit', target: pid, ant: e.id, dmg: dmg * 2 })) } }
+    for (let ci = 0; ci < catPos.length; ci++) { const cat = allRef[ci], c = catPos[ci]; if (!cat || !c || cat.id === 'me') continue; if (Math.hypot(c.x - a.x, c.y - a.y) <= R) applyCatHit(cat, dmg * 2, now) }
+    antTakeDmg(a, 99)
+  }
+  function summonProduce(a, unitId) {   // 여왕: 아군 소환체 생산
+    if (ants.filter((x) => !x.dead).length >= antMax()) return
+    const def = (window.BattleData && window.BattleData.UNITS[unitId]) || {}
+    const hp = Math.max(1, Math.round((def.hp || 20) / 8))
+    ants.push({ id: nextAntId++, sprite: unitId, size: def.size || 1, x: a.x + a.dir * 20 * view.scale, y: a.y, vy: 0, onGround: true, hp, maxHp: hp, dir: a.dir, wanderUntil: 0, atkCd: 0, dead: false, deadAt: 0, step: Math.random() * 10 })
+  }
+  function spawnSummonProj(a, uatk, tgt, dmg, atkType) {   // 원거리/광역 소환체가 발사(배틀 투사체 재사용)
+    const kind = projKindFor(a.sprite), mz = PROJ_MUZZLE[a.sprite] || PROJ_MUZZLE._default, face = a.dir >= 0 ? 1 : -1
+    const fx = a.x + face * mz.x * view.scale, fy = a.y - mz.y * view.scale
+    const tx = tgt.x, ty = (tgt.y != null ? tgt.y : a.y)
+    const spd = (PROJ_SPD[kind] || 500) * view.scale
+    const aoe = (atkType === 'aoe') ? Math.max(20 * view.scale, (uatk.aoeR || 0.05) * canvas.clientWidth) : 0
+    const burst = (kind === 'bullet' && uatk.burst > 1) ? uatk.burst : 1
+    for (let b = 0; b < burst; b++) {
+      let vx, vy
+      if (kind === 'grenade') { const dx = tx - fx; vx = dx / 0.8; vy = -260 * view.scale }   // 포물선
+      else { const jit = burst > 1 ? (Math.random() - 0.5) * 0.05 : 0, ang = Math.atan2(ty - fy, tx - fx) + jit; vx = Math.cos(ang) * spd; vy = Math.sin(ang) * spd }
+      summonProj.push({ x: fx, y: fy, vx, vy, kind, dmg, aoe, born: performance.now(), life: (PROJ_LIFE[kind] || 1500) })
+    }
+  }
+  let summonProjLastT = 0
+  function stepSummonProj(now) {
+    if (!summonProj.length) { summonProjLastT = now; return }
+    let dt = (now - (summonProjLastT || now)) / 1000; summonProjLastT = now; if (dt > 0.05) dt = 0.05
+    const W = canvas.clientWidth, grav = 900 * view.scale
+    for (let i = summonProj.length - 1; i >= 0; i--) {
+      const p = summonProj[i]
+      if (p.kind === 'grenade') p.vy += grav * dt
+      p.x += p.vx * dt; p.y += p.vy * dt
+      let done = false
+      // 적 소환체(원격 ant) 충돌
+      for (const [pid, rec] of remoteAnts) { if (now - rec.ts > 800) continue; for (const e of rec.items.values()) { if (e.dead) continue; const sp = remoteAntScreenPos(pid, e); if (!sp) continue; if (Math.hypot(sp.x - p.x, sp.y - p.y) < (p.aoe || 16 * view.scale)) { done = true; break } } if (done) break }
+      if (done) {
+        if (p.aoe) { for (const [pid2, rec2] of remoteAnts) { for (const e2 of rec2.items.values()) { if (e2.dead) continue; const s2 = remoteAntScreenPos(pid2, e2); if (s2 && Math.hypot(s2.x - p.x, s2.y - p.y) <= p.aoe && connected()) net.send(JSON.stringify({ t: 'ant-hit', target: pid2, ant: e2.id, dmg: p.dmg })) } } addEffect(p.x, p.y, 2) }
+        else { for (const [pid, rec] of remoteAnts) { let hit = false; for (const e of rec.items.values()) { if (e.dead) continue; const sp = remoteAntScreenPos(pid, e); if (sp && Math.hypot(sp.x - p.x, sp.y - p.y) < 16 * view.scale) { if (connected()) net.send(JSON.stringify({ t: 'ant-hit', target: pid, ant: e.id, dmg: p.dmg })); hit = true; break } } if (hit) break } spawnSpark(p.x, p.y) }
+        summonProj.splice(i, 1); continue
+      }
+      // 적 캐릭터(고양이) 충돌 — 체력 없음(피격 번쩍만)
+      for (let ci = 0; ci < catPos.length; ci++) { const cat = allRef[ci], c = catPos[ci]; if (!cat || !c || cat.id === 'me') continue; if (Math.hypot(c.x - p.x, (c.y - 20 * view.scale) - p.y) < (p.aoe || 46 * view.scale)) { applyCatHit(cat, p.dmg, now); done = true; break } }
+      if (done) { p.aoe ? addEffect(p.x, p.y, 2) : spawnSpark(p.x, p.y); summonProj.splice(i, 1); continue }
+      if (inTaskbar(p.x, p.y)) { addEffect(p.x, p.y, 1); summonProj.splice(i, 1); continue }
+      if (now - p.born > p.life || p.x < -30 || p.x > W + 30 || p.y > canvas.clientHeight + 40) summonProj.splice(i, 1)
+    }
+  }
+  function drawSummonProj(now) { const s = view.scale * 1.5, t = now / 1000; for (const p of summonProj) drawOneProj(p, s, t) }
   function drawRemoteAnts(now) {
     const W = canvas.clientWidth
     for (const [pid, rec] of [...remoteAnts]) {
@@ -5478,6 +5570,7 @@
     ctx.save(); drawRemoteMissiles(now); ctx.restore()   // (per-peer 👁 dim set inside each drawRemote*; save/restore contains it)
     drawDebris(now)
     stepAnts(now)
+    stepSummonProj(now); drawSummonProj(now)   // 오버레이 소환체 투사체(원거리/광역 전투)
     ctx.save(); drawRemoteAnts(now); ctx.restore()
     stepFieldUnits(now); drawFieldUnits(now)   // 신규 소환체(오버레이)
     if (battleActive && battle) { stepBattle(now); drawBattleUnits(now) }   // 배틀 모드(오버레이 통합)
