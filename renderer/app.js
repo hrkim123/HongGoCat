@@ -3443,7 +3443,7 @@
   function battleLaneX(L) { const W = canvas.clientWidth; return BATTLE_PAD + L * (W - 2 * BATTLE_PAD) }   // side0 기지=좌
   // 유닛 발밑 Y. 지상형은 파인 지형(antGroundY)을 따라가고, 공중형은 땅 파임과 무관하게 원래 작업표시줄 라인 위로 고정.
   function battleUnitFeetY(x, flying) {
-    if (flying) { const tb = taskbarRect(); return (tb ? tb.top : canvas.clientHeight) - 5 * view.scale - 34 * view.scale }
+    if (flying) { const tb = taskbarRect(); return (tb ? tb.top : canvas.clientHeight) - 5 * view.scale - 64 * view.scale }   // 공중형: 지상보다 확실히 높게(34→64)
     return antGroundY(x)
   }
   // ── 소환체 디자인별 충돌박스 (스프라이트 로컬 기준: 발밑=0, 위로 h, 좌우 반폭 w). 실제 렌더 스케일을 곱해 사용.

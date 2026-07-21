@@ -35,9 +35,9 @@
   // DPS = dmg×(burst||1)/cd. 실효HP = hp + battleShield.absorb. 사거리(range)·속도는 레인비율.
   const UNITS = {
     ant: {
-      name: '개미', cat: 'unit', rarity: 'common', starter: true, cost: 1, hp: 40,
-      speed: 0.18, atk: { type: 'melee', dmg: 5, range: 0.02, cd: 0.6 }, kb: 3,
-      art: 'ant', size: 1.0, // 기본 근접 물량 (근접 8.3dps)
+      name: '개미', cat: 'unit', rarity: 'common', starter: true, cost: 1, hp: 58,
+      speed: 0.18, atk: { type: 'melee', dmg: 5, range: 0.02, cd: 0.6 }, kb: 1,
+      art: 'ant', size: 1.0, // 기본 근접 물량 (근접 8.3dps). HP↑·넉백↓(근접 이점)
     },
     rifleman: {
       name: '라이플 솔저', cat: 'unit', rarity: 'common', cost: 2, hp: 24,
@@ -50,7 +50,7 @@
       art: 'ant-soldier', size: 1.0, // 범위 딜(광역 5dps)
     },
     shielder: {
-      name: '쉴더', cat: 'unit', rarity: 'uncommon', cost: 2, hp: 65,
+      name: '쉴더', cat: 'unit', rarity: 'uncommon', cost: 2, hp: 80,
       speed: 0.10, atk: { type: 'none' }, kb: 1,
       battleShield: { absorb: 30, cooldown: 4 }, // 실효HP 75. 앞면 자동 쉴드(30 흡수·4s 무피격 시 재충전). 순수 탱커
       art: 'ant-shield', size: 1.2,
@@ -74,12 +74,12 @@
     },
     // ── 신규 소환체 (밸런스 v2) ──
     scout: {
-      name: '정찰 개미', cat: 'unit', rarity: 'common', cost: 1, hp: 22,
-      speed: 0.30, atk: { type: 'melee', dmg: 3, range: 0.02, cd: 0.7 }, kb: 3, art: 'scout', size: 0.9, // 고속 러셔
+      name: '정찰 개미', cat: 'unit', rarity: 'common', cost: 1, hp: 32,
+      speed: 0.30, atk: { type: 'melee', dmg: 3, range: 0.02, cd: 0.7 }, kb: 1, art: 'scout', size: 0.9, // 고속 러셔(HP↑·넉백↓)
     },
     kamikaze: {
-      name: '폭탄 개미', cat: 'unit', rarity: 'uncommon', cost: 3, hp: 32,
-      speed: 0.24, atk: { type: 'suicide', dmg: 28, aoeR: 0.05, range: 0.03, cd: 0.1 }, suicide: true, art: 'kamikaze', size: 1.1, // 1회성 자폭(구현 예정)
+      name: '폭탄 개미', cat: 'unit', rarity: 'uncommon', cost: 3, hp: 42,
+      speed: 0.24, atk: { type: 'suicide', dmg: 28, aoeR: 0.05, range: 0.03, cd: 0.1 }, suicide: true, kb: 1, art: 'kamikaze', size: 1.1, // 1회성 자폭(근접계=공중 미타격·HP↑·넉백↓)
     },
     medic: {
       name: '의무 개미', cat: 'unit', rarity: 'uncommon', cost: 3, hp: 26,
@@ -94,8 +94,8 @@
       speed: 0.11, atk: { type: 'proj', dmg: 4, range: 0.16, cd: 1.4, slow: 0.5, slowDur: 2 }, art: 'freezer', size: 1.0, // 저뎀+50% 감속 유틸(사거리 0.22→0.16)
     },
     worker: {
-      name: '망치 개미', cat: 'unit', rarity: 'uncommon', cost: 3, hp: 45,
-      speed: 0.10, atk: { type: 'melee', dmg: 2, range: 0.06, cd: 1.6, aoeR: 0.10, kbHit: true }, kb: 2, art: 'worker', size: 1.1, // 큰 망치 범위 슬램: 저뎀이지만 매 공격 범위 내 적 전원 강제 넉백(느린 cd로 밸런스). 물량 저지·시간벌기
+      name: '망치 개미', cat: 'unit', rarity: 'uncommon', cost: 3, hp: 62,
+      speed: 0.10, atk: { type: 'melee', dmg: 2, range: 0.06, cd: 1.6, aoeR: 0.10, kbHit: true }, kb: 1, art: 'worker', size: 1.1, // 큰 망치 범위 슬램(HP↑·넉백↓): 저뎀이지만 매 공격 범위 내 적 전원 강제 넉백(느린 cd로 밸런스). 물량 저지·시간벌기
 
     },
     commander: {
@@ -107,8 +107,9 @@
       speed: 0.08, atk: { type: 'proj', dmg: 22, range: 0.34, cd: 2.6 }, art: 'sniper', size: 1.0, // 초장거리 유리대포(8.5dps, 사거리 0.42→0.34 · 여전히 최장)
     },
     boss: {
-      name: '여왕 개미', cat: 'unit', rarity: 'legend', cost: 10, hp: 320,
+      name: '여왕 개미', cat: 'unit', rarity: 'legend', cost: 10, hp: 200,
       speed: 0.06, atk: { type: 'none' }, support: true, kb: 0,
+      // 규칙: 본인 전투력이 중요치 않은 유닛(생산·서포트)은 자체 HP를 낮게 → 보호받아야 하는 후방 유닛. (320→200)
       summon: { unit: 'rifleman', every: 5 }, // 직접 공격 X → 5초마다 라이플 솔저를 바로 앞에 1마리 소환(생산형 결전병기)
       art: 'boss', size: 2.0,
     },

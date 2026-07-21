@@ -64,10 +64,14 @@
       return true
     }
 
+    // 대상이 공중인가(유닛=stats.flying, 고스트=데이터). 근접/자폭은 공중을 타격/타겟 불가(기본 규칙: 근접은 대공 X).
+    function isFlying(e) { return !!(e && (e.flying || (e.stats && e.stats.flying) || (D.UNITS[e.type] && D.UNITS[e.type].flying))) }
+    function isMeleeType(u) { const t = u.stats && u.stats.atk && u.stats.atk.type; return t === 'melee' || t === 'suicide' }
+    function canHit(u, e) { return !(isMeleeType(u) && isFlying(e)) }   // 근접→공중 불가
     function nearestEnemy(u) {
       let best = null, bd = Infinity, ghost = false
-      for (const e of st.units) { if (e.side === u.side || e.hp <= 0) continue; const d = Math.abs(e.L - u.L); if (d < bd) { bd = d; best = e; ghost = false } }
-      for (const g of st.ghosts) { if (g.hp <= 0) continue; const d = Math.abs(g.L - u.L); if (d < bd) { bd = d; best = g; ghost = true } }   // 멀티: 상대 고스트도 타겟
+      for (const e of st.units) { if (e.side === u.side || e.hp <= 0 || !canHit(u, e)) continue; const d = Math.abs(e.L - u.L); if (d < bd) { bd = d; best = e; ghost = false } }
+      for (const g of st.ghosts) { if (g.hp <= 0 || !canHit(u, g)) continue; const d = Math.abs(g.L - u.L); if (d < bd) { bd = d; best = g; ghost = true } }   // 멀티: 상대 고스트도 타겟
       return { e: best, d: bd, ghost }
     }
     // 서포트 유닛 앞쪽(적 방향)에 있는 "가장 가까운 전투 아군"의 L. 없으면 null → 서포트는 그 뒤에서 대기·전진.
@@ -163,7 +167,7 @@
           const inTgt = tgt && td <= range, inBase = distBase <= Math.max(range, cfg.baseRange)
           if (inTgt || inBase) {
             const aoe = u.stats.atk.aoeR || 0.05, dmg = u.stats.atk.dmg || 1
-            for (const e of st.units) { if (e.side !== u.side && e.hp > 0 && Math.abs(e.L - u.L) <= aoe) applyDamage(e, dmg, u.side) }
+            for (const e of st.units) { if (e.side !== u.side && e.hp > 0 && !isFlying(e) && Math.abs(e.L - u.L) <= aoe) applyDamage(e, dmg, u.side) }   // 자폭(근접계)은 공중 미타격
             for (const g of st.ghosts) { if (g.hp > 0 && Math.abs(g.L - u.L) <= aoe) st.events.push({ type: 'ghosthit', uid: g.uid, dmg }) }   // 멀티: 고스트 광역 피격 릴레이
             if (inBase && !inTgt) { const es = u.side === 0 ? 1 : 0; st.baseHp[es] = Math.max(0, st.baseHp[es] - dmg); st.events.push({ type: 'basehit', side: es, dmg }) }
             st.events.push({ type: 'boom', uid: u.uid, L: u.L, side: u.side, aoeR: aoe })
@@ -184,8 +188,8 @@
                 const kbHit = !!u.stats.atk.kbHit, slamR = u.stats.atk.aoeR || 0, stun = u.stats.atk.stun || 0
                 if (inTgt) {
                   if (slamR > 0) {   // 범위 슬램: 주변 적 전원 타격 + (kbHit면) 매번 강제 넉백 + (stun이면) 스턴
-                    for (const e of st.units) if (e.side !== u.side && e.hp > 0 && Math.abs(e.L - u.L) <= slamR) { applyDamage(e, dmg, u.side); if (kbHit) applyKb(e, true); if (stun) e.frozenUntil = Math.max(e.frozenUntil || 0, st.t + stun) }
-                    for (const g of st.ghosts) if (g.hp > 0 && Math.abs(g.L - u.L) <= slamR) st.events.push({ type: 'ghosthit', uid: g.uid, dmg, kb: kbHit })
+                    for (const e of st.units) if (e.side !== u.side && e.hp > 0 && !isFlying(e) && Math.abs(e.L - u.L) <= slamR) { applyDamage(e, dmg, u.side); if (kbHit) applyKb(e, true); if (stun) e.frozenUntil = Math.max(e.frozenUntil || 0, st.t + stun) }
+                    for (const g of st.ghosts) if (g.hp > 0 && !isFlying(g) && Math.abs(g.L - u.L) <= slamR) st.events.push({ type: 'ghosthit', uid: g.uid, dmg, kb: kbHit })
                     st.events.push({ type: 'hit', by: u.uid, target: tgt.uid, dmg, slamL: u.L, slamR })
                   } else if (tgtGhost) st.events.push({ type: 'ghosthit', uid: tgt.uid, dmg, kb: kbHit })
                   else { applyDamage(tgt, dmg, u.side); if (kbHit) applyKb(tgt, true); if (stun) tgt.frozenUntil = Math.max(tgt.frozenUntil || 0, st.t + stun); st.events.push({ type: 'hit', by: u.uid, target: tgt.uid, dmg }) }

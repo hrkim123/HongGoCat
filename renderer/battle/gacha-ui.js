@@ -328,6 +328,10 @@
     .bg-up .un{font-size:13px;color:#e8ebf0}
     .bg-up .ue{font-size:11px;color:#9aa0ab;margin-top:2px}
     .bg-up .ul{font-size:12px;color:#ffcf3a;white-space:nowrap}
+    .bg-dsub{font-size:10px;color:#8fd3ff;margin:1px 0 3px}
+    .bg-wbox{border-top:1px solid #2b2f39;margin-top:8px;padding-top:7px}
+    .bg-slot.wslot{border-color:#3f7ce8;background:#141c2a}
+    .bg-slot.filled.wslot{background:rgba(74,163,255,.16)}
     `
     document.head.appendChild(st)
   }
@@ -385,9 +389,10 @@
       const deck = G.getDeck()
       const unitSlots = Array.from({ length: lim.units }, (_, i) => deck.units[i] || null)
       const wpnSlots = Array.from({ length: lim.weapons }, (_, i) => deck.weapons[i] || null)
-      const slotHtml = (id) => id
-        ? `<div class="bg-slot filled" title="${(D.UNITS[id] || D.WEAPONS[id]).name}">${iconFor(id, 34)}<button class="rm" data-rm="${id}">✕</button></div>`
-        : `<div class="bg-slot"></div>`
+      const slotHtml = (id, kind) => id
+        ? `<div class="bg-slot filled ${kind === 'w' ? 'wslot' : ''}" title="${(D.UNITS[id] || D.WEAPONS[id]).name}">${iconFor(id, 34)}<button class="rm" data-rm="${id}">✕</button></div>`
+        : `<div class="bg-slot ${kind === 'w' ? 'wslot' : ''}"></div>`
+      const front = unitSlots.slice(0, 5), back = unitSlots.slice(5, 10)
       const catBtns = [['unit', '🐜 소환체'], ['weapon', '⚔ 무기']]
         .map(([k, n]) => `<button class="bg-fbtn ${fCat === k ? 'on' : ''}" data-fc="${k}">${n}</button>`).join('')
       const rarBtns = [['all', '전체'], ['common', '일반'], ['uncommon', '고급'], ['rare', '희귀'], ['legend', '전설']]
@@ -409,8 +414,12 @@
 
       body.innerHTML = `
         <div class="bg-deck"><h4>배틀 덱 — 소환체 ${deck.units.length}/${lim.units} · 무기 ${deck.weapons.length}/${lim.weapons}</h4>
-          <div class="bg-slots" style="margin-bottom:6px">${unitSlots.map(slotHtml).join('')}</div>
-          <div class="bg-slots">${wpnSlots.map(slotHtml).join('')}</div>
+          <div class="bg-dsub">🐜 소환체 · 앞줄(활성)</div>
+          <div class="bg-slots" style="margin-bottom:5px">${front.map((id) => slotHtml(id, 'u')).join('')}</div>
+          <div class="bg-dsub">🐜 소환체 · 뒷줄(벤치 — 배틀 중 스왑)</div>
+          <div class="bg-slots" style="margin-bottom:8px">${back.map((id) => slotHtml(id, 'u')).join('')}</div>
+          <div class="bg-wbox"><div class="bg-dsub" style="color:#9fd3ff">⚔ 무기</div>
+          <div class="bg-slots">${wpnSlots.map((id) => slotHtml(id, 'w')).join('')}</div></div>
         </div>
         <div class="bg-filters">${catBtns}</div>
         <div class="bg-filters">${rarBtns}</div>
@@ -445,6 +454,7 @@
     card.innerHTML = `<div class="bg-head"><div class="bg-title">🛒 상점</div><button class="bg-x">✕</button></div>`
     card.querySelector('.bg-x').onclick = close
     const body = document.createElement('div'); card.appendChild(body)
+    let upCat = 'unit'   // 업그레이드 카테고리 필터(소환체/무기) — 유닛 많아짐 대비
 
     function render() {
       const cnt = countBridge ? countBridge.get() : 0
@@ -452,9 +462,12 @@
         <div class="bg-chip" style="flex:1">💎 젬 구매 — ${D.GEM.countPerGem.toLocaleString()} 카운트 = 💎1</div>
         <button class="bg-btn primary" id="buygem" ${cnt < D.GEM.countPerGem ? 'disabled' : ''}>💎1 구매</button></div>`
       const hpRow = ''   // 오버레이 캐릭터 체력 개념 제거 → 체력 리셋 상품 삭제
+      // 🔩 업그레이드 라벨 바로 아래 카테고리 버튼(소환체/무기)
+      const catBtns = [['unit', '🐜 소환체'], ['weapon', '⚔ 무기']]
+        .map(([k, n]) => `<button class="bg-fbtn ${upCat === k ? 'on' : ''}" data-uc="${k}">${n}</button>`).join('')
       let ups = ''
       if (U) {
-        const owned = G.catalog().filter((e) => e.owned && U.spec(e.id))
+        const owned = G.catalog().filter((e) => e.owned && U.spec(e.id) && e.cat === upCat)
         ups = owned.map((e) => {
           const lv = G.getLevel(e.id), cost = U.costToNext(e.id), can = U.canUpgrade(e.id)
           const btn = cost == null ? `<span class="bg-fbtn" style="cursor:default">MAX</span>`
@@ -465,10 +478,13 @@
         }).join('')
       }
       body.innerHTML = walletRow().outerHTML + buyRow + hpRow +
-        `<div class="bg-rgroup" style="margin:6px 0">🔩 업그레이드</div>${ups || '<div class="bg-sub">보유한 소환체/무기가 없어요</div>'}`
+        `<div class="bg-rgroup" style="margin:6px 0">🔩 업그레이드</div>` +
+        `<div class="bg-filters" style="margin-bottom:8px">${catBtns}</div>` +
+        `${ups || `<div class="bg-sub">보유한 ${upCat === 'weapon' ? '무기' : '소환체'}가 없어요</div>`}`
 
       const bg = body.querySelector('#buygem')
       if (bg) bg.onclick = () => { if (countBridge && countBridge.get() >= D.GEM.countPerGem) { countBridge.spend(D.GEM.countPerGem); G.addGems(1); render() } }
+      body.querySelectorAll('[data-uc]').forEach((b) => b.onclick = () => { upCat = b.dataset.uc; render() })
       body.querySelectorAll('[data-up]').forEach((b) => b.onclick = () => { if (U) { U.upgrade(b.dataset.up); render() } })
     }
     render()
