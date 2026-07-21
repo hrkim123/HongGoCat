@@ -3460,6 +3460,8 @@
     return Math.abs(x - fx) < hb.halfW + m && y < feetY + 5 * view.scale + m && y > feetY - hb.top - m
   }
   function _enterBattle() {   // 솔로/멀티 공통 진입 셋업
+    clearMySummons()   // 배틀 진입 = 깨끗한 상태: 오버레이 소환체·무기·터렛·메카/인간·투사체·블랙홀 전부 제거
+    littleBoys.length = 0; debris.length = 0; bloodStains.length = 0   // 낙하 폭탄·잔해도 정리
     battle = window.BattleSim.newBattle({ speedScale: 0.44 })   // 냥코풍 느린 행군 (0.55 → ×0.8)
     battleAtkAt = {}; battleShieldFlash = {}; battleHealFx = []; battleFalls = []; battleDead = []; bproj.length = 0
     battleGhosts = []; battleGhostBase = battle.state.baseHpMax; bunitsLastSend = 0

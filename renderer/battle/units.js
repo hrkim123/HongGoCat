@@ -108,7 +108,7 @@
     boss: {
       name: '여왕 개미', cat: 'unit', rarity: 'legend', cost: 10, hp: 320,
       speed: 0.06, atk: { type: 'none' }, support: true,
-      summon: { unit: 'rifleman', every: 4 }, // 직접 공격 X → 4초마다 라이플 솔저를 바로 앞에 1마리 소환(생산형 결전병기)
+      summon: { unit: 'rifleman', every: 5 }, // 직접 공격 X → 5초마다 라이플 솔저를 바로 앞에 1마리 소환(생산형 결전병기)
       art: 'boss', size: 2.0,
     },
   }
