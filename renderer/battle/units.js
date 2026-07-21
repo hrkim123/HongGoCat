@@ -94,8 +94,8 @@
       speed: 0.11, atk: { type: 'proj', dmg: 4, range: 0.22, cd: 1.4, slow: 0.5, slowDur: 2 }, art: 'freezer', size: 1.0, // 저뎀+50% 감속 유틸(빙결 구현 예정)
     },
     worker: {
-      name: '일개미', cat: 'unit', rarity: 'rare', cost: 4, hp: 32,
-      speed: 0.02, atk: { type: 'none' }, manaBuff: 0.1, support: true, art: 'worker', size: 1.0, // 정지형·마나 +0.1/s
+      name: '망치 개미', cat: 'unit', rarity: 'uncommon', cost: 3, hp: 45,
+      speed: 0.10, atk: { type: 'melee', dmg: 6, range: 0.03, cd: 1.0, kbHit: true }, kb: 2, art: 'worker', size: 1.1, // 큰 망치로 내려쳐 명중 시 적 강제 넉백(물량 저지)
     },
     commander: {
       name: '지휘 개미', cat: 'unit', rarity: 'rare', cost: 6, hp: 95,

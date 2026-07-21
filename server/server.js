@@ -157,7 +157,7 @@ wss.on('connection', (ws, req) => {
     } else if (msg.t === 'bunits' && Array.isArray(msg.list)) {
       broadcast(joinedRoom, { t: 'bunits', id, to: msg.to, list: msg.list.slice(0, 40), base: msg.base, mana: msg.mana }, id)  // 내 유닛 목록+기지HP 방송
     } else if (msg.t === 'bghit') {
-      broadcast(joinedRoom, { t: 'bghit', id, to: msg.to, uid: msg.uid, dmg: msg.dmg, slow: msg.slow, slowDur: msg.slowDur }, id) // 상대 유닛 피격(소유자 적용)
+      broadcast(joinedRoom, { t: 'bghit', id, to: msg.to, uid: msg.uid, dmg: msg.dmg, slow: msg.slow, slowDur: msg.slowDur, kb: msg.kb }, id) // 상대 유닛 피격(소유자 적용)
     } else if (msg.t === 'bbhit') {
       broadcast(joinedRoom, { t: 'bbhit', id, to: msg.to, dmg: msg.dmg }, id)                 // 상대 기지 피격(소유자 적용)
     } else if (msg.t === 'chat' && typeof msg.text === 'string') {

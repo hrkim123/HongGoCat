@@ -8,8 +8,10 @@
   const D = window.BattleData
   const U = window.BattleUpgrade
 
-  const DEFAULTS = { baseHp: 100, manaCap: 10, manaRegen: 0.5, baseRange: 0.03, speedScale: 1 }
+  const DEFAULTS = { baseHp: 100, manaCap: 20, manaRegen: 0.5, baseRange: 0.03, speedScale: 1 }   // 맥스 마나 20
   const KB_DUR = 0.30, KB_BACK = 0.09, KB_CD = 0.7   // 넉백: 0.30초간 살짝 뒤로(냥코풍 짧은 홉) + 재넉백 최소 간격 0.7s(락 방지)
+  // 마나 강화(냥코 일꾼레벨): 마나 지불→이번 판 충전속도↑(판 끝나면 초기화). 기본 0.5/s.
+  const MANA_LEVELS = [{ cost: 6, rate: 0.7 }, { cost: 9, rate: 0.9 }, { cost: 12, rate: 1.2 }, { cost: 16, rate: 1.5 }, { cost: 20, rate: 2.0 }]
 
   function statsFor(type) {
     if (U && U.computeUnitStats) { const s = U.computeUnitStats(type); if (s) return s }
@@ -24,6 +26,7 @@
     const st = {
       t: 0,
       mana: [0, 0],
+      manaRate: [cfg.manaRegen, cfg.manaRegen], manaLevel: [0, 0],   // 마나 강화 레벨/충전속도(판별)
       baseHp: [cfg.baseHp, cfg.baseHp],
       baseHpMax: cfg.baseHp,
       units: [],
@@ -75,6 +78,17 @@
       return best
     }
 
+    function applyKb(target) {   // 강제 넉백(임계 무관) — 캐논/워커 kbHit용
+      if (target.hp <= 0) return
+      if ((target.kbCdUntil && target.kbCdUntil > st.t) || (target.frozenUntil && target.frozenUntil > st.t)) return
+      target.kbUntil = st.t + KB_DUR; target.kbCdUntil = st.t + KB_CD; st.events.push({ type: 'knockback', uid: target.uid, L: target.L, side: target.side })
+    }
+    function upgradeMana(side) {   // 마나 강화 1레벨(마나 지불). 성공 시 true.
+      const lv = st.manaLevel[side]; if (lv >= MANA_LEVELS.length) return false
+      const step = MANA_LEVELS[lv]; if (st.mana[side] < step.cost) return false
+      st.mana[side] -= step.cost; st.manaLevel[side] = lv + 1; st.manaRate[side] = step.rate; return true
+    }
+    function manaUpInfo(side) { const lv = st.manaLevel[side], maxed = lv >= MANA_LEVELS.length; return { level: lv, maxed, nextCost: maxed ? null : MANA_LEVELS[lv].cost, rate: st.manaRate[side] } }
     function applyDamage(target, dmg, killerSide) {
       if (target.shMax != null) target.shHitAt = st.t   // 피격 → 재충전 타이머 리셋(교전 중 재생 방지)
       // 자동 쉴드: 남아있으면 먼저 흡수
@@ -104,7 +118,7 @@
       // 마나 (기본 회복 + 일개미(워커) 버프: 살아있는 워커 1마리당 +manaBuff/s)
       st.manaBuff = [0, 0]
       for (const u of st.units) { if (u.hp <= 0) continue; const mb = D.UNITS[u.type] && D.UNITS[u.type].manaBuff; if (mb) st.manaBuff[u.side] += mb }
-      for (let s = 0; s < 2; s++) st.mana[s] = clamp(st.mana[s] + (cfg.manaRegen + st.manaBuff[s]) * dt, 0, cfg.manaCap)
+      for (let s = 0; s < 2; s++) st.mana[s] = clamp(st.mana[s] + (st.manaRate[s] + st.manaBuff[s]) * dt, 0, cfg.manaCap)   // 강화 레벨 반영
 
       // 지휘 개미 오라: 살아있는 커맨더 주변(같은 side) 아군 공격/속도 버프(최대치 적용, 중첩 X)
       for (const u of st.units) { u._auraAtk = 0; u._auraSpd = 0 }
@@ -153,8 +167,9 @@
             if (u.cdLeft <= 0) {
               u.cdLeft = u.stats.atk.cd || 1
               const dmg = Math.round((u.stats.atk.dmg || 1) * (1 + (u._auraAtk || 0)))   // 오라 공격 버프
-              if (isMelee) {   // 근접: 즉시(접촉)
-                if (inTgt) { if (tgtGhost) st.events.push({ type: 'ghosthit', uid: tgt.uid, dmg }); else { applyDamage(tgt, dmg, u.side); st.events.push({ type: 'hit', by: u.uid, target: tgt.uid, dmg }) } }
+              if (isMelee) {   // 근접: 즉시(접촉). kbHit=명중 시 강제 넉백(워커)
+                const kbHit = !!u.stats.atk.kbHit
+                if (inTgt) { if (tgtGhost) st.events.push({ type: 'ghosthit', uid: tgt.uid, dmg, kb: kbHit }); else { applyDamage(tgt, dmg, u.side); if (kbHit) applyKb(tgt); st.events.push({ type: 'hit', by: u.uid, target: tgt.uid, dmg }) } }
                 else { const es = u.side === 0 ? 1 : 0; st.baseHp[es] = Math.max(0, st.baseHp[es] - dmg); st.events.push({ type: 'basehit', side: es, dmg }) }
               } else {   // 원거리: 실제 투사체 발사(컨트롤러가 처리). ghost=true면 명중 시 릴레이.
                 st.events.push({ type: 'fire', by: u.uid, side: u.side, fromL: u.L, dir: u.dir, dmg, atkType, aoeR: u.stats.atk.aoeR || 0, slow: u.stats.atk.slow || 0, slowDur: u.stats.atk.slowDur || 0, targetUid: inTgt ? tgt.uid : null, toL: inTgt ? tgt.L : (u.side === 0 ? 1 : 0), ghost: !!(inTgt && tgtGhost) })
@@ -209,9 +224,10 @@
     function drainEvents() { const e = st.events; st.events = []; return e }
 
     // 컨트롤러(오버레이 투사체)가 명중 시 호출 — 쉴드/사망은 여기서 처리
-    function hitUnit(uid, dmg, slow, slowDur) {
+    function hitUnit(uid, dmg, slow, slowDur, forceKb) {
       const u = st.units.find((x) => x.uid === uid); if (!u || u.hp <= 0) return
       applyDamage(u, dmg)
+      if (forceKb) applyKb(u)   // 캐논/워커 강제 넉백
       if (slow) {
         u.slowUntil = st.t + (slowDur || 1); u.slowMul = 1 - slow
         // ❄ 빙결 스택: 감속 5회 누적 → 2초 빙결 정지 → 이후 10초 빙결 면역(그 동안은 감속만)
@@ -225,7 +241,7 @@
     function hitBase(side, dmg) { st.baseHp[side] = Math.max(0, st.baseHp[side] - dmg) }   // 승패는 step에서 판정
     function unitByUid(uid) { return st.units.find((x) => x.uid === uid) }
 
-    return { state: st, spawn, step, makeAI, drainEvents, hitUnit, hitBase, unitByUid, setGhosts }
+    return { state: st, spawn, step, makeAI, drainEvents, hitUnit, hitBase, unitByUid, setGhosts, upgradeMana, manaUpInfo }
   }
 
   window.BattleSim = { newBattle }

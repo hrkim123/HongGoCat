@@ -116,12 +116,18 @@
     if (f.atk && (o.flash || Math.floor((o.t || 0) * 20) % 3 === 0)) { c.fillStyle = '#eafcff'; star(c, 16, -22, 3.4) }
     c.restore()
   }
-  function drawWorker(c, o) {   // 일개미 — 노란 안전모 + 등 마나 배터리(발광)
-    antLower(c, o, { body: '#a8792e', bodyD: '#6a4a18' })
-    c.fillStyle = '#2a3a2a'; rpath(c, -11, -26, 7, 8, 1.4); c.fill()
-    const pulse = 0.5 + 0.5 * Math.sin((o.t || 0) * 4)
-    c.fillStyle = `rgba(120,230,140,${0.45 + pulse * 0.5})`; c.fillRect(-9.5, -24, 4, 4)
+  function drawWorker(c, o) {   // 망치 개미 — 큰 망치를 들고 내려쳐 넉백. 노란 안전모.
+    const f = antLower(c, o, { body: '#a8792e', bodyD: '#6a4a18' })
+    // 망치: 공격 시 위로 들었다(와인드업) 내려침
+    const swing = f.atk ? Math.sin((f.ph || 0) * 9) : 0        // -1..1
+    const up = f.atk ? Math.max(0, swing) : 0.3                // 들어올림
+    const hx = 10, hy = -26 - up * 10                          // 손 위치
+    c.strokeStyle = '#6a4a18'; c.lineWidth = 2.6; c.beginPath(); c.moveTo(3, -25); c.lineTo(hx, hy); c.stroke()   // 팔
+    c.strokeStyle = '#7a5a2a'; c.lineWidth = 2.2; c.beginPath(); c.moveTo(hx, hy); c.lineTo(hx + 3, hy - 12); c.stroke()   // 자루
+    c.fillStyle = '#8a8f9a'; c.strokeStyle = '#4a4e5a'; c.lineWidth = 1; rpath(c, hx - 3, hy - 18, 12, 8, 2); c.fill(); c.stroke()   // 망치 머리
+    c.fillStyle = '#c9cfdb'; c.fillRect(hx - 2, hy - 16, 3, 4)   // 하이라이트
     antUpper(c, { body: '#a8792e', bodyD: '#6a4a18', helmet: '#f2c53a', helmetD: '#b8901e' })
+    if (f.atk && swing < -0.4) { c.fillStyle = 'rgba(255,235,150,0.9)'; star(c, 20, -20, 4) }   // 내려친 순간 충격
     c.restore()
   }
   function drawCommander(c, o) {   // 지휘 개미 — 붉은 깃발 + 견장 + 지휘모
