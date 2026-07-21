@@ -3357,7 +3357,7 @@
 
   // ---------- 배틀 모드 (오버레이 통합: 실제 작업표시줄 위 · 별도 캔버스 아님) ----------
   let battleActive = false, battle = null, battleAI = null, battleLastT = 0, battleResultAt = 0
-  let battleAtkAt = {}, battleDead = [], battleOpp = null, battleHud = null
+  let battleAtkAt = {}, battleDead = [], battleOpp = null, battleHud = null, battleShieldFlash = {}
   let battleSavedCarve, battleSavedBarDmg = 0
   let battlePhase = 'idle', battlePhaseAt = 0, battleWin = false, battleConfetti = []   // 'countdown' | 'playing' | 'result'
   const BATTLE_CD_MS = 3200   // 3·2·1 (각 800ms) + START(800ms)
@@ -3370,7 +3370,7 @@
     battle = window.BattleSim.newBattle({ speedScale: 0.55 })   // 냥코풍 느린 행군
     battleAI = battle.makeAI(1, ['ant', 'rifleman', 'grenadier', 'mechaAnt', 'mechaHuman'].filter((id) => window.BattleData.UNITS[id]), 1.4)
     battleOpp = Object.assign({ id: 'battleOpp', animal: 'cat', name: '상대', skin: 'gray', pattern: 'solid', hat: 'none', ear: 'pointed', eye: 'oval', mouth: 'smile', tail: 'curl', shape: {}, hp: CAT_HP }, newAnimState())
-    battleAtkAt = {}; battleDead = []; bproj.length = 0; battleResultAt = 0; battleLastT = performance.now(); battleActive = true
+    battleAtkAt = {}; battleShieldFlash = {}; battleDead = []; bproj.length = 0; battleResultAt = 0; battleLastT = performance.now(); battleActive = true
     battlePhase = 'countdown'; battlePhaseAt = performance.now(); battleConfetti = []   // 3·2·1·START 후 시작
     battleSavedCarve = carve ? carve.slice() : null; battleSavedBarDmg = barDamage; resetTaskbarDig(false)   // 배틀은 복원된(깨끗한) 작업표시줄로 시작
     buildBattleHud(); sendHotzone()
@@ -3468,6 +3468,7 @@
       if (e.type === 'hit') battleAtkAt[e.by] = now
       else if (e.type === 'fire') { battleAtkAt[e.by] = now; battleFire(e) }   // 원거리 → 실제 투사체 발사
       else if (e.type === 'die') battleDead.push({ id: e.unit, L: e.L, side: e.side, born: now })
+      else if (e.type === 'shieldblock' || e.type === 'shieldbreak') { battleShieldFlash[e.uid] = now }   // 쉴드가 막음 → 번쩍 연출
     }
     stepBattleProj(now, dt)
     for (let i = battleDead.length - 1; i >= 0; i--) if (now - battleDead[i].born > 900) battleDead.splice(i, 1)
@@ -3488,7 +3489,15 @@
       else if (u.type === 'mechaHuman') drawOverlayMechaAt(x, y, 0.66 * (def.size || 1.7), facing, 1, now)
       else if (u.type === 'human') drawOverlayHumanAt(x, y, 1.15 * (def.size || 1.3), facing, now)
       else window.BattleSprites.draw(ctx, u.type, { x, y, scale: s, facing, state: atk ? 'attack' : 'walk', t: u.uid * 0.37 + now / 1000, flash: atk })
-      if (u.shHp > 0) { ctx.strokeStyle = 'rgba(120,200,255,.7)'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(x, y - 22 * s, 15 * s, Math.PI, 0); ctx.stroke() }
+      // 원거리 공격 순간 총구/포구 섬광(재사용 아트 위에 얹어 "발사"가 보이게)
+      const ranged = def.atk && def.atk.type && def.atk.type !== 'none' && def.atk.type !== 'melee' && def.atk.type !== 'heal'
+      if (atk && ranged && now - battleAtkAt[u.uid] < 160) {
+        const mz = PROJ_MUZZLE[u.type] || PROJ_MUZZLE._default, mx = x + facing * mz.x * s, my = y - mz.y * s
+        ctx.fillStyle = 'rgba(255,224,140,.95)'; ctx.beginPath(); ctx.arc(mx, my, 5 * s, 0, 7); ctx.fill()
+        ctx.fillStyle = 'rgba(255,157,58,.9)'; ctx.beginPath(); ctx.arc(mx + facing * 3 * s, my, 3 * s, 0, 7); ctx.fill()
+      }
+      // 자동 쉴드(shHp) — 반투명 돔 + 방어 순간 번쩍(메카/메카인간폼/쉴더가 실제로 막는 게 보이게)
+      if (u.shHp > 0) drawBattleShield(x, y, s, u, now)
       const w = 24 * s, f = u.hp / u.maxHp
       ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(x - w / 2, y - 44 * s, w, 3.5)
       ctx.fillStyle = f > 0.4 ? '#7ecb7e' : '#e24b4a'; ctx.fillRect(x - w / 2, y - 44 * s, w * f, 3.5)
@@ -3498,6 +3507,26 @@
     // 기지 HP 바 (양 끝 고양이 위)
     drawBattleBaseHp(battleLaneX(0), 0); drawBattleBaseHp(battleLaneX(1), 1)
     drawBattleFX(now)   // 카운트다운 / 승패 연출(화면 중앙)
+  }
+  // 자동 쉴드 시각화: 유닛을 감싸는 반투명 육각 돔 + 상단 쉴드 게이지. 방어 순간(shieldflash) 밝게 번쩍.
+  function drawBattleShield(x, y, s, u, now) {
+    const cx = x, cy = y - 22 * s, R = 20 * s
+    const fl = battleShieldFlash[u.uid] && now - battleShieldFlash[u.uid] < 220 ? 1 - (now - battleShieldFlash[u.uid]) / 220 : 0
+    const sf = u.shMax ? u.shHp / u.shMax : 1
+    ctx.save()
+    // 돔(육각 반구)
+    ctx.beginPath()
+    for (let a = 0; a <= 6; a++) { const ang = Math.PI + (a / 6) * Math.PI; const px = cx + Math.cos(ang) * R, py = cy + Math.sin(ang) * R * 0.9; a === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py) }
+    ctx.closePath()
+    const g = ctx.createRadialGradient(cx, cy, R * 0.2, cx, cy, R)
+    g.addColorStop(0, `rgba(150,215,255,${0.06 + fl * 0.35})`); g.addColorStop(1, `rgba(90,180,255,${0.12 + fl * 0.4})`)
+    ctx.fillStyle = g; ctx.fill()
+    ctx.strokeStyle = `rgba(150,220,255,${0.55 + fl * 0.45})`; ctx.lineWidth = (1.4 + fl * 1.6) * s; ctx.stroke()
+    // 상단 쉴드 게이지(가느다란 하늘색 바)
+    const bw = 20 * s
+    ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.fillRect(x - bw / 2, y - 50 * s, bw, 2.4 * s)
+    ctx.fillStyle = '#7fd3ff'; ctx.fillRect(x - bw / 2, y - 50 * s, bw * sf, 2.4 * s)
+    ctx.restore()
   }
   // ── 기존 오버레이 메카/인간 아트를 배틀 유닛으로 재사용(새 그림 X) ──
   // drawMecha/drawHuman은 me.* 전역에 묶여 있어, 값을 잠시 바꿔 그린 뒤 즉시 복구(try/finally 보장).
@@ -3579,7 +3608,7 @@
   function drawBattleBaseHp(x, side) {
     const sc = Math.max(1, view.scale)
     const w = 150 * sc, h = 17 * sc, r = h / 2
-    const y = antGroundY(x) - 128 * sc            // 고양이 위쪽으로 더 높이 배치(잘 보이게)
+    const y = antGroundY(x) - 172 * sc            // 고양이 머리 위로 충분히 올려 겹침 방지
     const hp = battle.state.baseHp[side], max = battle.state.baseHpMax, f = Math.max(0, hp / max)
     const mine = side === 0
     const x0 = x - w / 2
@@ -3826,19 +3855,19 @@
   }
   function antTakeDmg(ant, dmg) {
     if (ant.dead) return
-    ant.hp -= dmg; spawnBlood(ant.x, ant.y, Math.min(dmg + 1, 3))
+    ant.hp -= dmg; ant.hitAt = performance.now(); spawnBlood(ant.x, ant.y, Math.min(dmg + 1, 3)); spawnSpark(ant.x, ant.y - 6 * view.scale)   // 피격 순간 스파크(충돌 연출)
     if (ant.hp <= 0) { ant.dead = true; ant.deadAt = performance.now(); spawnBlood(ant.x, ant.y, 12); addBloodStain(ant.x, ant.y, 11 * view.scale) }   // death: bigger burst + lingering stain
   }
   function missileHitsAnt(x, y) {
     const rr = 18 * view.scale   // cover the ant's full sprite so a direct hit detonates on it (not just splash)
-    for (const a of ants) if (!a.dead && Math.hypot(x - a.x, y - a.y) < rr) return { local: true, ant: a }
+    for (const a of ants) if (!a.dead && Math.hypot(x - a.x, y - a.y) < rr) return { local: true, ant: a, hp: a.hp }
     const now = performance.now()
     for (const [pid, rec] of remoteAnts) {
       if (now - rec.ts > 800) continue
       for (const a of rec.items.values()) {
         if (a.dead) continue
         const s = remoteAntScreenPos(pid, a); if (!s) continue
-        if (Math.hypot(x - s.x, y - s.y) < rr) return { local: false, pid, id: a.id }
+        if (Math.hypot(x - s.x, y - s.y) < rr) return { local: false, pid, id: a.id, hp: a.hp || 1 }
       }
     }
     return null
@@ -3961,8 +3990,10 @@
   // 스프라이트 소환체(신규 유닛)를 오버레이에 렌더 — 걷기/공격 상태 + HP 바
   function drawSpriteAnt(a, now, fighting) {
     const s = view.scale * BATTLE_UNIT_SCALE * (a.size || 1)
+    const hurt = a.hitAt && now - a.hitAt < 150   // 피격 순간 빨간 플래시(충돌 연출)
     const atk = fighting || (a.atkFlash && now < a.atkFlash)
-    window.BattleSprites.draw(ctx, a.sprite, { x: a.x, y: a.y, scale: s, facing: a.dir || 1, state: atk ? 'attack' : 'walk', t: (a.step || 0) * 0.12 + now / 1000, flash: atk })
+    const state = hurt ? 'hit' : (atk ? 'attack' : 'walk')
+    window.BattleSprites.draw(ctx, a.sprite, { x: a.x, y: a.y, scale: s, facing: a.dir || 1, state, t: (a.step || 0) * 0.12 + now / 1000, flash: atk })
     const mh = a.maxHp || 1
     if (a.hp < mh) {   // HP 바 (피해 입은 경우만)
       const w = 22 * view.scale, f = Math.max(0, a.hp / mh), yy = a.y - 40 * view.scale
@@ -4319,12 +4350,13 @@
         // a drawn platform is solid: detonate on it and chip its HP (swept so fast missiles can't tunnel)
         const psw = platformSweep(px0, py0, p.x, p.y)
         if (psw) { damagePlatform(psw.pl, p.power); explode(psw.hx, psw.hy, p.power); bcBoom('missile', p.mid, psw.hx, psw.hy, p.power); projectiles.splice(i, 1); continue }
-        const ah = pierceReady ? missileHitsAnt(p.x, p.y) : null   // ant HP = 1
+        const ah = pierceReady ? missileHitsAnt(p.x, p.y) : null   // 소환체(개미/스프라이트) — 실제 HP 기반 관통 규칙 적용
         if (ah) {
-          if (ah.local) { antTakeDmg(ah.ant, 99); if (ah.ant.dead) addAntKill() }
-          else if (connected()) net.send(JSON.stringify({ t: 'ant-hit', target: ah.pid, ant: ah.id, dmg: 99 }))
-          addEffect(p.x, p.y, 1)
-          if (p.power > 1) { p.power -= 1; p.pierceCd = now + 90 }   // punch through the ant, shrink
+          const hp = ah.hp || 1   // 대상의 실제 HP(스프라이트 유닛은 1보다 큼)
+          if (ah.local) { antTakeDmg(ah.ant, p.power); if (ah.ant.dead) addAntKill() }   // 파워만큼 데미지(즉살 99 → 규칙화)
+          else if (connected()) net.send(JSON.stringify({ t: 'ant-hit', target: ah.pid, ant: ah.id, dmg: p.power }))
+          addEffect(p.x, p.y, 1); spawnSpark(p.x, p.y)   // 충돌 연출
+          if (p.power > hp) { p.power -= hp; p.pierceCd = now + 90 }   // 관통: 파워 > HP면 뚫고 진행(파워 감소), 아니면 명중 폭발
           else { explode(p.x, p.y, p.power); bcBoom('missile', p.mid, p.x, p.y, p.power); projectiles.splice(i, 1); continue }
         }
         // missile vs an enemy missile → mutual attrition (bigger punches through, shrinks; both die if equal).
