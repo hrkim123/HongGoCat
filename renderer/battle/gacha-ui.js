@@ -551,7 +551,11 @@
       if (!peers.length) { pBox.innerHTML += '<div class="bg-sub">접속한 다른 유저가 없어요</div>' }
       peers.forEach((p) => {
         const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:5px;align-items:center;margin-bottom:6px;flex-wrap:wrap'
-        row.innerHTML = `<span style="flex:1 0 100%;font-size:12px;color:#e8ebf0">${p.name || ('#' + p.id)}</span>`
+        const nameRow = document.createElement('div'); nameRow.style.cssText = 'flex:1 0 100%;display:flex;align-items:center;gap:6px'
+        nameRow.innerHTML = `<span style="flex:1;font-size:12px;color:#e8ebf0">${p.name || ('#' + p.id)}</span>`
+        const chal = document.createElement('button'); chal.className = 'bg-btn'; chal.textContent = '⚔ 배틀 신청'; chal.style.cssText = 'padding:5px 9px;font-size:12px;background:#2f6bd8;border-color:#3f7ce8'
+        chal.onclick = () => { if (window.__battleRequest) window.__battleRequest(p.id); close() }
+        nameRow.appendChild(chal); row.appendChild(nameRow)
         const mk = (ph) => { const i = document.createElement('input'); i.type = 'number'; i.placeholder = ph; i.style.cssText = 'width:64px;padding:5px;border-radius:7px;background:#242a36;color:#e8ebf0;border:1px solid #3a4150;font-size:12px'; return i }
         const ic = mk('🪙'), ig = mk('💎'), im = mk('🔩')
         const b = document.createElement('button'); b.className = 'bg-btn'; b.textContent = '전송'

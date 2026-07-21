@@ -26,10 +26,12 @@
       baseHp: [cfg.baseHp, cfg.baseHp],
       baseHpMax: cfg.baseHp,
       units: [],
+      ghosts: [],             // 멀티: 상대(고스트) 유닛 [{uid,type,L,hp}] — 내 유닛의 타겟/이동 기준(데미지는 릴레이)
       winner: null,           // 0 | 1 | null
       cfg,
-      events: [],             // {type:'spawn'|'hit'|'die'|'basehit', ...} — 렌더/릴레이가 소비
+      events: [],             // {type:'spawn'|'hit'|'die'|'basehit'|'ghosthit', ...} — 렌더/릴레이가 소비
     }
+    function setGhosts(list) { st.ghosts = list || [] }
 
     // side: 0 или 1. type: unit id. 반환: 성공 여부(마나)
     function spawn(side, type, opts) {
@@ -51,9 +53,10 @@
     }
 
     function nearestEnemy(u) {
-      let best = null, bd = Infinity
-      for (const e of st.units) { if (e.side === u.side || e.hp <= 0) continue; const d = Math.abs(e.L - u.L); if (d < bd) { bd = d; best = e } }
-      return { e: best, d: bd }
+      let best = null, bd = Infinity, ghost = false
+      for (const e of st.units) { if (e.side === u.side || e.hp <= 0) continue; const d = Math.abs(e.L - u.L); if (d < bd) { bd = d; best = e; ghost = false } }
+      for (const g of st.ghosts) { if (g.hp <= 0) continue; const d = Math.abs(g.L - u.L); if (d < bd) { bd = d; best = g; ghost = true } }   // 멀티: 상대 고스트도 타겟
+      return { e: best, d: bd, ghost }
     }
     // 서포트 유닛 앞쪽(적 방향)에 있는 "가장 가까운 전투 아군"의 L. 없으면 null → 서포트는 그 뒤에서 대기·전진.
     function nearestCombatAllyAhead(u) {
@@ -106,7 +109,7 @@
         if (u.frozenUntil && u.frozenUntil > st.t) continue   // ❄ 빙결: 이동·공격 정지
         const range = (u.stats.atk && u.stats.atk.range) || 0.02
         const enemyBaseL = u.side === 0 ? 1 : 0
-        const { e: tgt, d: td } = nearestEnemy(u)
+        const { e: tgt, d: td, ghost: tgtGhost } = nearestEnemy(u)
         const distBase = Math.abs(u.L - enemyBaseL)
         const atkType = u.stats.atk && u.stats.atk.type
         const hasAtk = atkType && atkType !== 'none'
@@ -123,7 +126,8 @@
           if (inTgt || inBase) {
             const aoe = u.stats.atk.aoeR || 0.05, dmg = u.stats.atk.dmg || 1
             for (const e of st.units) { if (e.side !== u.side && e.hp > 0 && Math.abs(e.L - u.L) <= aoe) applyDamage(e, dmg, u.side) }
-            if (inBase && !inTgt) { const es = u.side === 0 ? 1 : 0; st.baseHp[es] = Math.max(0, st.baseHp[es] - dmg) }
+            for (const g of st.ghosts) { if (g.hp > 0 && Math.abs(g.L - u.L) <= aoe) st.events.push({ type: 'ghosthit', uid: g.uid, dmg }) }   // 멀티: 고스트 광역 피격 릴레이
+            if (inBase && !inTgt) { const es = u.side === 0 ? 1 : 0; st.baseHp[es] = Math.max(0, st.baseHp[es] - dmg); st.events.push({ type: 'basehit', side: es, dmg }) }
             st.events.push({ type: 'boom', uid: u.uid, L: u.L, side: u.side, aoeR: aoe })
             st.events.push({ type: 'die', uid: u.uid, side: u.side, L: u.L, unit: u.type })
             u.hp = 0; continue
@@ -139,10 +143,10 @@
               u.cdLeft = u.stats.atk.cd || 1
               const dmg = Math.round((u.stats.atk.dmg || 1) * (1 + (u._auraAtk || 0)))   // 오라 공격 버프
               if (isMelee) {   // 근접: 즉시(접촉)
-                if (inTgt) { applyDamage(tgt, dmg, u.side); st.events.push({ type: 'hit', by: u.uid, target: tgt.uid, dmg }) }
+                if (inTgt) { if (tgtGhost) st.events.push({ type: 'ghosthit', uid: tgt.uid, dmg }); else { applyDamage(tgt, dmg, u.side); st.events.push({ type: 'hit', by: u.uid, target: tgt.uid, dmg }) } }
                 else { const es = u.side === 0 ? 1 : 0; st.baseHp[es] = Math.max(0, st.baseHp[es] - dmg); st.events.push({ type: 'basehit', side: es, dmg }) }
-              } else {   // 원거리: 실제 투사체 발사(컨트롤러가 처리)
-                st.events.push({ type: 'fire', by: u.uid, side: u.side, fromL: u.L, dir: u.dir, dmg, atkType, aoeR: u.stats.atk.aoeR || 0, slow: u.stats.atk.slow || 0, slowDur: u.stats.atk.slowDur || 0, targetUid: inTgt ? tgt.uid : null, toL: inTgt ? tgt.L : (u.side === 0 ? 1 : 0) })
+              } else {   // 원거리: 실제 투사체 발사(컨트롤러가 처리). ghost=true면 명중 시 릴레이.
+                st.events.push({ type: 'fire', by: u.uid, side: u.side, fromL: u.L, dir: u.dir, dmg, atkType, aoeR: u.stats.atk.aoeR || 0, slow: u.stats.atk.slow || 0, slowDur: u.stats.atk.slowDur || 0, targetUid: inTgt ? tgt.uid : null, toL: inTgt ? tgt.L : (u.side === 0 ? 1 : 0), ghost: !!(inTgt && tgtGhost) })
               }
             }
           }
@@ -210,7 +214,7 @@
     function hitBase(side, dmg) { st.baseHp[side] = Math.max(0, st.baseHp[side] - dmg) }   // 승패는 step에서 판정
     function unitByUid(uid) { return st.units.find((x) => x.uid === uid) }
 
-    return { state: st, spawn, step, makeAI, drainEvents, hitUnit, hitBase, unitByUid }
+    return { state: st, spawn, step, makeAI, drainEvents, hitUnit, hitBase, unitByUid, setGhosts }
   }
 
   window.BattleSim = { newBattle }

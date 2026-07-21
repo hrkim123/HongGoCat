@@ -833,6 +833,14 @@
       else if (msg.t === 'dig') { carveTaskbar((msg.nx || 0) * canvas.clientWidth, msg.power || 1, false) }  // shared taskbar damage
       else if (msg.t === 'digreset') { resetTaskbarDig(false) }   // someone restored → everyone restores
       else if (msg.t === 'peace') { setPeace(!!msg.on, true) }    // dev toggled peace mode → lock/unlock weapons for me too
+      // ── 멀티 배틀 ── (to === me.netId 만 처리)
+      else if (msg.t === 'battle-req') { if (msg.to === me.netId && !battleActive && !battleIncoming) { const p = peers.get(msg.id); showBattleInvitePopup(msg.id, (p && p.name) || '상대') } else if (msg.to === me.netId && connected()) net.send(JSON.stringify({ t: 'battle-dec', to: msg.id, reason: 'busy' })) }
+      else if (msg.t === 'battle-acc') { if (msg.to === me.netId && battleInvite && battleInvite.to === msg.id) { battleInvite = null; startBattleMulti(msg.id, 0) } }   // 내 신청 수락됨 → 신청자=side0
+      else if (msg.t === 'battle-dec') { if (msg.to === me.netId && battleInvite && battleInvite.to === msg.id) { battleInvite = null; showToast(msg.reason === 'busy' ? '상대가 배틀 중입니다' : '상대가 배틀을 거절했습니다') } }
+      else if (msg.t === 'battle-end') { if (battleMulti && msg.id === battleMulti.oppId && battlePhase !== 'result') { battlePhase = 'result'; battleResultAt = performance.now(); battleWin = true; seedBattleConfetti(); recordBattleWin() } }   // 상대가 패배/이탈 통지 → 내 승리
+      else if (msg.t === 'bunits') { if (battleMulti && msg.id === battleMulti.oppId && msg.to === me.netId) { battleGhosts = (msg.list || []).map((g) => ({ uid: g.uid, type: g.type, L: 1 - g.L, hp: g.hp, shHp: g.shHp, frozen: g.frozen, slowed: g.slowed })); battleGhostBase = msg.base != null ? msg.base : battleGhostBase } }   // 상대 유닛(미러링) + 상대 기지 HP
+      else if (msg.t === 'bghit') { if (battleMulti && msg.to === me.netId && battle) { battle.hitUnit(msg.uid, msg.dmg || 0, msg.slow || 0, msg.slowDur || 0) } }   // 내 유닛이 맞음(상대가 통지) → 로컬 적용(권한)
+      else if (msg.t === 'bbhit') { if (battleMulti && msg.to === me.netId && battle) { battle.hitBase(0, msg.dmg || 0) } }   // 내 기지가 맞음 → 로컬 적용
       else if (msg.t === 'gatling') {
         if (msg.active) remoteGatlings.set(msg.id, { nx: msg.nx, ny: msg.ny, hp: msg.hp, ang: msg.ang })
         else remoteGatlings.delete(msg.id)
@@ -987,6 +995,7 @@
     window.BattleGachaUI.setCountBridge({ get: () => tapCount, spend: (n) => { spendCoins(n) }, set: (n) => { tapCount = Math.max(0, n | 0); counterDirty = true; renderCounter() } })
     window.BattleGachaUI.setDev(isDev)
     window.__startBattle = startBattleSolo   // 배틀은 오버레이 통합(app.js)에서 시작
+    window.__battleRequest = sendBattleRequest   // 멀티 배틀 신청
     window.BattleGachaUI.setDevContext({
       peers: () => [...peers.values()].map((p) => ({ id: p.id, name: p.name })),
       setPeer: (id, cur) => { if (net && connected()) net.send(JSON.stringify({ t: 'setcur', target: id, count: cur.count, gems: cur.gems, mat: cur.mat })) },
@@ -3413,6 +3422,9 @@
   // ---------- 배틀 모드 (오버레이 통합: 실제 작업표시줄 위 · 별도 캔버스 아님) ----------
   let battleActive = false, battle = null, battleAI = null, battleLastT = 0, battleResultAt = 0
   let battleAtkAt = {}, battleDead = [], battleOpp = null, battleHud = null, battleShieldFlash = {}, battleHealFx = [], battleFalls = []
+  // 멀티 배틀: 상대와 1v1. battleMulti = { oppId, mySide(0=신청자/1=수락자), oppName } · null이면 솔로.
+  let battleMulti = null, battleInvite = null, battleIncoming = null
+  let battleGhosts = [], battleGhostBase = 100, bunitsLastSend = 0   // 상대(고스트) 유닛 + 상대 기지 HP
   let battleSavedCarve, battleSavedBarDmg = 0
   let battlePhase = 'idle', battlePhaseAt = 0, battleWin = false, battleConfetti = []   // 'countdown' | 'playing' | 'result'
   const BATTLE_CD_MS = 3200   // 3·2·1 (각 800ms) + START(800ms)
@@ -3447,16 +3459,66 @@
     const hb = unitHitboxScreen(sprite, size), m = margin || 0
     return Math.abs(x - fx) < hb.halfW + m && y < feetY + 5 * view.scale + m && y > feetY - hb.top - m
   }
-  function startBattleSolo() {
-    if (!(window.BattleSim && window.BattleData)) { showToast('배틀 모듈 로드 안 됨'); return }
-    if (window.BattleGacha && window.BattleGacha.deckReady && !window.BattleGacha.deckReady()) { showToast('덱 구성을 완료하세요 — 소환체 3개 이상, 무기 1개 이상'); return }
+  function _enterBattle() {   // 솔로/멀티 공통 진입 셋업
     battle = window.BattleSim.newBattle({ speedScale: 0.44 })   // 냥코풍 느린 행군 (0.55 → ×0.8)
-    battleAI = battle.makeAI(1, ['ant', 'rifleman', 'grenadier', 'mechaAnt', 'mechaHuman'].filter((id) => window.BattleData.UNITS[id]), 1.4)
-    battleOpp = Object.assign({ id: 'battleOpp', animal: 'cat', name: '상대', skin: 'gray', pattern: 'solid', hat: 'none', ear: 'pointed', eye: 'oval', mouth: 'smile', tail: 'curl', shape: {}, hp: CAT_HP }, newAnimState())
-    battleAtkAt = {}; battleShieldFlash = {}; battleHealFx = []; battleFalls = []; battleDead = []; bproj.length = 0; battleResultAt = 0; battleLastT = performance.now(); battleActive = true
+    battleAtkAt = {}; battleShieldFlash = {}; battleHealFx = []; battleFalls = []; battleDead = []; bproj.length = 0
+    battleGhosts = []; battleGhostBase = battle.state.baseHpMax; bunitsLastSend = 0
+    battleResultAt = 0; battleLastT = performance.now(); battleActive = true
     battlePhase = 'countdown'; battlePhaseAt = performance.now(); battleConfetti = []   // 3·2·1·START 후 시작
     battleSavedCarve = carve ? carve.slice() : null; battleSavedBarDmg = barDamage; resetTaskbarDig(false)   // 배틀은 복원된(깨끗한) 작업표시줄로 시작
     buildBattleHud(); sendHotzone(); recordBattlePlay()   // 🏆 배틀 참여 업적
+  }
+  function startBattleSolo() {
+    if (!(window.BattleSim && window.BattleData)) { showToast('배틀 모듈 로드 안 됨'); return }
+    if (window.BattleGacha && window.BattleGacha.deckReady && !window.BattleGacha.deckReady()) { showToast('덱 구성을 완료하세요 — 소환체 3개 이상, 무기 1개 이상'); return }
+    battleMulti = null
+    _enterBattle()
+    battleAI = battle.makeAI(1, ['ant', 'rifleman', 'grenadier', 'mechaAnt', 'mechaHuman'].filter((id) => window.BattleData.UNITS[id]), 1.4)
+    battleOpp = Object.assign({ id: 'battleOpp', animal: 'cat', name: '상대', skin: 'gray', pattern: 'solid', hat: 'none', ear: 'pointed', eye: 'oval', mouth: 'smile', tail: 'curl', shape: {}, hp: CAT_HP }, newAnimState())
+  }
+  // 멀티 배틀 진입. mySide: 0=신청자, 1=수락자. 상대 고양이는 그 피어의 실제 외형으로 우측 끝에.
+  function startBattleMulti(oppId, mySide) {
+    if (!(window.BattleSim && window.BattleData)) { showToast('배틀 모듈 로드 안 됨'); return }
+    const opp = peers.get(oppId)
+    battleMulti = { oppId, mySide, oppName: (opp && opp.name) || '상대' }
+    battleAI = null
+    _enterBattle()
+    // 상대 고양이 = 그 피어 외형(없으면 기본). 렌더는 항상 "나=좌, 상대=우"로 미러링.
+    battleOpp = Object.assign({ id: 'battleOpp', animal: (opp && opp.animal) || 'cat', name: battleMulti.oppName,
+      skin: (opp && opp.tint) || 'gray', pattern: (opp && opp.pattern) || 'solid', hat: (opp && opp.hat) || 'none',
+      ear: 'pointed', eye: 'oval', mouth: 'smile', tail: 'curl', shape: (opp && opp.shape) || {}, hp: CAT_HP }, newAnimState())
+    showToast(`⚔ ${battleMulti.oppName} 님과 배틀 시작!`)
+  }
+  // ── 배틀 신청/수락 핸드셰이크 ──
+  function sendBattleRequest(peerId) {
+    if (!connected()) { showToast('멀티 접속 후 신청 가능'); return }
+    if (battleActive) { showToast('이미 배틀 중'); return }
+    if (window.BattleGacha && window.BattleGacha.deckReady && !window.BattleGacha.deckReady()) { showToast('덱 구성을 완료하세요 — 소환체 3개 이상, 무기 1개 이상'); return }
+    const p = peers.get(peerId); if (!p) { showToast('상대를 찾을 수 없어요'); return }
+    battleInvite = { to: peerId, at: performance.now() }
+    net.send(JSON.stringify({ t: 'battle-req', to: peerId }))
+    showToast(`⚔ ${p.name || '상대'} 님에게 배틀 신청… 응답 대기`)
+  }
+  function showBattleInvitePopup(fromId, fromName) {
+    if (document.querySelector('.bm-invite')) return
+    battleIncoming = { from: fromId, name: fromName }
+    const back = document.createElement('div'); back.className = 'no-drag bm-invite'
+    back.style.cssText = 'position:fixed;inset:0;z-index:2147483200;display:flex;align-items:center;justify-content:center;background:rgba(6,8,12,.5);font-family:system-ui,"맑은 고딕",sans-serif'
+    const card = document.createElement('div')
+    card.style.cssText = 'background:linear-gradient(180deg,#1a1f28,#12151b);border:1px solid #39414f;border-radius:14px;padding:20px 22px;width:min(340px,88vw);text-align:center;box-shadow:0 18px 50px rgba(0,0,0,.6)'
+    card.innerHTML = `<div style="font-size:15px;color:#cfd4de;margin-bottom:6px">⚔ 배틀 신청</div>` +
+      `<div style="font-size:17px;font-weight:700;color:#fff;margin-bottom:16px"><b style="color:#8fd3ff">${fromName}</b> 님이 배틀을 신청했습니다</div>` +
+      `<div style="display:flex;gap:10px"><button class="bmno" style="flex:1;padding:11px;border-radius:9px;border:1px solid #3a4150;background:#242a36;color:#e8ebf0;font-size:14px;cursor:pointer">거절</button>` +
+      `<button class="bmyes" style="flex:1;padding:11px;border-radius:9px;border:1px solid #2f6bd8;background:#2f6bd8;color:#fff;font-weight:700;font-size:14px;cursor:pointer">수락 ⚔</button></div>`
+    back.appendChild(card); document.body.appendChild(back); sendHotzone()
+    const close = () => { back.remove(); battleIncoming = null; sendHotzone() }
+    card.querySelector('.bmno').onclick = () => { if (connected()) net.send(JSON.stringify({ t: 'battle-dec', to: fromId })); close() }
+    card.querySelector('.bmyes').onclick = () => {
+      if (!connected()) { close(); return }
+      if (window.BattleGacha && window.BattleGacha.deckReady && !window.BattleGacha.deckReady()) { showToast('덱 구성 먼저 완료하세요'); return }
+      net.send(JSON.stringify({ t: 'battle-acc', to: fromId })); close()
+      startBattleMulti(fromId, 1)   // 수락자 = side1
+    }
   }
   // 나가기 확인 팝업 — 나가면 패배 처리(승패 판정과 연관). YES/NO.
   function confirmExitBattle() {
@@ -3475,11 +3537,14 @@
     card.querySelector('.bxno').onclick = closeC
     card.querySelector('.bxyes').onclick = () => {   // 자발적 이탈 = 패배
       closeC()
-      if (battle && battlePhase !== 'result') { battlePhase = 'result'; battleResultAt = performance.now(); battleWin = false; seedBattleConfetti() }
+      if (battle && battlePhase !== 'result') { battlePhase = 'result'; battleResultAt = performance.now(); battleWin = false; seedBattleConfetti(); if (battleMulti && connected()) net.send(JSON.stringify({ t: 'battle-end', to: battleMulti.oppId, result: 'loser' })) }
       else stopBattle()
     }
   }
   function stopBattle() {
+    // 멀티: 결과 연출 없이 나가면(중도 이탈) 상대에게 패배 통지
+    if (battleMulti && battlePhase !== 'result' && connected()) net.send(JSON.stringify({ t: 'battle-end', to: battleMulti.oppId, result: 'loser' }))
+    battleMulti = null; battleGhosts = []
     battleActive = false; battle = null; bproj.length = 0; battlePhase = 'idle'; battleConfetti = []
     { const c = document.querySelector('.bx-confirm'); if (c) c.remove() }
     if (battleSavedCarve !== undefined) { carve = battleSavedCarve; barDamage = battleSavedBarDmg || 0; carveDirty = true; battleSavedCarve = undefined }   // 원래 작업표시줄 상태 복귀
@@ -3551,7 +3616,9 @@
     let dt = (now - (battleLastT || now)) / 1000; battleLastT = now; if (dt > 0.1) dt = 0.1
     // 카운트다운 중엔 시뮬 정지(마나·행군 없음). 화면만 배틀 뷰.
     if (battlePhase === 'countdown') { if (now - battlePhaseAt >= BATTLE_CD_MS) { battlePhase = 'playing'; battleLastT = now } return }
-    if (battleAI) battleAI(dt); battle.step(dt)
+    if (battleAI) battleAI(dt)
+    if (battleMulti) battle.setGhosts(battleGhosts)   // 멀티: 내 유닛이 상대(고스트)를 타겟하도록
+    battle.step(dt)
     // 지상 유닛 구멍 낙하: 지형이 관통될 만큼 파이면 그 위 지상 유닛은 아래로 떨어져 제거(공중형 제외). 참호 전략.
     const fellUids = new Set()
     for (const u of battle.state.units) {
@@ -3568,13 +3635,23 @@
       else if (e.type === 'heal') battleHealFx.push({ medL: e.medL, healL: e.healL, born: now })           // 메딕 힐 → 초록 십자(본인+대상)
       else if (e.type === 'boom') { const bx = battleLaneX(e.L), by = antGroundY(bx) - 20 * view.scale; addEffect(bx, by, 3); for (let k = 0; k < 12; k++) spawnSpark(bx + (Math.random() - 0.5) * (e.aoeR || 0.05) * canvas.clientWidth, by + (Math.random() - 0.5) * 30 * view.scale); if (inTaskbar(bx, antGroundY(bx))) carveTaskbar(bx, 0.6, false) }   // 카미카제 자폭
       else if (e.type === 'freeze') { const fx = battleLaneX(e.L), fy = antGroundY(fx) - 22 * view.scale; for (let k = 0; k < 10; k++) spawnSpark(fx + (Math.random() - 0.5) * 30 * view.scale, fy + (Math.random() - 0.5) * 40 * view.scale) }   // 빙결 순간
+      else if (e.type === 'ghosthit') { if (battleMulti && connected()) net.send(JSON.stringify({ t: 'bghit', to: battleMulti.oppId, uid: e.uid, dmg: e.dmg, slow: e.slow || 0, slowDur: e.slowDur || 0 })) }   // 멀티: 상대 유닛 피격 릴레이(근접/광역)
+      else if (e.type === 'basehit') { if (battleMulti && e.side === 1 && connected()) net.send(JSON.stringify({ t: 'bbhit', to: battleMulti.oppId, dmg: e.dmg })) }   // 멀티: 상대 기지 피격 릴레이(근접)
+    }
+    // 멀티: 내 유닛 목록 + 기지HP 방송(스로틀 100ms)
+    if (battleMulti && connected() && battlePhase === 'playing' && now - bunitsLastSend > 100) {
+      bunitsLastSend = now
+      const list = battle.state.units.map((u) => ({ uid: u.uid, type: u.type, L: +u.L.toFixed(3), hp: u.hp, shHp: u.shHp || 0, frozen: (u.frozenUntil && u.frozenUntil > battle.state.t) ? 1 : 0, slowed: (u.slowUntil && u.slowUntil > battle.state.t) ? 1 : 0 }))
+      net.send(JSON.stringify({ t: 'bunits', to: battleMulti.oppId, list, base: battle.state.baseHp[0], mana: +battle.state.mana[0].toFixed(1) }))
     }
     for (let i = battleHealFx.length - 1; i >= 0; i--) if (now - battleHealFx[i].born > 650) battleHealFx.splice(i, 1)
     for (let i = battleFalls.length - 1; i >= 0; i--) { const f = battleFalls[i]; f.vy += 0.8; f._y = (f._y || 0) + f.vy; if (f._y > canvas.clientHeight + 60) battleFalls.splice(i, 1) }   // 구멍으로 낙하
     stepBattleProj(now, dt)
     for (let i = battleDead.length - 1; i >= 0; i--) if (now - battleDead[i].born > 900) battleDead.splice(i, 1)
     updateBattleHud()
-    if (battle.state.winner != null && battlePhase !== 'result') { battlePhase = 'result'; battleResultAt = now; battleWin = battle.state.winner === 0; seedBattleConfetti(); if (battleWin) recordBattleWin() }   // 🏆 배틀 승리 업적
+    if (battleMulti) {   // 멀티: 내 기지 HP가 권한(상대가 bbhit 릴레이). 0이면 내 패배 → 상대에게 통지.
+      if (battle.state.baseHp[0] <= 0 && battlePhase !== 'result') { battlePhase = 'result'; battleResultAt = now; battleWin = false; seedBattleConfetti(); if (connected()) net.send(JSON.stringify({ t: 'battle-end', to: battleMulti.oppId, result: 'loser' })) }
+    } else if (battle.state.winner != null && battlePhase !== 'result') { battlePhase = 'result'; battleResultAt = now; battleWin = battle.state.winner === 0; seedBattleConfetti(); if (battleWin) recordBattleWin() }   // 솔로 승리 업적
     if (battleResultAt && now - battleResultAt > 3000) stopBattle()   // 결과 연출 3초 뒤 원래 화면 복귀
   }
   function drawBattleUnits(now) {
@@ -3630,6 +3707,18 @@
       const w = 24 * s, f = u.hp / u.maxHp
       ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(x - w / 2, y - 44 * s, w, 3.5)
       ctx.fillStyle = f > 0.4 ? '#7ecb7e' : '#e24b4a'; ctx.fillRect(x - w / 2, y - 44 * s, w * f, 3.5)
+    }
+    // 멀티: 상대(고스트) 유닛 — 미러링돼 우측→좌측 전진, facing=-1
+    if (battleMulti) for (const g of battleGhosts) {
+      if (g.hp <= 0) continue
+      const gdef = window.BattleData.UNITS[g.type] || {}, gx = battleLaneX(g.L), gy = battleUnitFeetY(gx, gdef.flying)
+      const gs = view.scale * BATTLE_UNIT_SCALE * (gdef.size || 1)
+      if (g.type === 'mechaAnt') drawOverlayMechaAt(gx, gy, 0.43 * (gdef.size || 1.6), -1, 0, now, { walking: true, shHp01: g.shHp > 0 ? 1 : null })
+      else if (g.type === 'mechaHuman') drawOverlayMechaAt(gx, gy, 0.46 * (gdef.size || 1.7), -1, 1, now, { walking: false, shHp01: g.shHp > 0 ? 1 : null })
+      else if (g.type === 'human') drawOverlayHumanAt(gx, gy, 0.80 * (gdef.size || 1.3), -1, now)
+      else window.BattleSprites.draw(ctx, g.type, { x: gx, y: gy, scale: gs, facing: -1, state: 'walk', t: g.uid * 0.31 + now / 1000 })
+      if (g.shHp > 0 && !(g.type === 'mechaAnt' || g.type === 'mechaHuman')) drawBattleShield(gx, gy, gs, { uid: 'g' + g.uid, shHp: 1, shMax: 1 }, now)
+      if (g.frozen || g.slowed) { const hb = unitHitboxScreen(g.type, gdef.size); ctx.save(); ctx.globalAlpha = g.frozen ? 0.5 : 0.24; ctx.fillStyle = g.frozen ? 'rgba(170,225,255,1)' : 'rgba(140,200,255,1)'; ctx.beginPath(); ctx.roundRect(gx - hb.halfW, gy - hb.top, hb.halfW * 2, hb.top + 4 * view.scale, 6 * view.scale); ctx.fill(); ctx.restore() }
     }
     // 메딕 힐 초록 십자 — 메딕 본인 + 회복 대상 양쪽에 표시
     for (const h of battleHealFx) {
@@ -3742,7 +3831,9 @@
     const sc = Math.max(1, view.scale)
     const w = 150 * sc, h = 17 * sc, r = h / 2
     const y = antGroundY(x) - 172 * sc            // 고양이 머리 위로 충분히 올려 겹침 방지
-    const hp = battle.state.baseHp[side], max = battle.state.baseHpMax, f = Math.max(0, hp / max)
+    const max = battle.state.baseHpMax
+    const hp = (battleMulti && side === 1) ? battleGhostBase : battle.state.baseHp[side]   // 멀티: 상대 기지 HP는 상대 방송값(권한)
+    const f = Math.max(0, hp / max)
     const mine = side === 0
     const x0 = x - w / 2
     ctx.save()
@@ -3935,9 +4026,26 @@
         }
       }
       if (done) { bproj.splice(i, 1); continue }
-      // 적 기지(고양이) 충돌
+      // 멀티: 상대(고스트) 유닛 충돌 → 데미지 릴레이(소유자가 적용). 관통 없이 명중 소멸.
+      if (battleMulti && p.bside === 0) {
+        for (const g of battleGhosts) {
+          if (g.hp <= 0) continue
+          const gx = battleLaneX(g.L), gdef = window.BattleData.UNITS[g.type] || {}
+          if (inUnitBody(p.x, p.y, gx, battleUnitFeetY(gx, gdef.flying), g.type, gdef.size, 2 * view.scale)) {
+            if (p.aoe) { for (const e of battleGhosts) if (e.hp > 0 && Math.abs(battleLaneX(e.L) - p.x) < p.aoe * W && connected()) net.send(JSON.stringify({ t: 'bghit', to: battleMulti.oppId, uid: e.uid, dmg: p.dmg, slow: p.slow || 0, slowDur: p.slowDur || 0 })); addEffect(p.x, p.y, 1) }
+            else { if (connected()) net.send(JSON.stringify({ t: 'bghit', to: battleMulti.oppId, uid: g.uid, dmg: p.dmg, slow: p.slow || 0, slowDur: p.slowDur || 0 })); spawnSpark(p.x, p.y) }
+            g.hp -= p.dmg; done = true; break
+          }
+        }
+        if (done) { bproj.splice(i, 1); continue }
+      }
+      // 적 기지 충돌. 멀티는 상대 기지 = 릴레이(bbhit), 솔로는 로컬 hitBase.
       const bx = battleLaneX(p.bside === 0 ? 1 : 0)
-      if (Math.abs(p.x - bx) < 26 * view.scale && p.y > antGroundY(bx) - 92 * view.scale) { battle.hitBase(p.bside === 0 ? 1 : 0, p.dmg); if (p.aoe) addEffect(p.x, p.y, 1); else spawnSpark(p.x, p.y); bproj.splice(i, 1); continue }
+      if (Math.abs(p.x - bx) < 26 * view.scale && p.y > antGroundY(bx) - 92 * view.scale) {
+        if (battleMulti && p.bside === 0) { if (connected()) net.send(JSON.stringify({ t: 'bbhit', to: battleMulti.oppId, dmg: p.dmg })) }
+        else battle.hitBase(p.bside === 0 ? 1 : 0, p.dmg)
+        if (p.aoe) addEffect(p.x, p.y, 1); else spawnSpark(p.x, p.y); bproj.splice(i, 1); continue
+      }
       // 땅 충돌 → 파임 (참호 전략)
       if (inTaskbar(p.x, p.y)) { carveTaskbar(p.x, PROJ_DIG[p.kind], false); if (p.aoe || PROJ_DIG[p.kind] >= 1) addEffect(p.x, p.y, 1); else spawnSpark(p.x, p.y); bproj.splice(i, 1); continue }
       if (now - p.born > p.life || p.x < -30 || p.x > W + 30 || p.y > canvas.clientHeight + 40) bproj.splice(i, 1)

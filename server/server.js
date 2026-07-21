@@ -145,6 +145,21 @@ wss.on('connection', (ws, req) => {
       broadcast(joinedRoom, { t: 'plathp', id, ups: msg.ups.slice(0, 40) }, id)          // host → peers (platform HP deltas)
     } else if (msg.t === 'plat-hit') {
       broadcast(joinedRoom, { t: 'plat-hit', id, pid: msg.pid, dmg: msg.dmg }, id)        // peer → host (report a platform hit)
+    // ── 멀티 배틀 (1v1) ── 대부분 target(to) 지정, 클라가 to===me.netId로 필터
+    } else if (msg.t === 'battle-req') {
+      broadcast(joinedRoom, { t: 'battle-req', id, to: msg.to, bet: msg.bet || null }, id)   // 신청(+베팅)
+    } else if (msg.t === 'battle-acc') {
+      broadcast(joinedRoom, { t: 'battle-acc', id, to: msg.to }, id)                          // 수락
+    } else if (msg.t === 'battle-dec') {
+      broadcast(joinedRoom, { t: 'battle-dec', id, to: msg.to, reason: msg.reason || '' }, id) // 거절/취소
+    } else if (msg.t === 'battle-end') {
+      broadcast(joinedRoom, { t: 'battle-end', id, to: msg.to, result: msg.result }, id)      // 종료/이탈(승패)
+    } else if (msg.t === 'bunits' && Array.isArray(msg.list)) {
+      broadcast(joinedRoom, { t: 'bunits', id, to: msg.to, list: msg.list.slice(0, 40), base: msg.base, mana: msg.mana }, id)  // 내 유닛 목록+기지HP 방송
+    } else if (msg.t === 'bghit') {
+      broadcast(joinedRoom, { t: 'bghit', id, to: msg.to, uid: msg.uid, dmg: msg.dmg, slow: msg.slow, slowDur: msg.slowDur }, id) // 상대 유닛 피격(소유자 적용)
+    } else if (msg.t === 'bbhit') {
+      broadcast(joinedRoom, { t: 'bbhit', id, to: msg.to, dmg: msg.dmg }, id)                 // 상대 기지 피격(소유자 적용)
     } else if (msg.t === 'chat' && typeof msg.text === 'string') {
       const now = Date.now()
       if (now - (me.lastChat || 0) < 400) return // spam guard
