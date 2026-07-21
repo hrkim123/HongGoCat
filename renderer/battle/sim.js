@@ -65,6 +65,11 @@
       if (target.hp <= 0) { target.hp = 0; st.events.push({ type: 'die', uid: target.uid, side: target.side, L: target.L, unit: target.type }) }
     }
 
+    function nearestAllyHurt(u, range) {   // 메딕: 사거리 내 체력 깎인 아군(자기 제외)
+      let best = null, bd = Infinity
+      for (const e of st.units) { if (e.side !== u.side || e === u || e.hp <= 0 || e.hp >= e.maxHp) continue; const d = Math.abs(e.L - u.L); if (d <= range && d < bd) { bd = d; best = e } }
+      return best
+    }
     function step(dt) {
       if (st.winner != null) return
       st.t += dt
@@ -73,18 +78,43 @@
       for (const u of st.units) { if (u.hp <= 0) continue; const mb = D.UNITS[u.type] && D.UNITS[u.type].manaBuff; if (mb) st.manaBuff[u.side] += mb }
       for (let s = 0; s < 2; s++) st.mana[s] = clamp(st.mana[s] + (cfg.manaRegen + st.manaBuff[s]) * dt, 0, cfg.manaCap)
 
+      // 지휘 개미 오라: 살아있는 커맨더 주변(같은 side) 아군 공격/속도 버프(최대치 적용, 중첩 X)
+      for (const u of st.units) { u._auraAtk = 0; u._auraSpd = 0 }
+      for (const c of st.units) {
+        if (c.hp <= 0) continue; const cd = D.UNITS[c.type]; const aura = cd && cd.aura; if (!aura) continue
+        for (const u of st.units) { if (u.side !== c.side || u.hp <= 0) continue; if (Math.abs(u.L - c.L) <= aura.range) { u._auraAtk = Math.max(u._auraAtk, aura.atk || 0); u._auraSpd = Math.max(u._auraSpd, aura.speed || 0) } }
+      }
+
       for (const u of st.units) {
         if (u.hp <= 0) continue
-        if (u.shMax != null && u.shHp < u.shMax && st.t - u.shHitAt >= u.shCooldown) u.shHp = u.shMax // 피격 없이 cooldown초 지나야 재충전(교전 중 재생 X)
+        if (u.shMax != null && u.shHp < u.shMax && st.t - u.shHitAt >= u.shCooldown) u.shHp = u.shMax // 피격 없이 cooldown초 지나야 재충전
+        if (u.frozenUntil && u.frozenUntil > st.t) continue   // ❄ 빙결: 이동·공격 정지
         const range = (u.stats.atk && u.stats.atk.range) || 0.02
         const enemyBaseL = u.side === 0 ? 1 : 0
         const { e: tgt, d: td } = nearestEnemy(u)
         const distBase = Math.abs(u.L - enemyBaseL)
-        const hasAtk = u.stats.atk && u.stats.atk.type && u.stats.atk.type !== 'none'
+        const atkType = u.stats.atk && u.stats.atk.type
+        const hasAtk = atkType && atkType !== 'none'
         let acting = false
 
-        if (hasAtk) {
-          const isMelee = u.stats.atk.type === 'melee'
+        if (atkType === 'heal') {   // 메딕: 아군 회복(투사체 X). 초록 십자 = 본인+대상.
+          const ally = nearestAllyHurt(u, range)
+          if (ally) {
+            acting = true; u.cdLeft -= dt
+            if (u.cdLeft <= 0) { u.cdLeft = u.stats.atk.cd || 1; const heal = u.stats.atk.heal || 3; ally.hp = Math.min(ally.maxHp, ally.hp + heal); st.events.push({ type: 'heal', by: u.uid, target: ally.uid, medL: u.L, healL: ally.L, side: u.side }) }
+          }
+        } else if (atkType === 'suicide') {   // 카미카제: 적/기지 접촉 시 자폭(광역) + 자신 사망
+          const inTgt = tgt && td <= range, inBase = distBase <= Math.max(range, cfg.baseRange)
+          if (inTgt || inBase) {
+            const aoe = u.stats.atk.aoeR || 0.05, dmg = u.stats.atk.dmg || 1
+            for (const e of st.units) { if (e.side !== u.side && e.hp > 0 && Math.abs(e.L - u.L) <= aoe) applyDamage(e, dmg, u.side) }
+            if (inBase && !inTgt) { const es = u.side === 0 ? 1 : 0; st.baseHp[es] = Math.max(0, st.baseHp[es] - dmg) }
+            st.events.push({ type: 'boom', uid: u.uid, L: u.L, side: u.side, aoeR: aoe })
+            st.events.push({ type: 'die', uid: u.uid, side: u.side, L: u.L, unit: u.type })
+            u.hp = 0; continue
+          }
+        } else if (hasAtk) {
+          const isMelee = atkType === 'melee'
           const inTgt = tgt && td <= range
           const inBase = distBase <= Math.max(range, cfg.baseRange) && !inTgt
           if (inTgt || inBase) {
@@ -92,21 +122,22 @@
             u.cdLeft -= dt
             if (u.cdLeft <= 0) {
               u.cdLeft = u.stats.atk.cd || 1
-              const dmg = u.stats.atk.dmg || 1
+              const dmg = Math.round((u.stats.atk.dmg || 1) * (1 + (u._auraAtk || 0)))   // 오라 공격 버프
               if (isMelee) {   // 근접: 즉시(접촉)
                 if (inTgt) { applyDamage(tgt, dmg, u.side); st.events.push({ type: 'hit', by: u.uid, target: tgt.uid, dmg }) }
                 else { const es = u.side === 0 ? 1 : 0; st.baseHp[es] = Math.max(0, st.baseHp[es] - dmg); st.events.push({ type: 'basehit', side: es, dmg }) }
-              } else {   // 원거리: 실제 투사체 발사(컨트롤러가 처리) — 즉시 데미지 X
-                st.events.push({ type: 'fire', by: u.uid, side: u.side, fromL: u.L, dir: u.dir, dmg, atkType: u.stats.atk.type, aoeR: u.stats.atk.aoeR || 0, slow: u.stats.atk.slow || 0, slowDur: u.stats.atk.slowDur || 0, targetUid: inTgt ? tgt.uid : null, toL: inTgt ? tgt.L : (u.side === 0 ? 1 : 0) })
+              } else {   // 원거리: 실제 투사체 발사(컨트롤러가 처리)
+                st.events.push({ type: 'fire', by: u.uid, side: u.side, fromL: u.L, dir: u.dir, dmg, atkType, aoeR: u.stats.atk.aoeR || 0, slow: u.stats.atk.slow || 0, slowDur: u.stats.atk.slowDur || 0, targetUid: inTgt ? tgt.uid : null, toL: inTgt ? tgt.L : (u.side === 0 ? 1 : 0) })
               }
             }
           }
         }
 
-        // 근접 유닛이 적과 접촉하면 멈춰 교전(전진 X). 그 외엔 전진.
+        // 이동: 오라 속도 버프 + 감속(slow). 근접 교전/사격 중엔 정지.
         const blocked = tgt && td <= Math.max(range, 0.02)
         const slowMul = (u.slowUntil && u.slowUntil > st.t) ? (u.slowMul || 1) : 1
-        if (!acting && !blocked) u.L = clamp(u.L + u.dir * u.stats.speed * (cfg.speedScale || 1) * slowMul * dt, 0, 1)
+        const spdMul = (1 + (u._auraSpd || 0)) * slowMul
+        if (!acting && !blocked) u.L = clamp(u.L + u.dir * u.stats.speed * (cfg.speedScale || 1) * spdMul * dt, 0, 1)
       }
 
       // 사망 제거
@@ -138,7 +169,15 @@
     function hitUnit(uid, dmg, slow, slowDur) {
       const u = st.units.find((x) => x.uid === uid); if (!u || u.hp <= 0) return
       applyDamage(u, dmg)
-      if (slow) { u.slowUntil = st.t + (slowDur || 1); u.slowMul = 1 - slow }
+      if (slow) {
+        u.slowUntil = st.t + (slowDur || 1); u.slowMul = 1 - slow
+        // ❄ 빙결 스택: 감속 5회 누적 → 2초 빙결 정지 → 이후 10초 빙결 면역(그 동안은 감속만)
+        if (!(u.freezeImmuneUntil && u.freezeImmuneUntil > st.t)) {
+          if (u.slowStackAt == null || st.t - u.slowStackAt > (slowDur || 2) + 0.5) u.slowStacks = 0   // 누적 창 밖이면 리셋
+          u.slowStacks = (u.slowStacks || 0) + 1; u.slowStackAt = st.t
+          if (u.slowStacks >= 5) { u.frozenUntil = st.t + 2; u.slowStacks = 0; u.freezeImmuneUntil = st.t + 2 + 10; st.events.push({ type: 'freeze', uid: u.uid, L: u.L, side: u.side }) }
+        }
+      }
     }
     function hitBase(side, dmg) { st.baseHp[side] = Math.max(0, st.baseHp[side] - dmg) }   // 승패는 step에서 판정
     function unitByUid(uid) { return st.units.find((x) => x.uid === uid) }

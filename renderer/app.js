@@ -1502,7 +1502,8 @@
     // fling by the bundle's real on-screen velocity (whipping the cursor = strong throw)
     let vx = me.netScreenVx || 0, vy = me.netScreenVy || 0, m = Math.hypot(vx, vy)
     if (m < 2) { vx = 0; vy = -6 * s; m = 6 * s }        // gentle default toss if barely moving
-    const dx = vx / m, dy = vy / m, flingT = m * NET_FLING, lethal = m >= NET_KILL_SPEED * s   // hard throw → dies on landing
+    // 사망 조건 = 던질 때 마우스 커서가 화면 중간보다 위(상단)면 착지 시 사망(높이 던진 만큼 위험). 속도 무관.
+    const dx = vx / m, dy = vy / m, flingT = m * NET_FLING, lethal = cursor.y < canvas.clientHeight * 0.5
     for (const it of me.netCaught) {
       const o = it.obj
       if (it.kind === 'human') {   // thrown in the swing direction (arc), lands → WASD resumes (or dies if hard)
@@ -3373,7 +3374,7 @@
 
   // ---------- 배틀 모드 (오버레이 통합: 실제 작업표시줄 위 · 별도 캔버스 아님) ----------
   let battleActive = false, battle = null, battleAI = null, battleLastT = 0, battleResultAt = 0
-  let battleAtkAt = {}, battleDead = [], battleOpp = null, battleHud = null, battleShieldFlash = {}
+  let battleAtkAt = {}, battleDead = [], battleOpp = null, battleHud = null, battleShieldFlash = {}, battleHealFx = []
   let battleSavedCarve, battleSavedBarDmg = 0
   let battlePhase = 'idle', battlePhaseAt = 0, battleWin = false, battleConfetti = []   // 'countdown' | 'playing' | 'result'
   const BATTLE_CD_MS = 3200   // 3·2·1 (각 800ms) + START(800ms)
@@ -3409,7 +3410,7 @@
     battle = window.BattleSim.newBattle({ speedScale: 0.44 })   // 냥코풍 느린 행군 (0.55 → ×0.8)
     battleAI = battle.makeAI(1, ['ant', 'rifleman', 'grenadier', 'mechaAnt', 'mechaHuman'].filter((id) => window.BattleData.UNITS[id]), 1.4)
     battleOpp = Object.assign({ id: 'battleOpp', animal: 'cat', name: '상대', skin: 'gray', pattern: 'solid', hat: 'none', ear: 'pointed', eye: 'oval', mouth: 'smile', tail: 'curl', shape: {}, hp: CAT_HP }, newAnimState())
-    battleAtkAt = {}; battleShieldFlash = {}; battleDead = []; bproj.length = 0; battleResultAt = 0; battleLastT = performance.now(); battleActive = true
+    battleAtkAt = {}; battleShieldFlash = {}; battleHealFx = []; battleDead = []; bproj.length = 0; battleResultAt = 0; battleLastT = performance.now(); battleActive = true
     battlePhase = 'countdown'; battlePhaseAt = performance.now(); battleConfetti = []   // 3·2·1·START 후 시작
     battleSavedCarve = carve ? carve.slice() : null; battleSavedBarDmg = barDamage; resetTaskbarDig(false)   // 배틀은 복원된(깨끗한) 작업표시줄로 시작
     buildBattleHud(); sendHotzone()
@@ -3513,7 +3514,11 @@
       else if (e.type === 'fire') { battleAtkAt[e.by] = now; battleFire(e) }   // 원거리 → 실제 투사체 발사
       else if (e.type === 'die') battleDead.push({ id: e.unit, L: e.L, side: e.side, born: now })
       else if (e.type === 'shieldblock' || e.type === 'shieldbreak') { battleShieldFlash[e.uid] = now }   // 쉴드가 막음 → 번쩍 연출
+      else if (e.type === 'heal') battleHealFx.push({ medL: e.medL, healL: e.healL, born: now })           // 메딕 힐 → 초록 십자(본인+대상)
+      else if (e.type === 'boom') { const bx = battleLaneX(e.L), by = antGroundY(bx) - 20 * view.scale; addEffect(bx, by, 3); for (let k = 0; k < 12; k++) spawnSpark(bx + (Math.random() - 0.5) * (e.aoeR || 0.05) * canvas.clientWidth, by + (Math.random() - 0.5) * 30 * view.scale); if (inTaskbar(bx, antGroundY(bx))) carveTaskbar(bx, 0.6, false) }   // 카미카제 자폭
+      else if (e.type === 'freeze') { const fx = battleLaneX(e.L), fy = antGroundY(fx) - 22 * view.scale; for (let k = 0; k < 10; k++) spawnSpark(fx + (Math.random() - 0.5) * 30 * view.scale, fy + (Math.random() - 0.5) * 40 * view.scale) }   // 빙결 순간
     }
+    for (let i = battleHealFx.length - 1; i >= 0; i--) if (now - battleHealFx[i].born > 650) battleHealFx.splice(i, 1)
     stepBattleProj(now, dt)
     for (let i = battleDead.length - 1; i >= 0; i--) if (now - battleDead[i].born > 900) battleDead.splice(i, 1)
     updateBattleHud()
@@ -3528,6 +3533,8 @@
       const y = antGroundY(x) - (def.flying ? 34 * view.scale : 0)
       const facing = u.side === 0 ? 1 : -1, atk = battleAtkAt[u.uid] && now - battleAtkAt[u.uid] < 380
       const s = view.scale * BATTLE_UNIT_SCALE * (def.size || 1)
+      // 커맨더 오라 링(바닥, 유닛 뒤) — 주변 아군 버프 범위 표시
+      if (def.aura) { const rad = def.aura.range * (canvas.clientWidth - 2 * BATTLE_PAD); ctx.save(); ctx.globalAlpha = 0.5 + 0.2 * Math.sin(now / 300); ctx.strokeStyle = 'rgba(255,210,90,.5)'; ctx.lineWidth = 2 * view.scale; ctx.beginPath(); ctx.ellipse(x, antGroundY(x), rad, rad * 0.18, 0, 0, Math.PI * 2); ctx.stroke(); ctx.restore() }
       // 메카/인간 = 기존 오버레이 아트 그대로 재사용(새로 안 만듦). 쉴드도 form별(돔/판넬) 원본 함수 재사용.
       const sh01 = u.shHp > 0 && u.shMax ? u.shHp / u.shMax : null
       if (u.type === 'mechaAnt') drawOverlayMechaAt(x, y, 0.43 * (def.size || 1.6), facing, 0, now, { walking: true, shHp01: sh01 })
@@ -3554,9 +3561,25 @@
         const fl = battleShieldFlash[u.uid] && now - battleShieldFlash[u.uid] < 220 ? 1 - (now - battleShieldFlash[u.uid]) / 220 : 0
         if (fl > 0) { ctx.save(); ctx.globalAlpha = fl * 0.8; ctx.strokeStyle = 'rgba(230,248,255,0.95)'; ctx.lineWidth = 3 * s; ctx.beginPath(); ctx.arc(x, y - 30 * s, 26 * s, 0, 7); ctx.stroke(); ctx.restore() }
       }
+      // ❄ 빙결/감속 연출: 얼면 하늘색 얼음 오버레이, 느려지면 옅은 파란 물결
+      const st2 = battle.state
+      const frozen = u.frozenUntil && u.frozenUntil > st2.t, slowed = !frozen && u.slowUntil && u.slowUntil > st2.t
+      if (frozen || slowed) {
+        const hb = unitHitboxScreen(u.type, def.size)
+        ctx.save(); ctx.globalAlpha = frozen ? 0.5 : 0.24
+        ctx.fillStyle = frozen ? 'rgba(170,225,255,1)' : 'rgba(140,200,255,1)'
+        ctx.beginPath(); ctx.roundRect(x - hb.halfW, y - hb.top, hb.halfW * 2, hb.top + 4 * view.scale, 6 * view.scale); ctx.fill()
+        if (frozen) { ctx.globalAlpha = 0.85; ctx.strokeStyle = '#dff2ff'; ctx.lineWidth = 1.4 * view.scale; ctx.stroke(); ctx.fillStyle = '#eaffff'; for (let k = -1; k <= 1; k++) { ctx.beginPath(); ctx.moveTo(x + k * hb.halfW * 0.5, y - hb.top); ctx.lineTo(x + k * hb.halfW * 0.5 - 3 * view.scale, y - hb.top - 7 * view.scale); ctx.lineTo(x + k * hb.halfW * 0.5 + 3 * view.scale, y - hb.top - 7 * view.scale); ctx.closePath(); ctx.fill() } }
+        ctx.restore()
+      }
       const w = 24 * s, f = u.hp / u.maxHp
       ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(x - w / 2, y - 44 * s, w, 3.5)
       ctx.fillStyle = f > 0.4 ? '#7ecb7e' : '#e24b4a'; ctx.fillRect(x - w / 2, y - 44 * s, w * f, 3.5)
+    }
+    // 메딕 힐 초록 십자 — 메딕 본인 + 회복 대상 양쪽에 표시
+    for (const h of battleHealFx) {
+      const a = 1 - (now - h.born) / 650
+      for (const L of [h.medL, h.healL]) { const hx = battleLaneX(L), hy = antGroundY(hx) - 46 * view.scale - (1 - a) * 10 * view.scale; ctx.save(); ctx.globalAlpha = Math.max(0, a); ctx.fillStyle = '#3ad06a'; const r = 5 * view.scale; ctx.fillRect(hx - r / 3, hy - r, r * 0.66, r * 2); ctx.fillRect(hx - r, hy - r / 3, r * 2, r * 0.66); ctx.restore() }
     }
     for (const d of battleDead) { const p = Math.min(1, (now - d.born) / 900); window.BattleSprites.draw(ctx, d.id, { x: battleLaneX(d.L), y: antGroundY(battleLaneX(d.L)), scale: view.scale * BATTLE_UNIT_SCALE, facing: d.side === 0 ? 1 : -1, state: 'death', t: 0, deathT: p }) }
     drawBattleProj(now)   // 투사체(총알·포탄·에너지·수류탄 등)
