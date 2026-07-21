@@ -923,7 +923,7 @@
         if (map) { const rec = map.get(msg.id); if (rec && rec.items) rec.items.delete(msg.eid) }
         addEffect(msg.nx * W, msg.ny * H, msg.pw || 1); spawnSpark(msg.nx * W, msg.ny * H)
       }
-      else if (msg.t === 'littleboy') { spawnLittleBoy(msg.nx * canvas.clientWidth, msg.ny * canvas.clientHeight, false) }   // peer's authoritative fused bomb — visual only
+      else if (msg.t === 'littleboy') { const lx = msg.nx * canvas.clientWidth, ly = msg.ny * canvas.clientHeight; if (!littleBoys.some((b) => Math.hypot(b.x - lx, b.y - ly) < 90 * view.scale)) spawnLittleBoy(lx, ly, false) }   // 상대 리틀보이(연출만) — 근처 중복이면 생략
       else if (msg.t === 'hbullets') { mergeRemote(remoteHbullets, msg.id, msg.list, 'nx', 'ny') }
       else if (msg.t === 'error' && msg.reason === 'room_full') { setStatus('방이 가득 찼어요'); ws.close() }
     }
@@ -4998,10 +4998,11 @@
   function triggerLittleBoy(x, y, otherPid) {
     for (let k = 0; k < 16; k++) spawnSpark(x + (Math.random() - 0.5) * 52 * view.scale, y + (Math.random() - 0.5) * 52 * view.scale)   // fusion flash
     addEffect(x, y, 4)
-    // 양쪽 클라이언트가 각자 로컬에서 낙하 폭탄을 생성(연출) → 릴레이 누락돼도 항상 땅에 떨어져 터짐.
     // 데미지는 권한자(낮은 netId 또는 솔로)만 적용해 중복 방지.
     const authoritative = !connected() || otherPid == null || (me.netId != null && me.netId < otherPid)
     spawnLittleBoy(x, y, authoritative)
+    // 상대에게도 리틀보이 방송(합체는 한쪽 클라에서만 감지 → col-dmg로 상대 나크가 사라져 상대는 못 보던 문제).
+    if (connected() && net) net.send(JSON.stringify({ t: 'littleboy', nx: x / canvas.clientWidth, ny: y / canvas.clientHeight }))
   }
   function spawnLittleBoy(x, y, damaging) { littleBoys.push({ x, y, vy: -2 * view.scale, damaging, born: performance.now() }) }
   function stepLittleBoys(now) {
