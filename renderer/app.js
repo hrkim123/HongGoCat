@@ -3374,7 +3374,7 @@
   let battlePhase = 'idle', battlePhaseAt = 0, battleWin = false, battleConfetti = []   // 'countdown' | 'playing' | 'result'
   const BATTLE_CD_MS = 3200   // 3·2·1 (각 800ms) + START(800ms)
   const BATTLE_PAD = 90
-  const BATTLE_UNIT_SCALE = 2.86   // 배틀 유닛 렌더 배율 (2.2 → ×1.3 확대)
+  const BATTLE_UNIT_SCALE = 2.0   // 배틀 유닛 렌더 배율 (2.86 → ×0.7 축소). 히트박스(unitHitboxScreen)도 이 값에 연동.
   function battleLaneX(L) { const W = canvas.clientWidth; return BATTLE_PAD + L * (W - 2 * BATTLE_PAD) }   // side0 기지=좌
   // ── 소환체 디자인별 충돌박스 (스프라이트 로컬 기준: 발밑=0, 위로 h, 좌우 반폭 w). 실제 렌더 스케일을 곱해 사용.
   // 개미 이족 스프라이트는 발~머리(더듬이 포함) ≈ 42, 반폭 ≈ 15. 무기별로 조금씩 다름. 메카/인간은 자체 아트라 화면단위 별도 지정.
@@ -3387,9 +3387,9 @@
   }
   function unitHitboxScreen(sprite, size) {   // { halfW, top } — 발밑에서 위로 top, 좌우 halfW (화면 px)
     const sz = size || 1
-    if (sprite === 'mechaAnt') return { halfW: 38 * view.scale, top: 132 * view.scale }     // 자체 메카 아트(≈2.7× 렌더)
-    if (sprite === 'mechaHuman') return { halfW: 43 * view.scale, top: 148 * view.scale }
-    if (sprite === 'human') return { halfW: 26 * view.scale, top: 112 * view.scale }
+    if (sprite === 'mechaAnt') return { halfW: 27 * view.scale, top: 92 * view.scale }     // 자체 메카 아트(×0.7 축소 반영)
+    if (sprite === 'mechaHuman') return { halfW: 30 * view.scale, top: 104 * view.scale }
+    if (sprite === 'human') return { halfW: 18 * view.scale, top: 78 * view.scale }
     const b = UNIT_HB_LOCAL[sprite] || UNIT_HB_LOCAL._default
     const s = view.scale * BATTLE_UNIT_SCALE * sz
     return { halfW: b.w * s, top: b.h * s }
@@ -3402,7 +3402,7 @@
   function startBattleSolo() {
     if (!(window.BattleSim && window.BattleData)) { showToast('배틀 모듈 로드 안 됨'); return }
     if (window.BattleGacha && window.BattleGacha.deckReady && !window.BattleGacha.deckReady()) { showToast('덱 구성을 완료하세요 — 소환체 3개 이상, 무기 1개 이상'); return }
-    battle = window.BattleSim.newBattle({ speedScale: 0.55 })   // 냥코풍 느린 행군
+    battle = window.BattleSim.newBattle({ speedScale: 0.44 })   // 냥코풍 느린 행군 (0.55 → ×0.8)
     battleAI = battle.makeAI(1, ['ant', 'rifleman', 'grenadier', 'mechaAnt', 'mechaHuman'].filter((id) => window.BattleData.UNITS[id]), 1.4)
     battleOpp = Object.assign({ id: 'battleOpp', animal: 'cat', name: '상대', skin: 'gray', pattern: 'solid', hat: 'none', ear: 'pointed', eye: 'oval', mouth: 'smile', tail: 'curl', shape: {}, hp: CAT_HP }, newAnimState())
     battleAtkAt = {}; battleShieldFlash = {}; battleDead = []; bproj.length = 0; battleResultAt = 0; battleLastT = performance.now(); battleActive = true
@@ -3526,14 +3526,14 @@
       const s = view.scale * BATTLE_UNIT_SCALE * (def.size || 1)
       // 메카/인간 = 기존 오버레이 아트 그대로 재사용(새로 안 만듦). 쉴드도 form별(돔/판넬) 원본 함수 재사용.
       const sh01 = u.shHp > 0 && u.shMax ? u.shHp / u.shMax : null
-      if (u.type === 'mechaAnt') drawOverlayMechaAt(x, y, 0.62 * (def.size || 1.6), facing, 0, now, { walking: true, shHp01: sh01 })
+      if (u.type === 'mechaAnt') drawOverlayMechaAt(x, y, 0.43 * (def.size || 1.6), facing, 0, now, { walking: true, shHp01: sh01 })
       else if (u.type === 'mechaHuman') {
         // 공중형: 걷기 모션 제거 + 진행 방향으로 살짝 기울임(멈추면 복귀)
         const moving = !atk, tgtLean = moving ? facing * 0.16 : 0
         u._lean = (u._lean || 0) + (tgtLean - (u._lean || 0)) * 0.12
-        drawOverlayMechaAt(x, y, 0.66 * (def.size || 1.7), facing, 1, now, { walking: false, lean: u._lean, shHp01: sh01 })
+        drawOverlayMechaAt(x, y, 0.46 * (def.size || 1.7), facing, 1, now, { walking: false, lean: u._lean, shHp01: sh01 })
       }
-      else if (u.type === 'human') drawOverlayHumanAt(x, y, 1.15 * (def.size || 1.3), facing, now)
+      else if (u.type === 'human') drawOverlayHumanAt(x, y, 0.80 * (def.size || 1.3), facing, now)
       else window.BattleSprites.draw(ctx, u.type, { x, y, scale: s, facing, state: atk ? 'attack' : 'walk', t: u.uid * 0.37 + now / 1000, flash: atk })
       const isMecha = u.type === 'mechaAnt' || u.type === 'mechaHuman'
       // 원거리 공격 순간 총구/포구 섬광(재사용 아트 위에 얹어 "발사"가 보이게)
