@@ -2569,7 +2569,8 @@
         const ah = missileHitsAnt(p.x, p.y)
         if (ah) {
           if (ah.local) { antTakeDmg(ah.ant, p.power); if (ah.ant.dead) addAntKill() } else if (connected()) net.send(JSON.stringify({ t: 'ant-hit', target: ah.pid, ant: ah.id, dmg: p.power }))
-          spawnSpark(p.x, p.y); p.pierceCd = now + 90; if (p.power > 1) p.power -= 1; else { addEffect(p.x, p.y, 1); bcBoom('mshell', p.id, p.x, p.y, 2); energyShots.splice(i, 1); continue }
+          addEffect(p.x, p.y, 1); spawnSpark(p.x, p.y); p.pierceCd = now + 90   // 관통 명중마다 임팩트 연출(미사일과 동일하게 보이게)
+          if (p.power > 1) p.power -= 1; else { bcBoom('mshell', p.id, p.x, p.y, 2); energyShots.splice(i, 1); continue }
         }
         const rg = hitRemoteGatling(p.x, p.y)
         if (rg) { if (connected()) net.send(JSON.stringify({ t: 'gat-hit', target: rg.pid, dmg: p.power })); addEffect(p.x, p.y, 1); p.pierceCd = now + 120; if (p.power > (rg.hp || 1)) p.power -= (rg.hp || 1); else { bcBoom('mshell', p.id, p.x, p.y, 2); energyShots.splice(i, 1); continue } }
