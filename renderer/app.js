@@ -1056,10 +1056,18 @@
     else if (msg.t === 'mecha-transform') { if (me.mechaActive) startMechaTransform(performance.now()) }
     else if (msg.t === 'fire-missile') { fireWeapon('missile') }
     else if (msg.t === 'fire-slot') {
-      const id = me.slots[(msg.slot || 1) - 1] || 'none'
-      if (battleActive && battle) { if (msg.down !== false) battleWeaponFire(id) }   // 배틀: 단축키 = 배틀 발사(마나 소모 + 오버레이 무기 그대로)
-      else if (id === 'lightning') { if (msg.down === false) lightningRelease(); else lightningPress() }
-      else if (msg.down !== false) fireWeapon(id)   // other weapons fire once on press; ignore key-up
+      if (battleActive && battle) {
+        // 배틀: 오버레이 슬롯 무시 → 앞 슬롯(키) 순서 = 배틀 덱 무기 순서. 키1=덱무기1, 키2=덱무기2.
+        if (msg.down !== false) {
+          const deck = (window.BattleGacha && window.BattleGacha.getDeck) ? window.BattleGacha.getDeck() : { weapons: [] }
+          const wid = deck.weapons[(msg.slot || 1) - 1]
+          if (wid) battleWeaponFire(wid)
+        }
+      } else {
+        const id = me.slots[(msg.slot || 1) - 1] || 'none'
+        if (id === 'lightning') { if (msg.down === false) lightningRelease(); else lightningPress() }
+        else if (msg.down !== false) fireWeapon(id)   // other weapons fire once on press; ignore key-up
+      }
     }
     else if (msg.t === 'slots') {
       if (Array.isArray(msg.slots)) { me.slots = msg.slots.slice(0, 3); while (me.slots.length < 3) me.slots.push('none'); localStorage.setItem('slots', JSON.stringify(me.slots)); if (battleActive) buildBattleHud(); pushState() }
@@ -3449,16 +3457,16 @@
     deck.units.forEach((id) => { const u = window.BattleData.UNITS[id]; if (!u) return; const b = mkCard('rgba(255,255,255,.06)', 'rgba(255,255,255,.14)'); b.dataset.id = id; b.title = u.name; b.innerHTML = `<div style="pointer-events:none">${window.BattleArt ? window.BattleArt.icon(id, 32) : ''}</div><div style="color:#8fd3ff;font-weight:600;font-size:11px">💧${u.cost}</div>`; b.onclick = () => { if (battle && battle.spawn(0, id)) updateBattleHud() }; uw.appendChild(b) })
     if (!deck.units.length) uw.innerHTML = '<span style="font-size:11px;color:#7f8797">덱에 소환체 없음</span>'
     const ww = h.querySelector('.bhweaps')
-    deck.weapons.forEach((id) => {
+    deck.weapons.forEach((id, wi) => {
       const w = window.BattleData.WEAPONS[id]; if (!w) return
-      const key = keybindForWeapon(id)   // 현재 설정된 단축키(슬롯 배치 기준)
+      const key = wi < keybinds.keys.length ? slotKeyLabel(wi) : null   // 배틀 덱 순서 = 앞 단축키 순서(오버레이 슬롯 무시)
       const b = mkCard('rgba(74,163,255,.12)', 'rgba(74,163,255,.38)'); b.dataset.wid = id
-      b.title = key ? `${w.name} — 단축키 ${key}` : `${w.name} — 슬롯 미지정 (⚔ 무기 설정에서 배치)`
+      b.title = key ? `${w.name} — 단축키 ${key}` : `${w.name} — (단축키 없음)`
       const keyHtml = key
         ? `<div style="color:#ffd86b;font-weight:700;font-size:10px;line-height:1.1">${key}</div>`
-        : `<div style="color:#e08a8a;font-size:9px;line-height:1.1">슬롯 미지정</div>`
+        : `<div style="color:#e08a8a;font-size:9px;line-height:1.1">키 없음</div>`
       b.innerHTML = `<div style="pointer-events:none">${window.BattleArt ? window.BattleArt.icon(id, 30) : ''}</div>${keyHtml}<div style="color:#8fd3ff;font-size:9px">💧${w.mana != null ? w.mana : 2}</div>`
-      b.onclick = () => showToast(key ? `${w.name}: 단축키 ${key} 로 사용` : `${w.name}: ⚔ 무기 설정에서 슬롯에 배치하면 단축키로 사용`)   // 클릭 발사 X — 단축키 안내만
+      b.onclick = () => showToast(key ? `${w.name}: 단축키 ${key} 로 사용` : `${w.name}: 배틀 무기 슬롯 초과(단축키 없음)`)   // 클릭 발사 X — 단축키 안내만
       ww.appendChild(b)
     })
     if (!deck.weapons.length) ww.innerHTML = '<span style="font-size:11px;color:#7f8797">덱에 무기 없음</span>'
