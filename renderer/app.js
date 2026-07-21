@@ -5335,7 +5335,7 @@
   function sendHotzone() {
     if (wx == null) return
     const extra = peerDimBtns.map((b) => ({ x: b.x - b.r - 2, y: b.y - b.r - 2, w: (b.r + 2) * 2, h: (b.r + 2) * 2 }))
-    inputSource.setHotzone({ rect: { x: wx, y: wy, w: cellPxW, h: cellPxH + BAR_SPACE }, extra, force: chatOpenFlag || editing || shopOpenFlag || achvOpenFlag || platformMode || me.netAiming || me.netActive || updateNotesOpen || battleActive || !!document.querySelector('.bg-back, .bm-root') })
+    inputSource.setHotzone({ rect: { x: wx, y: wy, w: cellPxW, h: cellPxH + BAR_SPACE }, extra, force: chatOpenFlag || editing || shopOpenFlag || achvOpenFlag || platformMode || me.netAiming || me.netActive || updateNotesOpen || battleActive || !!document.querySelector('.bg-back, .bm-root, .bm-bet, .bm-invite, .bx-confirm') })
   }
 
   // cursor for missile homing + dragging comes from main's poll (window-relative)
