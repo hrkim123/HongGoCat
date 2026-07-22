@@ -462,7 +462,7 @@
     }
     ctx.restore()
 
-    // bottom bar
+    // bottom bar (배틀 기지에선 이 책상 바가 "지면 위 받침"이 되고, 그 위에 HP 게이지가 올라감)
     const barGrad = ctx.createLinearGradient(0, deskY, 0, deskY + BAR_VIS)
     barGrad.addColorStop(0, '#f0d7b0'); barGrad.addColorStop(1, '#e0bd8b')
     ctx.fillStyle = barGrad; ctx.fillRect(0, deskY, CELL_W, BAR_VIS + 4)

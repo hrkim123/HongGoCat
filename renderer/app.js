@@ -3711,10 +3711,15 @@
   // 기지 고양이가 앉아 있는 "책상 윗면" Y(화면 px). 위젯(고양이+책상+바) 안에서 책상은 BUBBLE_H+DESK_Y 위치.
   // antGroundY(작업표시줄)보다 위 → 포탑은 여기(고양이와 같은 책상)에 얹어야 함.
   function battleDeskY() {
+    // 책상 받침바(BAR_VIS)의 "바닥"을 작업표시줄 윗면(usableBottom)에 딱 붙인다 → 기지가 지면 위 경계선에 안착
+    // (예전엔 BAR_SPACE 34px 여백 때문에 공중에 뜬 것처럼 보였음).
     const A = window.AnimalArt, s = view.scale
-    const top = Math.max(0, usableBottom() - (A.CELL_H * s + 34))   // 34 = BAR_SPACE(렌더와 동일)
-    return top + (A.BUBBLE_H + A.DESK_Y) * s
+    const BAR_VIS = A.CELL_H - A.BUBBLE_H - A.DESK_Y
+    return Math.max(0, usableBottom() - BAR_VIS * s)
   }
+  // 기지(진영) 조준 Y — 기지 고양이 몸통 높이(책상면 위 ~50px). 기지가 지면에 안착하면서 몸통이
+  // 위로 올라갔으므로, 예전 antGroundY 기준 조준(땅쪽)으로 쏘면 아래를 겨눔 → 책상면 기준으로 보정.
+  function baseAimY() { return battleDeskY() - 50 * view.scale }
   // 대공 가능 = 원거리(proj/aoe) 공격 유닛. 근접(melee)·자폭(suicide)·힐·무공격은 공중 못 때림([[battle-melee-no-air]]).
   function battleCanHitAir(u) { const t = u && u.atk && u.atk.type; return t === 'proj' || t === 'aoe' || t === 'suicide' }   // 자폭도 공중 타격 가능(폭발 광역)
   // ── 소환체 디자인별 충돌박스 (스프라이트 로컬 기준: 발밑=0, 위로 h, 좌우 반폭 w). 실제 렌더 스케일을 곱해 사용.
@@ -3975,8 +3980,7 @@
     const deck = (window.BattleGacha && window.BattleGacha.getDeck) ? window.BattleGacha.getDeck() : { units: [], weapons: [] }
     const h = document.createElement('div'); h.className = 'no-drag'
     h.style.cssText = 'position:fixed;z-index:2147483000;background:linear-gradient(180deg,#141821,#0d0f14);border:1px solid #333a47;border-radius:14px;padding:8px 11px 11px;width:344px;font-family:system-ui,"맑은 고딕",sans-serif;box-shadow:0 10px 34px rgba(0,0,0,.55)'
-    const pos = JSON.parse(localStorage.getItem('battle.hudpos') || 'null')
-    if (pos) { h.style.left = pos.x + 'px'; h.style.top = pos.y + 'px' }   // 저장된(드래그한) 위치 우선. 없으면 append 후 내 진영 위로 자동 배치.
+    // 덱 HUD는 항상 내 진영(고정 위치) 위쪽에 뜬다 — 저장된 드래그 위치는 무시([[multiplayer-consistency-invariant]] 내 진영 고정).
     const lbl = (t) => `<div style="font-size:10px;color:#7f8797;letter-spacing:.4px;margin:9px 0 4px">${t}</div>`
     h.innerHTML =
       `<div class="bhgrip" style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#9aa0ab;cursor:move;user-select:none;margin-bottom:7px"><span>⚔ 배틀 · ⠿ 이동</span><span class="bhx" style="color:#e57373;cursor:pointer">✕ 나가기</span></div>` +
@@ -4084,17 +4088,18 @@
       const dx = e.clientX - h.offsetLeft, dy = e.clientY - h.offsetTop
       try { grip.setPointerCapture(e.pointerId) } catch (_) {}
       const mv = (ev) => { h.style.left = (ev.clientX - dx) + 'px'; h.style.top = (ev.clientY - dy) + 'px' }
-      const up = () => { grip.removeEventListener('pointermove', mv); grip.removeEventListener('pointerup', up); localStorage.setItem('battle.hudpos', JSON.stringify({ x: h.offsetLeft, y: h.offsetTop })) }
+      const up = () => { grip.removeEventListener('pointermove', mv); grip.removeEventListener('pointerup', up) }   // 세션 내 임시 이동만(저장 안 함 — 재빌드 시 다시 내 진영 위로)
       grip.addEventListener('pointermove', mv); grip.addEventListener('pointerup', up); e.preventDefault()
     })
     document.body.appendChild(h); battleHud = h
-    if (!pos) positionHudAtBase(h)   // 저장된 위치 없으면 내 진영(내 캐릭터) 위에 기본 배치 — 좌측 구석 X
+    positionHudAtBase(h)   // 항상 내 진영(고정) 위쪽에 배치
   }
-  // HUD를 내 기지(내 캐릭터) 바로 위·가로 중앙에 배치(캐릭터를 가리지 않게). 저장된 드래그 위치가 없을 때만.
+  // HUD를 내 기지(내 캐릭터) 바로 위·가로 중앙에 배치(캐릭터를 가리지 않게). 항상 호출.
   function positionHudAtBase(h) {
     const W = canvas.clientWidth, H = canvas.clientHeight, hw = h.offsetWidth || 344, hh = h.offsetHeight || 300
     const baseX = (battleActive && battle) ? battleLaneX(0) : W / 2   // battleLaneX(0) = 내 진영 캐릭터 중심(flip 반영)
-    const catTop = Math.max(0, usableBottom() - (CELL_H * view.scale + 34))   // 내 캐릭터(책상) 상단
+    const A = window.AnimalArt
+    const catTop = Math.max(0, battleDeskY() - (A.BUBBLE_H + A.DESK_Y) * view.scale)   // 내 캐릭터(책상) 상단 = 새 기지 배치 기준
     let left = baseX - hw / 2, top = catTop - hh - 14   // 캐릭터 위쪽(안 가리게)
     left = Math.max(6, Math.min(left, W - hw - 6))
     top = Math.max(12, Math.min(top, H - hh - 6))
@@ -4721,7 +4726,7 @@
     const foe = ev.side === 0 ? 1 : 0, dmg = ev.dmg || 8
     const tg = battleResolveTarget(ev)
     const tx = battleLaneX(tg.L)
-    const ty = tg.flying ? (battleUnitFeetY(tx, true) - 8 * view.scale) : (antGroundY(tx) - (tg.found ? 22 : 40) * view.scale)   // 공중=상승 높이 조준
+    const ty = tg.flying ? (battleUnitFeetY(tx, true) - 8 * view.scale) : (tg.found ? antGroundY(tx) - 22 * view.scale : baseAimY())   // 공중=상승 높이 / 기지=몸통 높이 조준
     const cxs = cursor.x, cys = cursor.y; cursor.x = tx; cursor.y = ty   // 타겟(상대 소환체/기지) 조준
     const now = performance.now()
     if (which === 'shell') {   // 메카개미 = 기존 포물선 대포(fireMechaShell). 궤도를 타겟에 착탄하도록 조정.
@@ -4778,7 +4783,7 @@
     const fx = laneX + face * mz.x * s, fy = feetY - mz.y * s   // 실제 총구 위치에서 발사
     const tg = battleResolveTarget(ev)   // ★ 고스트는 battleGhosts에서(uid 충돌 방지), 공중 타겟은 상승 높이 조준
     const tx = battleLaneX(tg.L)
-    const ty = tg.found ? (battleUnitFeetY(tx, tg.flying) - 20 * view.scale) : (antGroundY(tx) - 60 * view.scale)   // 적 몸통/기지 높이 조준
+    const ty = tg.found ? (battleUnitFeetY(tx, tg.flying) - 20 * view.scale) : baseAimY()   // 적 몸통 / 기지=몸통 높이 조준
     const spd = PROJ_SPD[kind] * view.scale
     const atkL = (byU && byU.stats && byU.stats.atk) || def.atk || {}   // 레벨 반영 스탯(연발 Lv5 기믹 등)
     const burst = (kind === 'bullet' && atkL.burst > 1) ? atkL.burst : 1   // 라이플 3연발·Lv5 4연발 등
@@ -5224,8 +5229,13 @@
   function drawSummonProj(now) { const s = view.scale * 1.5, t = now / 1000; for (const p of summonProj) drawOneProj(p, s, t) }
   // ── 💣 폭격 무기: 커서 X부터 오른쪽 30% 범위에 5발 순차 투하(하늘 낙하) → 착탄 땅파임+양측 데미지·넉백+5초 불장판 ──
   function bombRadius() { return 0.05 * canvas.clientWidth }
+  const BOMBER_CD = 2000   // 오버레이 폭격 쿨다운 2초(연타 방지). 배틀은 weaponCdUntil(battleCd)로 별도 관리.
   function deployBomber(atX, visual) {   // visual=true = 상대 릴레이 재현(연출만, 데미지·파임 X — 그건 bghit/bdig로 이미 받음)
     const W = canvas.clientWidth, H = canvas.clientHeight, now = performance.now(), s = view.scale
+    if (!visual && !battleActive) {   // 내가 오버레이에서 직접 쏜 경우만 쿨다운 적용(상대 재현·배틀 제외)
+      if (now < (me.bomberCdUntil || 0)) { showToast(`💣 폭격 쿨타임 ${((me.bomberCdUntil - now) / 1000).toFixed(1)}초`); return }
+      me.bomberCdUntil = now + BOMBER_CD
+    }
     const startX = Math.max(6, Math.min(W - 6, atX != null ? atX : cursor.x)), range = W * 0.18, spacing = range / Math.max(1, BOMB_N - 1)   // 0.30→0.18: 간격/범위 축소
     const dropY = H * 0.4   // 화면 중간보다 조금 위에서 투하(맨 위 X)
     const pre = 450, dropWindow = BOMB_DROP_MS * Math.max(1, BOMB_N - 1)   // 폭격기 진입(pre) 후 투하 시작
@@ -6140,7 +6150,8 @@
 
     // 배틀 모드: 내 고양이를 작업표시줄 좌측 끝으로 이동(피어 숨김·상대 고양이는 우측 끝)
     if (battleActive) {
-      const by = Math.max(0, usableBottom() - (CELL_H * scale + BAR_SPACE))
+      // 책상면(battleDeskY, 지상선)에 위젯 내부 책상(BUBBLE_H+DESK_Y)이 오도록 origin 배치 → 땅에 붙음
+      const by = Math.max(0, battleDeskY() - (BUB + window.AnimalArt.DESK_Y) * scale)
       origins[0] = { x: Math.max(4, battleLaneX(0) - CELL_W / 2 * scale), y: by }
       catPos[0] = { x: origins[0].x + CELL_W / 2 * scale, y: origins[0].y + (BUB + 100) * scale }
     }
@@ -6163,7 +6174,7 @@
       if (p.inBattle) drawInBattleBadge(origins[i], scale, now)   // 관전자: 원위치 유지 + "⚔ 배틀 중" 표시(숨기지 않음)
     })
     if (battleActive && battleOpp) {   // 상대 고양이(우측 끝) — 솔로는 AI 더미
-      const by = Math.max(0, usableBottom() - (CELL_H * scale + BAR_SPACE))
+      const by = Math.max(0, battleDeskY() - (BUB + window.AnimalArt.DESK_Y) * scale)
       const bx = Math.min(cW - CELL_W * scale - 4, battleLaneX(1) - CELL_W / 2 * scale)
       battleOpp.hideDeskItems = true   // 상대 기지도 키보드·마우스·이름표 숨김
       ctx.save(); ctx.translate(bx, by); ctx.scale(scale, scale); window.AnimalArt.draw(ctx, 'cat', battleOpp, now); ctx.restore()

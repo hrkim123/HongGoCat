@@ -1,5 +1,5 @@
 // renderer/battle/upgrade.js — 업그레이드 스펙 + 로직
-// Max Lv 5. 비용 = 🔩 강화 부품, 곡선 [1,2,3,5](1→2..4→5), 풀강 11.
+// Max Lv 5. 비용 = 🔩 강화 부품, 희귀도 차등 곡선(COST_BY_RARITY). 풀강 합계: 일반25·고급38·희귀63·전설94.
 // 소환체 = 레벨당 스탯↑ + Lv5 추가 기믹(사이드그레이드: 파워크립 대신 역할 심화).
 // 무기 = 데미지 중심. window.BattleGacha(레벨·부품)에 의존.
 // computeUnitStats: 배틀 시뮬이 쓰는 "실효 스탯"을 레벨 반영해 산출(단일 진실원).
@@ -10,7 +10,20 @@
   const D = window.BattleData, G = window.BattleGacha
 
   const MAX = 5
-  const COST = [1, 2, 3, 5] // index: 현재레벨-1 (Lv1→2 = COST[0])
+  // 강화 부품 비용 — 희귀도 차등(Lv1→2..Lv4→5). 낮은 등급은 싸고, 전설은 큰 투자.
+  // 합계: 일반 25 · 고급 38 · 희귀 63 · 전설 94.
+  const COST_BY_RARITY = {
+    common:   [2, 4, 7, 12],
+    uncommon: [3, 6, 11, 18],
+    rare:     [5, 10, 18, 30],
+    legend:   [8, 16, 28, 42],
+  }
+  function costCurve(id) {
+    const e = (D.UNITS && D.UNITS[id]) || (D.WEAPONS && D.WEAPONS[id])
+    const r = (e && e.rarity) || 'common'
+    return COST_BY_RARITY[r] || COST_BY_RARITY.common
+  }
+  const COST = COST_BY_RARITY.common // 하위호환(외부 참조용 기본 곡선)
 
   // 레벨당 배수/효과 + Lv5 기믹. *Per 값은 (lvl-1) 곱. 기믹은 lvl>=at 에서 발동.
   // gk = 기믹 종류(sim/computeUnitStats가 해석하는 플래그). 파워크립이 아니라 "역할 심화" 사이드그레이드 지향.
@@ -44,7 +57,7 @@
 
   function maxLevel() { return MAX }
   function spec(id) { return SPEC[id] || null }
-  function costToNext(id) { const lv = G.getLevel(id); if (!lv || lv >= MAX) return null; return COST[lv - 1] }
+  function costToNext(id) { const lv = G.getLevel(id); if (!lv || lv >= MAX) return null; return costCurve(id)[lv - 1] }
   function canUpgrade(id) { const c = costToNext(id); return c != null && G.getMaterials() >= c }
 
   function upgrade(id) {

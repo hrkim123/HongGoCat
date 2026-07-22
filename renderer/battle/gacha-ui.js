@@ -350,6 +350,19 @@
     .bg-up .un{font-size:13px;color:#e8ebf0}
     .bg-up .ue{font-size:11px;color:#9aa0ab;margin-top:2px}
     .bg-up .ul{font-size:12px;color:#ffcf3a;white-space:nowrap}
+    .bg-upgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .bg-upc{display:flex;flex-direction:column;gap:5px;background:#1c2029;border:1px solid #2b2f39;border-radius:10px;padding:9px 10px}
+    .bg-upc.can{border-color:#3f7ce8;box-shadow:0 0 0 1px rgba(63,124,232,.45)}
+    .bg-upc.max{opacity:.62}
+    .bg-upc .top{display:flex;align-items:center;gap:7px}
+    .bg-upc .top .ic{font-size:22px;line-height:1}
+    .bg-upc .nm{flex:1;min-width:0;font-size:12px;color:#e8ebf0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .bg-upc .lv{font-size:10px;color:#ffcf3a;white-space:nowrap}
+    .bg-upc .dots{font-size:10px;letter-spacing:2px;line-height:1}
+    .bg-upc .ue{font-size:10px;color:#9aa0ab;line-height:1.3;min-height:26px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+    .bg-upc .act{margin-top:auto}
+    .bg-upc .act .bg-btn,.bg-upc .act .maxlbl{width:100%;box-sizing:border-box;text-align:center}
+    .bg-upc .maxlbl{display:block;font-size:11px;color:#8fd3ff;padding:5px 0;border:1px solid #2b2f39;border-radius:8px}
     .bg-dsub{font-size:10px;color:#8fd3ff;margin:1px 0 3px}
     .bg-wbox{border-top:1px solid #2b2f39;margin-top:8px;padding-top:7px}
     .bg-slot.wslot{border-color:#3f7ce8;background:#141c2a}
@@ -476,7 +489,9 @@
     card.innerHTML = `<div class="bg-head"><div class="bg-title">🛒 상점</div><button class="bg-x">✕</button></div>`
     card.querySelector('.bg-x').onclick = close
     const body = document.createElement('div'); card.appendChild(body)
-    let upCat = 'unit'   // 업그레이드 카테고리 필터(소환체/무기) — 유닛 많아짐 대비
+    let upCat = 'unit'   // 업그레이드 카테고리 필터(소환체/무기)
+    let upRar = 'all'    // 희귀도 필터 — 종류 많아짐 대비
+    const RRANK = { legend: 0, rare: 1, uncommon: 2, common: 3 }
 
     function render() {
       const cnt = countBridge ? countBridge.get() : 0
@@ -484,29 +499,43 @@
         <div class="bg-chip" style="flex:1">💎 젬 구매 — ${D.GEM.countPerGem.toLocaleString()} 카운트 = 💎1</div>
         <button class="bg-btn primary" id="buygem" ${cnt < D.GEM.countPerGem ? 'disabled' : ''}>💎1 구매</button></div>`
       const hpRow = ''   // 오버레이 캐릭터 체력 개념 제거 → 체력 리셋 상품 삭제
-      // 🔩 업그레이드 라벨 바로 아래 카테고리 버튼(소환체/무기)
       const catBtns = [['unit', '🐜 소환체'], ['weapon', '⚔ 무기']]
         .map(([k, n]) => `<button class="bg-fbtn ${upCat === k ? 'on' : ''}" data-uc="${k}">${n}</button>`).join('')
-      let ups = ''
+      const rarBtns = [['all', '전체'], ['common', '일반'], ['uncommon', '고급'], ['rare', '희귀'], ['legend', '전설']]
+        .map(([k, n]) => `<button class="bg-fbtn ${upRar === k ? 'on' : ''}" data-ur="${k}" style="${upRar === k && k !== 'all' ? 'border-color:' + D.RARITY[k].color : ''}">${n}</button>`).join('')
+
+      let ups = '', canCount = 0
       if (U) {
-        const owned = G.catalog().filter((e) => e.owned && U.spec(e.id) && e.cat === upCat)
+        let owned = G.catalog().filter((e) => e.owned && U.spec(e.id) && e.cat === upCat)
+        if (upRar !== 'all') owned = owned.filter((e) => e.rarity === upRar)
+        // 정렬: 지금 강화 가능(부품 충분) → 강화 여지 있음(부품 부족) → MAX. 동순위는 희귀도(전설 먼저)·이름.
+        const stateOf = (e) => { const c = U.costToNext(e.id); if (c == null) return 2; return U.canUpgrade(e.id) ? 0 : 1 }
+        owned.sort((a, b) => stateOf(a) - stateOf(b) || (RRANK[a.rarity] - RRANK[b.rarity]) || a.name.localeCompare(b.name))
+        canCount = owned.filter((e) => U.canUpgrade(e.id)).length
         ups = owned.map((e) => {
-          const lv = G.getLevel(e.id), cost = U.costToNext(e.id), can = U.canUpgrade(e.id)
-          const btn = cost == null ? `<span class="bg-fbtn" style="cursor:default">MAX</span>`
+          const lv = G.getLevel(e.id), cost = U.costToNext(e.id), can = U.canUpgrade(e.id), max = cost == null
+          const info = D.RARITY[e.rarity]
+          const dots = Array.from({ length: U.maxLevel() }, (_, i) => i < lv ? '●' : '○').join('')
+          const act = max ? `<span class="maxlbl">MAX</span>`
             : `<button class="bg-btn" data-up="${e.id}" ${can ? '' : 'disabled'}>강화 🔩${cost}</button>`
-          return `<div class="bg-up"><div style="width:34px">${iconFor(e, 30)}</div>
-            <div class="ui"><div class="un">${e.name} <span class="ul">Lv.${lv}/${U.maxLevel()}</span></div>
-            <div class="ue">${U.effectSummary(e.id)}</div></div>${btn}</div>`
+          return `<div class="bg-upc ${can ? 'can' : ''} ${max ? 'max' : ''}" style="border-left:3px solid ${info.color}">
+            <div class="top"><span class="ic">${iconFor(e, 24)}</span><span class="nm">${e.name}</span><span class="lv">Lv.${lv}/${U.maxLevel()}</span></div>
+            <div class="dots" style="color:${info.color}">${dots}</div>
+            <div class="ue">${U.effectSummary(e.id)}</div>
+            <div class="act">${act}</div></div>`
         }).join('')
       }
+      const badge = `<span class="bg-fbtn" style="cursor:default;font-size:11px;padding:2px 9px;${canCount ? 'background:#2f6bd8;border-color:#3f7ce8;color:#fff' : ''}">강화 가능 ${canCount}개</span>`
       body.innerHTML = walletRow().outerHTML + buyRow + hpRow +
-        `<div class="bg-rgroup" style="margin:6px 0">🔩 업그레이드</div>` +
-        `<div class="bg-filters" style="margin-bottom:8px">${catBtns}</div>` +
-        `${ups || `<div class="bg-sub">보유한 ${upCat === 'weapon' ? '무기' : '소환체'}가 없어요</div>`}`
+        `<div class="bg-rgroup" style="margin:6px 0;display:flex;align-items:center;gap:8px">🔩 업그레이드 ${badge}</div>` +
+        `<div class="bg-filters" style="margin-bottom:6px">${catBtns}</div>` +
+        `<div class="bg-filters" style="margin-bottom:8px">${rarBtns}</div>` +
+        `${ups ? `<div class="bg-upgrid">${ups}</div>` : `<div class="bg-sub">해당하는 ${upCat === 'weapon' ? '무기' : '소환체'}가 없어요</div>`}`
 
       const bg = body.querySelector('#buygem')
       if (bg) bg.onclick = () => { if (countBridge && countBridge.get() >= D.GEM.countPerGem) { countBridge.spend(D.GEM.countPerGem); G.addGems(1); render() } }
       body.querySelectorAll('[data-uc]').forEach((b) => b.onclick = () => { upCat = b.dataset.uc; render() })
+      body.querySelectorAll('[data-ur]').forEach((b) => b.onclick = () => { upRar = b.dataset.ur; render() })
       body.querySelectorAll('[data-up]').forEach((b) => b.onclick = () => { if (U) { U.upgrade(b.dataset.up); render() } })
     }
     render()

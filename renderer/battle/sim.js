@@ -52,7 +52,9 @@
       const s = statsFor(type)
       const sh = s.battleShield || null   // 자동 쉴드(레벨 반영). 실효 HP엔 미포함(별도 게이지)
       const hp = s.hp + (s.shield ? s.shield.absorb : 0)   // (구)shield는 실효 HP로 단순화
-      const startL = (opts && opts.atL != null) ? clamp(opts.atL, 0, 1) : (side === 0 ? 0 : 1)   // atL: 특정 위치 소환(여왕 앞 등)
+      // 진영 한가운데(L=0/1)가 아니라 책상 "앞"(상대 진영 쪽)에서 소환 — 소환 즉시 적을 바라보고 출발.
+      const FRONT = 0.05
+      const startL = (opts && opts.atL != null) ? clamp(opts.atL, 0, 1) : (side === 0 ? FRONT : 1 - FRONT)   // atL: 특정 위치 소환(여왕 앞 등)
       const chargeCd = s.atk && s.atk.charge ? (s.atk.cd || 1) : 0   // 충전형은 첫 발도 충전부터(cdLeft를 cd로 초기화)
       const u = { uid: uidSeq++, side, type, L: startL, dir: side === 0 ? 1 : -1, hp, maxHp: hp, stats: s, cdLeft: chargeCd }
       if (sh) { u.shMax = sh.absorb; u.shHp = u.shMax; u.shHitAt = -1e9; u.shCooldown = sh.cooldown } // 자동 쉴드(레벨 반영)
