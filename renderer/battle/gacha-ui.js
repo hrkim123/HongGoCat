@@ -702,6 +702,13 @@
     if (dev) items.push(['🛠️ 개발자 (재화)', () => openDevPanel()])
     const wrap = document.createElement('div'); wrap.style.cssText = 'display:flex;flex-direction:column;gap:8px'
     items.forEach(([label, fn]) => { const b = document.createElement('button'); b.className = 'bg-btn'; b.textContent = label; b.style.textAlign = 'left'; b.onclick = () => { close(); fn() }; wrap.appendChild(b) })
+    // 액션 행(위): [소환체 제거] — 왼쪽부터 채우고 한 줄을 다 쓰진 않음(버튼 추가 여지)
+    const arow = document.createElement('div'); arow.style.cssText = 'display:flex;gap:6px;margin-top:6px'
+    const clr = document.createElement('button'); clr.className = 'bg-btn'; clr.textContent = '🧹 소환체 제거'
+    clr.style.cssText = 'padding:9px 12px;font-size:13px;flex:0 0 auto'
+    clr.onclick = () => { if (bridges.clearSummons) bridges.clearSummons(); close() }
+    arow.appendChild(clr)
+    wrap.appendChild(arow)
     // 하단 자주 쓰는 기능 행: [땅 복구] [화면 전환] [종료(위험 색)]
     const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:6px;margin-top:6px'
     const restore = document.createElement('button'); restore.className = 'bg-btn'; restore.textContent = '🧱 땅 복구'

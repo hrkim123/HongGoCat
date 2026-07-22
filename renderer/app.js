@@ -1092,6 +1092,7 @@
       }),
       challenge: (id) => openBetDialog(id),      // 배틀 신청(베팅 다이얼로그)
       settings: () => inputSource.openSettings(), // ⚙ 설정: 기존 설정 창
+      clearSummons: () => { clearMySummons(); showToast('🧹 내 소환체·투사체 전부 제거') }, // 🧹 소환체 제거: 내가 소환한 것 일괄 정리
       restoreBar: () => resetTaskbarDig(),       // 🧱 땅 복구: 파인 작업표시줄 복원(모두 함께)
       switchView: () => { try { window.bongo.toOverlay({ t: 'next-monitor' }) } catch (e) {} }, // 🖥 화면 전환: 다음 모니터
       quit: () => { try { inputSource.quit() } catch (e) {} }, // ⏻ 홍고캣 종료
@@ -4683,6 +4684,18 @@
     }
     return best
   }
+  // 적 메카(메카개미 form0 = 지상, 메카인간 form1 = 공중) — 근접은 공중(form1) 못 때림
+  function nearestEnemyMecha(x) {
+    const W = canvas.clientWidth, H = canvas.clientHeight; let best = null, bd = Infinity
+    for (const [pid, m] of remoteMechas) { const mx = m.nx * W, d = Math.abs(mx - x); if (d < bd) { bd = d; best = { pid, x: mx, y: m.ny * H - 20 * view.scale, hp: m.hp || 1, flying: m.form === 1 } } }
+    return best
+  }
+  // 적 인간(WASD 유닛) — 지상 취급(근접 가능)
+  function nearestEnemyHuman(x) {
+    const W = canvas.clientWidth, H = canvas.clientHeight; let best = null, bd = Infinity
+    for (const [pid, h] of remoteHumans) { const hx = h.nx * W, d = Math.abs(hx - x); if (d < bd) { bd = d; best = { pid, x: hx, y: h.ny * H - 20 * view.scale, hp: h.hp || 1, flying: false } } }
+    return best
+  }
   function spawnBlood(x, y, n) {
     for (let k = 0; k < n; k++) {
       const a = Math.random() * Math.PI * 2, sp = 0.8 + Math.random() * 2.2
@@ -4783,13 +4796,18 @@
       const odmg = Math.max(1, Math.round((uatk.dmg || 1) / 6))   // 오버레이 축약 HP 스케일에 맞춘 데미지
       // 여왕 등 생산 유닛: 적 유무와 무관하게 주기적으로 아군 소환체 생산
       if (udef && udef.summon) { if (!a.prodAt) a.prodAt = now + (udef.summon.every || 5) * 1000; else if (now >= a.prodAt) { a.prodAt = now + (udef.summon.every || 5) * 1000; summonProduce(a, udef.summon.unit) } }
-      // 타겟: 적 소환체(원격 ant/gatling) 우선, 없으면 가장 가까운 적 캐릭터
-      const eAnt = nearestEnemyAnt(a.x), eGat = nearestEnemyGatling(a.x)
-      const dAnt = eAnt ? Math.abs(eAnt.s.x - a.x) : Infinity, dGat = eGat ? Math.abs(eGat.x - a.x) : Infinity
-      let tgt = null
-      if (eAnt && dAnt <= dGat) tgt = { x: eAnt.s.x, y: eAnt.s.y, kind: 'rant', pid: eAnt.pid, id: eAnt.s.id }
-      else if (eGat) tgt = { x: eGat.x, y: eGat.y, kind: 'gat', pid: eGat.pid }
-      // 적 소환체가 없을 때만 캐릭터로 폴백 — 단 캐릭터는 책상 위(공중)라 원거리(proj/aoe)만 공격 가능.
+      // 타겟: 적 소환체(원격 ant/gatling/메카/인간) 우선, 없으면 가장 가까운 적 캐릭터.
+      // ★ 메카개미·메카인간·인간도 반드시 후보에 포함(예전엔 ant/gatling만 봐서 상대가 메카/인간만 내면 캐릭터로 폴백하던 버그).
+      const isMeleeAtk = (atkType === 'melee' || atkType === 'suicide')
+      const cands = []
+      { const e = nearestEnemyAnt(a.x); if (e) cands.push({ x: e.s.x, y: e.s.y, kind: 'rant', pid: e.pid, id: e.s.id, fly: false }) }
+      { const e = nearestEnemyGatling(a.x); if (e) cands.push({ x: e.x, y: e.y, kind: 'gat', pid: e.pid, fly: false }) }
+      { const e = nearestEnemyMecha(a.x); if (e) cands.push({ x: e.x, y: e.y, kind: 'mecha', pid: e.pid, fly: e.flying }) }
+      { const e = nearestEnemyHuman(a.x); if (e) cands.push({ x: e.x, y: e.y, kind: 'human', pid: e.pid, fly: e.flying }) }
+      let tgt = null, btd = Infinity
+      // 근접/자폭은 공중(메카인간 등) 못 때림 → 후보에서 제외
+      for (const c of cands) { if (isMeleeAtk && c.fly) continue; const d = Math.abs(c.x - a.x); if (d < btd) { btd = d; tgt = c } }
+      // 공격 가능한 적 소환체가 없을 때만 캐릭터로 폴백 — 단 캐릭터는 책상 위(공중)라 원거리(proj/aoe)만 공격 가능.
       // 근접/자폭은 공중 캐릭터를 못 때리므로 폴백하지 않고 그냥 배회한다.
       if (!tgt && (atkType === 'proj' || atkType === 'aoe')) { const ec = nearestEnemyCat(a.x); if (ec) tgt = { x: ec.c.x, y: ec.c.y - 22 * view.scale, kind: 'cat', cat: ec.cat } }
       let moving = true, acting = false
@@ -4835,12 +4853,16 @@
     spawnBlood(tgt.x, (tgt.y != null ? tgt.y : a.y) - 4 * view.scale, 4)
     if (tgt.kind === 'rant') { if (connected()) net.send(JSON.stringify({ t: 'ant-hit', target: tgt.pid, ant: tgt.id, dmg })) }
     else if (tgt.kind === 'gat') { if (connected()) net.send(JSON.stringify({ t: 'gat-hit', target: tgt.pid, dmg })) }
+    else if (tgt.kind === 'mecha') { if (connected()) net.send(JSON.stringify({ t: 'mecha-hit', target: tgt.pid, dmg })) }
+    else if (tgt.kind === 'human') { if (connected()) net.send(JSON.stringify({ t: 'human-hit', target: tgt.pid, dmg, hx: +((tgt.x) / canvas.clientWidth).toFixed(4), hy: +((tgt.y) / canvas.clientHeight).toFixed(4) })) }
     else if (tgt.kind === 'cat' && tgt.cat) applyCatHit(tgt.cat, dmg, performance.now())
   }
   function summonSuicide(a, dmg) {   // 카미카제: 접촉 자폭 — 주변 적 소환체/캐릭터 광역 + 자신 사망
-    const R = 60 * view.scale, now = performance.now()
+    const R = 60 * view.scale, now = performance.now(), W = canvas.clientWidth, H = canvas.clientHeight
     addEffect(a.x, a.y - 8 * view.scale, 3); spawnBlood(a.x, a.y, 10)
     for (const [pid, rec] of remoteAnts) { for (const e of rec.items.values()) { if (e.dead) continue; const sp = remoteAntScreenPos(pid, e); if (sp && Math.hypot(sp.x - a.x, sp.y - a.y) <= R && connected()) net.send(JSON.stringify({ t: 'ant-hit', target: pid, ant: e.id, dmg: dmg * 2 })) } }
+    for (const [pid, m] of remoteMechas) { if (Math.hypot(m.nx * W - a.x, m.ny * H - a.y) <= R && connected()) net.send(JSON.stringify({ t: 'mecha-hit', target: pid, dmg: dmg * 2 })) }
+    for (const [pid, h] of remoteHumans) { if (Math.hypot(h.nx * W - a.x, h.ny * H - a.y) <= R && connected()) net.send(JSON.stringify({ t: 'human-hit', target: pid, dmg: dmg * 2, hx: +(h.nx).toFixed(4), hy: +(h.ny).toFixed(4) })) }
     for (let ci = 0; ci < catPos.length; ci++) { const cat = allRef[ci], c = catPos[ci]; if (!cat || !c || cat.id === 'me') continue; if (Math.hypot(c.x - a.x, c.y - a.y) <= R) applyCatHit(cat, dmg * 2, now) }
     antTakeDmg(a, 99)
   }
@@ -4884,6 +4906,12 @@
         else { for (const [pid, rec] of remoteAnts) { let hit = false; for (const e of rec.items.values()) { if (e.dead) continue; const sp = remoteAntScreenPos(pid, e); if (sp && Math.hypot(sp.x - p.x, sp.y - p.y) < 16 * view.scale) { if (connected()) net.send(JSON.stringify({ t: 'ant-hit', target: pid, ant: e.id, dmg: p.dmg })); hit = true; break } } if (hit) break } spawnSpark(p.x, p.y) }
         summonProj.splice(i, 1); continue
       }
+      // 적 소환체(원격 메카/인간) 충돌 — HP 있는 유닛
+      { const rr = (p.aoe || 18 * view.scale), Hc = canvas.clientHeight
+        for (const [pid, m] of remoteMechas) { if (Math.hypot(m.nx * W - p.x, (m.ny * Hc - 20 * view.scale) - p.y) < rr) { if (connected()) net.send(JSON.stringify({ t: 'mecha-hit', target: pid, dmg: p.dmg })); done = true; break } }
+        if (!done) for (const [pid, h] of remoteHumans) { if (Math.hypot(h.nx * W - p.x, (h.ny * Hc - 20 * view.scale) - p.y) < rr) { if (connected()) net.send(JSON.stringify({ t: 'human-hit', target: pid, dmg: p.dmg, hx: +(p.x / W).toFixed(4), hy: +(p.y / Hc).toFixed(4) })); done = true; break } }
+      }
+      if (done) { p.aoe ? addEffect(p.x, p.y, 2) : spawnSpark(p.x, p.y); summonProj.splice(i, 1); continue }
       // 적 캐릭터(고양이) 충돌 — 체력 없음(피격 번쩍만)
       for (let ci = 0; ci < catPos.length; ci++) { const cat = allRef[ci], c = catPos[ci]; if (!cat || !c || cat.id === 'me') continue; if (Math.hypot(c.x - p.x, (c.y - 20 * view.scale) - p.y) < (p.aoe || 46 * view.scale)) { applyCatHit(cat, p.dmg, now); done = true; break } }
       if (done) { p.aoe ? addEffect(p.x, p.y, 2) : spawnSpark(p.x, p.y); summonProj.splice(i, 1); continue }
