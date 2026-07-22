@@ -698,7 +698,7 @@
   function clearMySummons() {
     projectiles.length = 0; ants.length = 0; gbullets.length = 0; hbullets.length = 0; bolts.length = 0
     energyShots.length = 0; interceptors.length = 0; mechaShells.length = 0
-    summonProj.length = 0; bombs.length = 0; bombQueue.length = 0; fireZones.length = 0   // 소환 투사체·폭격 정리
+    summonProj.length = 0; bombs.length = 0; bombQueue.length = 0; fireZones.length = 0; bomberPlane = null   // 소환 투사체·폭격 정리
     if (me.gatActive) setGat(false)
     me.gatBattle = false; me.gatStructUid = null; me.gatCdUntil = 0   // 배틀 게틀링 상태·재배치 쿨 초기화
     if (me.humanActive) removeHuman()
@@ -849,7 +849,11 @@
           for (const id of [...m.keys()]) if (!seen.has(id)) m.delete(id)
         pushState()   // reflect the new count in the settings window
       }
-      else if (msg.t === 'pos') { const p = peers.get(msg.id); if (p) { p.nx = msg.nx; p.ny = msg.ny; p.taps = msg.taps; if (msg.hp != null) p.hp = msg.hp; p.away = !!msg.away; p.safe = !!msg.safe; if (msg.bw != null) p.bw = msg.bw; if (msg.bp != null) p.bp = msg.bp } }
+      else if (msg.t === 'pos') { const p = peers.get(msg.id); if (p) {
+        // 프리셋 인덱스(ac,ar)가 오면 내 화면의 같은 프리셋 좌표로 배치(해상도 무관 정합). 없으면(드래그 중 등) 정규화 좌표.
+        if (msg.ac != null && msg.ar != null) { const a = anchorAt(msg.ac, msg.ar), W2 = canvas.clientWidth || 1, H2 = canvas.clientHeight || 1; p.nx = a.x / W2; p.ny = a.y / H2 }
+        else { p.nx = msg.nx; p.ny = msg.ny }
+        p.taps = msg.taps; if (msg.hp != null) p.hp = msg.hp; p.away = !!msg.away; p.safe = !!msg.safe; if (msg.bw != null) p.bw = msg.bw; if (msg.bp != null) p.bp = msg.bp } }
       else if (msg.t === 'pulse') { const p = peers.get(msg.id); if (p) pulse(p, msg.kind) }
       else if (msg.t === 'chat') { const p = peers.get(msg.id); if (p) showBubble(p, String(msg.text)) }
       else if (msg.t === 'throw') { const src = targetOf(msg.id); launch('me', src ? { from: src } : {}) }
@@ -886,7 +890,7 @@
       else if (msg.t === 'battle-dec') { if (msg.to === me.netId && battleInvite && battleInvite.to === msg.id) { battleInvite = null; showToast(msg.reason === 'busy' ? '상대가 배틀 중입니다' : '상대가 배틀을 거절했습니다') } }
       else if (msg.t === 'battle-end') { if (battleMulti && msg.id === battleMulti.oppId && battlePhase !== 'result') { battlePhase = 'result'; battleResultAt = performance.now(); battleWin = true; seedBattleConfetti(); recordBattleWin() } }   // 상대가 패배/이탈 통지 → 내 승리
       else if (msg.t === 'bunits') { if (battleMulti && msg.id === battleMulti.oppId && msg.to === me.netId) { const prev = new Map(battleGhosts.map((g) => [g.uid, g._dispL])); battleGhosts = (msg.list || []).filter((g) => !battleNetHeldUids.has(g.uid)).map((g) => { const L = 1 - g.L; return { uid: g.uid, type: g.type, L, hp: g.hp, shHp: g.shHp, frozen: g.frozen, slowed: g.slowed, _dispL: prev.has(g.uid) ? prev.get(g.uid) : L } }); battleGhostBase = msg.base != null ? msg.base : battleGhostBase } }   // 상대 유닛(미러링·표시위치 이어받아 보간) + 상대 기지 HP
-      else if (msg.t === 'bghit') { if (battleMulti && msg.to === me.netId && battle) { battle.hitUnit(msg.uid, msg.dmg || 0, msg.slow || 0, msg.slowDur || 0, !!msg.kb) } }   // 내 유닛이 맞음(상대가 통지) → 로컬 적용(권한, 넉백 플래그)
+      else if (msg.t === 'bghit') { if (battleMulti && msg.to === me.netId && battle) { battle.hitUnit(msg.uid, msg.dmg || 0, msg.slow || 0, msg.slowDur || 0, !!msg.kb, !!msg.kbBig) } }   // 내 유닛이 맞음(상대가 통지) → 로컬 적용(권한, 넉백 플래그 · kbBig=쉴드 파열 큰 밀림)
       else if (msg.t === 'bbhit') { if (battleMulti && msg.to === me.netId && battle) { battle.hitBase(0, msg.dmg || 0) } }   // 내 기지가 맞음 → 로컬 적용
       else if (msg.t === 'gatling') {
         if (msg.active) remoteGatlings.set(msg.id, { nx: msg.nx, ny: msg.ny, hp: msg.hp, ang: msg.ang })
@@ -3500,6 +3504,7 @@
   const ants = []              // MY ants (I simulate them authoritatively)
   const summonProj = []        // 오버레이 소환체(원거리/광역)가 쏘는 투사체 — 적 소환체/캐릭터에 명중
   const bombs = [], bombQueue = [], fireZones = []   // 💣 폭격 무기: 낙하 폭탄 / 예약 투하 / 착탄 불장판(DoT)
+  let bomberPlane = null   // ✈️ 폭격기(화면을 지나가며 폭탄 투하하는 연출)
   const BOMB_N = 5, BOMB_DROP_MS = 150, BOMB_DMG = 14, FIRE_SEC = 5, FIRE_TICK_MS = 450, FIRE_DMG = 3   // 5발·순차·착탄14+넉백·5초 불장판 3/틱
   const remoteAnts = new Map() // peerId -> { list:[{id,x,y,hp,dead}], ts }  (x,y relative to peer cat)
   const ANT_HP = 1
@@ -4075,7 +4080,7 @@
         const bx = battleLaneX(e.side), by = battleDeskY()
         addEffect(bx, by - 34 * view.scale, 4); for (let k = 0; k < 18; k++) spawnSpark(bx + (Math.random() - 0.5) * 150 * view.scale, by - Math.random() * 60 * view.scale)
         if (e.side === 0) showToast('🛡 방어 돔 폭발 — 근처 적 넉백!')
-        if (battleMulti && e.side === 0 && connected()) for (const g of battleGhosts) { if (g.hp > 0 && g.L < 0.5) net.send(JSON.stringify({ t: 'bghit', to: battleMulti.oppId, uid: g.uid, dmg: 0, slow: 0, slowDur: 0, kb: 1 })) }   // 멀티: 근처 고스트 넉백 릴레이(베스트에포트)
+        if (battleMulti && e.side === 0 && connected()) for (const g of battleGhosts) { if (g.hp > 0 && g.L < 0.5) net.send(JSON.stringify({ t: 'bghit', to: battleMulti.oppId, uid: g.uid, dmg: 0, slow: 0, slowDur: 0, kb: 1, kbBig: 1 })) }   // 멀티: 근처 고스트 큰 넉백 릴레이(쉴드 파열)
       }
     }
     // 멀티: 내 유닛 목록 + 기지HP 방송(스로틀 100ms)
@@ -4940,10 +4945,14 @@
   // ── 💣 폭격 무기: 커서 X부터 오른쪽 30% 범위에 5발 순차 투하(하늘 낙하) → 착탄 땅파임+양측 데미지·넉백+5초 불장판 ──
   function bombRadius() { return 0.05 * canvas.clientWidth }
   function deployBomber() {
-    const W = canvas.clientWidth, now = performance.now()
+    const W = canvas.clientWidth, H = canvas.clientHeight, now = performance.now(), s = view.scale
     const startX = Math.max(6, Math.min(W - 6, cursor.x)), range = W * 0.18, spacing = range / Math.max(1, BOMB_N - 1)   // 0.30→0.18: 간격/범위 축소
-    for (let i = 0; i < BOMB_N; i++) bombQueue.push({ x: Math.min(W - 6, startX + i * spacing), at: now + i * BOMB_DROP_MS })
-    showToast('💣 폭격 개시! (아군도 피해 — 주의)')
+    const dropY = H * 0.4   // 화면 중간보다 조금 위에서 투하(맨 위 X)
+    const pre = 450, dropWindow = BOMB_DROP_MS * Math.max(1, BOMB_N - 1)   // 폭격기 진입(pre) 후 투하 시작
+    for (let i = 0; i < BOMB_N; i++) bombQueue.push({ x: Math.min(W - 6, startX + i * spacing), y: dropY, at: now + pre + i * BOMB_DROP_MS })
+    // 폭격기: born~pre 동안 왼쪽에서 진입 → pre에 startX 도달 → dropWindow 동안 range를 지나며 폭탄 투하 → post 동안 빠져나감
+    bomberPlane = { startX, range, dropWindow, pre, post: 650, born: now, y: dropY - 30 * s }
+    showToast('✈️ 폭격기 진입! (아군도 피해 — 주의)')
   }
   // 착탄/불장판 공용 범위 타격: 배틀 유닛(양측)+고스트(릴레이) + 오버레이 개미(양측). 아군 포함(프렌들리 파이어).
   function bombHitArea(x, rPx, dmg, kb) {
@@ -4962,7 +4971,7 @@
     fireZones.push({ x, r: bombRadius() * 0.9, until: performance.now() + FIRE_SEC * 1000, nextTick: 0 })   // 5초 불장판
   }
   function stepBombs(now) {
-    for (let i = bombQueue.length - 1; i >= 0; i--) if (now >= bombQueue[i].at) { const q = bombQueue.splice(i, 1)[0]; bombs.push({ x: q.x, y: -20 * view.scale, vy: 3 * view.scale }) }
+    for (let i = bombQueue.length - 1; i >= 0; i--) if (now >= bombQueue[i].at) { const q = bombQueue.splice(i, 1)[0]; bombs.push({ x: q.x, y: (q.y != null ? q.y : -20 * view.scale), vy: 1.2 * view.scale }) }   // 폭격기 고도에서 투하
     const grav = 0.6 * view.scale
     for (let i = bombs.length - 1; i >= 0; i--) {
       const b = bombs[i]; b.vy += grav; b.y += b.vy
@@ -5014,6 +5023,29 @@
   function drawBombs(now) {
     // 리틀보이 폭탄 이미지를 재사용하되 살짝 작게(scaleMul<1). 코가 아래로 낙하.
     for (const b of bombs) drawLittleBoy(b, now, 0.5)
+  }
+  // ✈️ 폭격기: 왼쪽에서 진입 → 투하 구간을 지나며 폭탄 떨구고 → 오른쪽으로 빠져나감(수명 끝 자동 제거).
+  function drawBomberPlane(now) {
+    if (!bomberPlane) return
+    const p = bomberPlane, el = now - p.born
+    if (el > p.pre + p.dropWindow + p.post) { bomberPlane = null; return }
+    const s = view.scale, x = p.startX + p.range * ((el - p.pre) / p.dropWindow), y = p.y
+    ctx.save(); ctx.translate(x, y); ctx.lineJoin = 'round'
+    // 뒤로 스윕된 주익 + 꼬리날개
+    ctx.fillStyle = '#3a3f4b'
+    ctx.beginPath(); ctx.moveTo(2 * s, 2 * s); ctx.lineTo(-24 * s, 14 * s); ctx.lineTo(-8 * s, 2 * s); ctx.closePath(); ctx.fill()
+    ctx.beginPath(); ctx.moveTo(-26 * s, -1 * s); ctx.lineTo(-35 * s, -13 * s); ctx.lineTo(-22 * s, -1 * s); ctx.closePath(); ctx.fill()
+    // 동체
+    ctx.fillStyle = '#525863'; ctx.beginPath(); ctx.ellipse(0, 0, 31 * s, 7.5 * s, 0, 0, 7); ctx.fill()
+    // 노즈콘(오른쪽=진행 방향)
+    ctx.fillStyle = '#5f6672'; ctx.beginPath(); ctx.moveTo(31 * s, 0); ctx.lineTo(22 * s, -5 * s); ctx.lineTo(22 * s, 5 * s); ctx.closePath(); ctx.fill()
+    // 하부 폭탄창 라인
+    ctx.fillStyle = '#31353f'; ctx.fillRect(-11 * s, 5 * s, 22 * s, 2.6 * s)
+    // 조종석 유리
+    ctx.fillStyle = 'rgba(150,205,255,.8)'; ctx.beginPath(); ctx.ellipse(15 * s, -3 * s, 5 * s, 2.6 * s, 0, 0, 7); ctx.fill()
+    // 엔진 배기 화염(깜빡)
+    ctx.fillStyle = 'rgba(255,175,80,.55)'; ctx.beginPath(); ctx.ellipse(-31 * s - Math.abs(Math.sin(now / 45)) * 3 * s, 0, 4 * s, 2.4 * s, 0, 0, 7); ctx.fill()
+    ctx.restore()
   }
   function drawRemoteAnts(now) {
     const W = canvas.clientWidth
@@ -5575,9 +5607,12 @@
       const W = canvas.clientWidth || 1, H = canvas.clientHeight || 1
       const nx = +(wx / W).toFixed(4), ny = +(wy / H).toFixed(4), aw = me.away ? 1 : 0, sf = me.safeMode ? 1 : 0
       // only send when something changed; heartbeat every 1s so late joiners still place my cat
-      if (nx !== lastPos.nx || ny !== lastPos.ny || totalCount !== lastPos.taps || me.hp !== lastPos.hp || aw !== lastPos.away || sf !== lastPos.safe || now - lastPos.at > 1000) {
-        net.send(JSON.stringify({ t: 'pos', nx, ny, taps: totalCount, hp: me.hp, away: aw, safe: sf, bw: battleWins, bp: battlePlays }))   // 상대에겐 누적 카운트 + 배틀 전적
-        lastPos = { nx, ny, taps: totalCount, hp: me.hp, away: aw, safe: sf, at: now }
+      // 스냅 상태(드래그 아님)면 프리셋 인덱스(ac,ar)도 함께 전송 → 해상도가 달라도 상대가 자기 화면의 '같은 프리셋'에 나를 배치(정규화 좌표만 쓰면 위젯 크기만큼 어긋남).
+      const snapped = !dragging && savedAnchor && typeof savedAnchor.c === 'number'
+      const ac = snapped ? savedAnchor.c : undefined, ar = snapped ? savedAnchor.r : undefined
+      if (nx !== lastPos.nx || ny !== lastPos.ny || ac !== lastPos.ac || totalCount !== lastPos.taps || me.hp !== lastPos.hp || aw !== lastPos.away || sf !== lastPos.safe || now - lastPos.at > 1000) {
+        net.send(JSON.stringify({ t: 'pos', nx, ny, ac, ar, taps: totalCount, hp: me.hp, away: aw, safe: sf, bw: battleWins, bp: battlePlays }))   // 상대에겐 누적 카운트 + 배틀 전적
+        lastPos = { nx, ny, ac, taps: totalCount, hp: me.hp, away: aw, safe: sf, at: now }
       }
     }
   }, 50)   // ~20 updates/s — higher rate so remote missiles/ants move smoother
@@ -5865,7 +5900,7 @@
     stepAnts(now)
     stepSummonProj(now); drawSummonProj(now)   // 오버레이 소환체 투사체(원거리/광역 전투)
     stepFireZones(now); drawFireZones(now)     // 💣 폭격 불장판(DoT) — 바닥
-    stepBombs(now); drawBombs(now)             // 💣 낙하 폭탄 — 위
+    stepBombs(now); drawBomberPlane(now); drawBombs(now)   // ✈️ 폭격기 + 💣 낙하 폭탄
     ctx.save(); drawRemoteAnts(now); ctx.restore()
     stepFieldUnits(now); drawFieldUnits(now)   // 신규 소환체(오버레이)
     if (battleActive && battle) { stepBattle(now); drawBattleUnits(now) }   // 배틀 모드(오버레이 통합)

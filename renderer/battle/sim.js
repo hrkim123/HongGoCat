@@ -88,11 +88,11 @@
       return best
     }
 
-    function applyKb(target, force) {   // 강제 넉백(임계 무관). force=true면 재넉백 쿨(KB_CD)도 무시(망치개미: 매 공격 넉백).
+    function applyKb(target, force, opts) {   // 강제 넉백(임계 무관). force=true면 재넉백 쿨(KB_CD)도 무시(망치개미: 매 공격 넉백). opts={back,dur}로 세기/시간 지정(쉴드 파열 등 큰 밀림).
       if (target.hp <= 0 || target.structure) return   // 구조물(게틀링 등)은 넉백 안 됨(고정)
       if (target.frozenUntil && target.frozenUntil > st.t) return   // 빙결 중엔 넉백 X
       if (!force && target.kbCdUntil && target.kbCdUntil > st.t) return
-      target.kbUntil = st.t + KB_DUR; target.kbCdUntil = st.t + KB_CD
+      target.kbUntil = st.t + ((opts && opts.dur) || KB_DUR); target.kbCdUntil = st.t + KB_CD; target.kbBack = (opts && opts.back) || 0
       if (target.stats && target.stats.atk && target.stats.atk.cd) target.cdLeft = target.stats.atk.cd   // CC: 진행 중 공격/조준 취소 + 재장전(넉백 풀린 뒤 다시 cd 채워야 발사)
       st.events.push({ type: 'knockback', uid: target.uid, L: target.L, side: target.side })
     }
@@ -148,7 +148,7 @@
         if (u.hp <= 0) continue
         if (u.shMax != null && u.shHp < u.shMax && st.t - u.shHitAt >= u.shCooldown) u.shHp = u.shMax // 피격 없이 cooldown초 지나야 재충전
         if (u.frozenUntil && u.frozenUntil > st.t) continue   // ❄ 빙결: 이동·공격 정지
-        if (u.kbUntil && u.kbUntil > st.t) { u.L = clamp(u.L - u.dir * KB_BACK * dt, 0, 1); continue }   // 넉백: 뒤로 밀리는 동안 공격 X
+        if (u.kbUntil && u.kbUntil > st.t) { u.L = clamp(u.L - u.dir * (u.kbBack || KB_BACK) * dt, 0, 1); continue }   // 넉백: 뒤로 밀리는 동안 공격 X (kbBack 지정 시 큰 밀림)
         const range = (u.stats.atk && u.stats.atk.range) || 0.02
         const enemyBaseL = u.side === 0 ? 1 : 0
         const { e: tgt, d: td, ghost: tgtGhost } = nearestEnemy(u)
@@ -253,10 +253,10 @@
     function drainEvents() { const e = st.events; st.events = []; return e }
 
     // 컨트롤러(오버레이 투사체)가 명중 시 호출 — 쉴드/사망은 여기서 처리
-    function hitUnit(uid, dmg, slow, slowDur, forceKb) {
+    function hitUnit(uid, dmg, slow, slowDur, forceKb, kbBig) {
       const u = st.units.find((x) => x.uid === uid); if (!u || u.hp <= 0) return
       applyDamage(u, dmg)
-      if (forceKb) applyKb(u)   // 캐논/워커 강제 넉백
+      if (forceKb) applyKb(u, !!kbBig, kbBig ? { back: 1.4, dur: 0.6 } : undefined)   // 캐논/워커 강제 넉백 · kbBig=쉴드 파열 큰 밀림
       if (slow) {
         u.slowUntil = st.t + (slowDur || 1); u.slowMul = 1 - slow
         // ❄ 빙결 스택: 감속 5회 누적 → 2초 빙결 정지 → 이후 10초 빙결 면역(그 동안은 감속만)
@@ -282,7 +282,7 @@
         if (e.side === side || e.hp <= 0) continue
         const onOurHalf = side === 0 ? e.L < 0.5 : e.L > 0.5
         if (!onOurHalf) continue
-        e.L = 0.5; applyKb(e, true)
+        applyKb(e, true, { back: 1.4, dur: 0.6 })   // ★ 중앙 순간이동 X — 쉴드 터진 그 자리부터 크게·길게 뒤로 밀림
       }
     }
     function activateBaseShield(side, hp, durSec) { st.baseShield[side] = hp; st.baseShieldUntil[side] = st.t + (durSec || 10) }
