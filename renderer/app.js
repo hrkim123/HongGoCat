@@ -3639,6 +3639,7 @@
     showToast(`↩ 베팅 환불(${reason || '무효'}) +${betLabel(battleBet)}`)
   }
   let battleGhosts = [], battleGhostBase = 100, bunitsLastSend = 0   // 상대(고스트) 유닛 + 상대 기지 HP
+  const BUNITS_MS = 50   // 고스트 위치 브로드캐스트 주기(ms). 100→50(20/s)로 상향. 더 낮추면 트래픽·직렬화 부하↑, 인터넷선 지터가 병목이라 수확 체감. 튜닝 지점.
   const battleNetHeldUids = new Set()   // 배틀 그물이 붙잡은 상대 고스트 uid(들고 있는 동안 bunits 재갱신에서 제외)
   const BATTLE_NET_COST_CAP = 5         // 그물 1회 포획 최대 소환체 코스트 합
   let unitReadyAt = {}   // 유닛별 재출격 쿨다운(냥코풍): 소환 후 일정 시간 재소환 불가
@@ -4110,7 +4111,7 @@
       }
     }
     // 멀티: 내 유닛 목록 + 기지HP 방송(스로틀 100ms)
-    if (battleMulti && connected() && battlePhase === 'playing' && now - bunitsLastSend > 100) {
+    if (battleMulti && connected() && battlePhase === 'playing' && now - bunitsLastSend > BUNITS_MS) {
       bunitsLastSend = now
       const list = battle.state.units.map((u) => ({ uid: u.uid, type: u.type, L: +u.L.toFixed(3), hp: u.hp, shHp: u.shHp || 0, frozen: (u.frozenUntil && u.frozenUntil > battle.state.t) ? 1 : 0, slowed: (u.slowUntil && u.slowUntil > battle.state.t) ? 1 : 0 }))
       net.send(JSON.stringify({ t: 'bunits', to: battleMulti.oppId, list, base: battle.state.baseHp[0], mana: +battle.state.mana[0].toFixed(1) }))
@@ -4228,7 +4229,7 @@
     // 멀티: 상대(고스트) 유닛 — 미러링돼 우측→좌측 전진, facing=-1
     if (battleMulti) for (const g of battleGhosts) {
       if (g.hp <= 0) continue
-      if (g._dispL == null) g._dispL = g.L; else g._dispL += (g.L - g._dispL) * 0.25   // 100ms 방송 사이 부드럽게 보간(버벅임 완화)
+      if (g._dispL == null) g._dispL = g.L; else g._dispL += (g.L - g._dispL) * 0.34   // 50ms 방송 사이 보간(버벅임 완화). 갱신 빨라져 계수 소폭↑(0.25→0.34)로 지연 감소
       const gdef = window.BattleData.UNITS[g.type] || {}, gx = battleLaneX(g._dispL), gy = battleUnitFeetY(gx, gdef.flying)
       const gs = view.scale * BATTLE_UNIT_SCALE * (gdef.size || 1)
       drawTeamMarker(gx, gy, 1, g.type, gdef.size || 1)   // 상대(고스트) = 빨강 머리 위 삼각형

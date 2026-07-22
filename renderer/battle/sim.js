@@ -173,7 +173,7 @@
           if (inTgt || inBase) {
             const aoe = u.stats.atk.aoeR || 0.05, dmg = u.stats.atk.dmg || 1
             for (const e of st.units) { if (e.side !== u.side && e.hp > 0 && !isFlying(e) && Math.abs(e.L - u.L) <= aoe) applyDamage(e, dmg, u.side) }   // 자폭(근접계)은 공중 미타격
-            for (const g of st.ghosts) { if (g.hp > 0 && Math.abs(g.L - u.L) <= aoe) st.events.push({ type: 'ghosthit', uid: g.uid, dmg }) }   // 멀티: 고스트 광역 피격 릴레이
+            for (const g of st.ghosts) { if (g.hp > 0 && !isFlying(g) && Math.abs(g.L - u.L) <= aoe) st.events.push({ type: 'ghosthit', uid: g.uid, dmg }) }   // 멀티: 고스트 광역 피격 릴레이 (자폭=근접계라 공중 미타격 — 솔로와 일치)
             if (inBase && !inTgt) { const es = u.side === 0 ? 1 : 0; damageBase(es, dmg) }
             st.events.push({ type: 'boom', uid: u.uid, L: u.L, side: u.side, aoeR: aoe })
             st.events.push({ type: 'die', uid: u.uid, side: u.side, L: u.L, unit: u.type })
