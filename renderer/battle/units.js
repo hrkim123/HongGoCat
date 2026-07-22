@@ -56,13 +56,13 @@
       art: 'ant-shield', size: 1.2,
     },
     mechaAnt: {
-      name: '메카 개미', cat: 'unit', rarity: 'rare', cost: 5, hp: 85,
+      name: '메카 개미', cat: 'unit', rarity: 'rare', cost: 7, hp: 85,
       speed: 0.09, atk: { type: 'proj', dmg: 12, range: 0.19, cd: 1.1 }, kb: 1, // 대포 연사 완화(0.5→1.1) = ≈10.9dps. 실효HP 100 (사거리 0.26→0.19)
       battleShield: { absorb: 15, cooldown: 5 },
       art: 'mecha', size: 1.6, // 기존 메카 아트·포물선 대포 재사용
     },
     mechaHuman: {
-      name: '메카 인간폼', cat: 'unit', rarity: 'legend', cost: 9, hp: 120,
+      name: '메카 인간폼', cat: 'unit', rarity: 'legend', cost: 15, hp: 120,
       speed: 0.12, atk: { type: 'proj', dmg: 15, range: 0.20, cd: 1.05, charge: 1.0 }, kb: 1, // 에너지포 = 1초 충전 후 최대 빔(오버레이 ECANNON_MS 동일). ≈14dps (사거리 0.28→0.20)
       battleShield: { absorb: 16, cooldown: 6 }, // 공중 면역이 이미 큰 생존기 → 실드 20→16(코스트 7→9 상향과 함께 밸런스). 여왕(10) 근처의 결전급으로 재조정
 
@@ -108,7 +108,7 @@
       speed: 0.08, atk: { type: 'proj', dmg: 22, range: 0.34, cd: 2.6 }, art: 'sniper', size: 1.0, // 초장거리 유리대포(8.5dps, 사거리 0.42→0.34 · 여전히 최장)
     },
     boss: {
-      name: '여왕 개미', cat: 'unit', rarity: 'legend', cost: 10, hp: 200,
+      name: '여왕 개미', cat: 'unit', rarity: 'legend', cost: 12, hp: 200,
       speed: 0.06, atk: { type: 'none' }, support: true, kb: 0,
       // 규칙: 본인 전투력이 중요치 않은 유닛(생산·서포트)은 자체 HP를 낮게 → 보호받아야 하는 후방 유닛. (320→200)
       summon: { unit: 'rifleman', every: 5 }, // 직접 공격 X → 5초마다 라이플 솔저를 바로 앞에 1마리 소환(생산형 결전병기)

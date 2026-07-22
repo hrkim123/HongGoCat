@@ -501,6 +501,11 @@
   // Compares the last-seen version (localStorage) to the current app version; lists every changelog
   // entry between them (first run just shows the current version). Add newest versions at the TOP.
   const CHANGELOG = {
+    '1.1.0': [
+      '배틀 지형 공유 — 한 명이 땅을 파거나 복구하면 양쪽 화면 모두 반영돼요',
+      '마나 재조정 — 기본 충전 0.3/s, 마나 강화 0.6·0.9·1.3·1.7·2.2',
+      '코스트 재조정 — 메카 개미 7, 여왕 개미 12, 메카 인간폼 15',
+    ],
     '1.0.11': [
       '멀티 배틀: 상대 소환체가 쏘는 투사체가 이제 내 화면에도 보여요(메카·인간 포함 전부)',
       '멀티 배틀: 소환체가 반대로 걷던 방향 버그 수정',
