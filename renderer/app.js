@@ -3604,6 +3604,7 @@
   // 멀티 배틀: 상대와 1v1. battleMulti = { oppId, mySide(0=신청자/1=수락자), oppName } · null이면 솔로.
   let battleMulti = null, battleInvite = null, battleIncoming = null, battleFlip = false
   let battleBet = null, battleBetSettled = false   // 베팅: {cur:'count'|'gems'|'mat', amt}. 진입 시 escrow 차감, 결과 시 1회 정산.
+  let battleBetResult = null   // 결과창 표시용: {cur, amt, win, bal(정산 후 보유량)}
   const BET_CUR = { count: { name: '카운트', emoji: '🪙' }, gems: { name: '젬', emoji: '💎' }, mat: { name: '강화 부품', emoji: '🔩' } }
   function betBalance(cur) { return cur === 'count' ? tapCount : cur === 'gems' ? (window.BattleGacha ? window.BattleGacha.getGems() : 0) : cur === 'mat' ? (window.BattleGacha ? window.BattleGacha.getMaterials() : 0) : 0 }
   function betAdd(cur, n) {   // n 음수=차감. 카운트=tapCount, 젬/부품=BattleGacha.
@@ -3617,6 +3618,7 @@
     battleBetSettled = true
     if (win) { betAdd(battleBet.cur, battleBet.amt * 2); showToast(`🏆 베팅 획득 +${betLabel(battleBet)}`) }
     else showToast(`💸 베팅 잃음 −${betLabel(battleBet)}`)
+    battleBetResult = { cur: battleBet.cur, amt: battleBet.amt, win, bal: betBalance(battleBet.cur) }   // 결과창 표시(정산 후 보유량)
   }
   function refundBattleBet(reason) {   // 무효(상대 팅김 등): escrow 환불
     if (!battleBet || battleBetSettled) return
@@ -3694,7 +3696,7 @@
     battleResultAt = 0; battleLastT = performance.now(); battleActive = true
     battlePhase = 'countdown'; battlePhaseAt = performance.now(); battleConfetti = []   // 3·2·1·START 후 시작
     battleSavedCarve = carve ? carve.slice() : null; battleSavedBarDmg = barDamage; resetTaskbarDig(false)   // 배틀은 복원된(깨끗한) 작업표시줄로 시작
-    battleBet = null; battleBetSettled = false   // 베팅 초기화(멀티는 startBattleMulti에서 설정·escrow)
+    battleBet = null; battleBetSettled = false; battleBetResult = null   // 베팅 초기화(멀티는 startBattleMulti에서 설정·escrow)
     battleFlip = false   // 기본(솔로/신청자)=왼쪽. 멀티 수락자는 startBattleMulti에서 true
     battleNetHeldUids.clear()
     buildBattleHud(); sendHotzone(); recordBattlePlay()   // 🏆 배틀 참여 업적
@@ -4365,6 +4367,16 @@
       ctx.fillStyle = g; ctx.fillText(label, cx, cy)
       ctx.font = `600 ${16 * sc}px system-ui`; ctx.fillStyle = 'rgba(255,255,255,.85)'
       ctx.fillText(battleWin ? '🏆 승리!' : '💀 패배', cx, cy + size * 0.62)
+      // 베팅 결과: 승자 +정산/보유, 패자 −베팅/보유
+      if (battleBetResult) {
+        const b = battleBetResult, c = BET_CUR[b.cur] || {}, fmt = (n) => n.toLocaleString()
+        const line = b.win ? `${c.emoji || ''} +${fmt(b.amt)} ${c.name || ''} 획득` : `${c.emoji || ''} −${fmt(b.amt)} ${c.name || ''} 잃음`
+        const y1 = cy + size * 0.62 + 26 * sc
+        ctx.font = `800 ${19 * sc}px system-ui`; ctx.fillStyle = b.win ? '#7fe3a8' : '#ff8a8a'
+        ctx.fillText(line, cx, y1)
+        ctx.font = `600 ${14 * sc}px system-ui`; ctx.fillStyle = 'rgba(255,255,255,.72)'
+        ctx.fillText(`보유 ${c.emoji || ''} ${fmt(b.bal)}`, cx, y1 + 22 * sc)
+      }
     }
     ctx.restore()
   }
