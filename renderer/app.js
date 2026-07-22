@@ -3680,10 +3680,10 @@
   function redeployCd(id) { const u = window.BattleData.UNITS[id]; return 1500 + (u ? (u.cost || 1) : 1) * 900 }   // 코스트 비례(ms): 개미 2.4s ~ 여왕 10.5s
   // 베이스 캐논(냥코): 시간에 따라 충전, 만충 시 발사 → 내 진영→상대 진영 연쇄 폭발(전원 데미지+넉백). 덱 HUD와 별도 UI.
   let battleCannon = { charge: 0 }, cannonSweep = null, battleCannonEl = null
-  const CANNON_FULL_SEC = 25, CANNON_SWEEP_SEC = 0.85, CANNON_DMG = 20, CANNON_BASE_DMG = 8
+  const CANNON_FULL_SEC = 40, CANNON_SWEEP_SEC = 0.85, CANNON_DMG = 20, CANNON_BASE_DMG = 8   // 충전 25→40초(너무 자주 쓰던 것 완화)
   // 기지 터렛(포탑): 각 진영 책상 위, 상대 방향. 내 진영에 근접한 적에게 자동 포물선 포탄(메카 포탄 궤도 재사용, 디자인/폭발은 별도).
   let battleTurretCd = [0, 0], battleTurretAim = [0, 0], battleTurretFire = [0, 0], battleTurretTgtL = [null, null], battleTurretShotAng = [0, 0]
-  const TURRET_RANGE = 0.18, TURRET_CD = 2400, TURRET_DMG = 8, TURRET_AOE = 0.05   // 사거리 축소(0.34→0.18) · 저데미지 범위공격(14→8, 반경 0.05 레인)
+  const TURRET_RANGE = 0.18, TURRET_CD = 2400, TURRET_DMG = 14, TURRET_AOE = 0.05   // 사거리 0.18 · 범위공격 데미지 8→14 상향(반경 0.05 레인)
   const BATTLE_SHIELD_HP = 30, BATTLE_SHIELD_SEC = 10   // 쉴드 무기 = 기지 방어 돔(HP30·10초). 깨지면 근처 적 맵 중앙 넉백
   const TURRET_INSET = 62   // 포탑을 기지(고양이) 옆 책상 빈 공간(안쪽)으로 들이는 거리(px, view.scale 곱)
   function turretBaseX(side) { const bx = battleLaneX(side === 0 ? 0 : 1); return bx + (side === 0 ? 1 : -1) * TURRET_INSET * view.scale }   // 고양이 옆(상대 쪽)
@@ -4325,7 +4325,7 @@
       // 진행하며 얕은 파임 + 바로 뒤 폭발(접점이 지나간 자리)
       const step = 16 * view.scale
       if (t.dugTo == null) { t.dugTo = t.startX; t.boomAt = t.startX }
-      while (dir > 0 ? t.dugTo <= front : t.dugTo >= front) { carveTaskbar(t.dugTo, 0.012, false); t.dugTo += dir * step }   // 거의 안 파이게(느낌만) 0.03→0.012
+      while (dir > 0 ? t.dugTo <= front : t.dugTo >= front) { carveTaskbar(t.dugTo, 0.006, false); t.dugTo += dir * step }   // 거의 안 파이게(느낌만) 0.012→0.006
       const bstep = 38 * view.scale
       while (dir > 0 ? t.boomAt <= front : t.boomAt >= front) { addEffect(t.boomAt, taskbarSurfaceY(t.boomAt), 1); t.boomAt += dir * bstep }   // 바로 따라오는 폭발
       // 빔 그리기: 입 → 현재 접점(front). 지나간 구간은 옅은 그을림 자국.
@@ -4638,7 +4638,7 @@
   }
   const PROJ_SPD = { bullet: 560, sniper: 950, shell: 400, shellbig: 340, energy: 440, adogen: 320, grenade: 300, missile: 620, turret: 380 }
   const PROJ_LIFE = { bullet: 1500, sniper: 1500, shell: 3000, shellbig: 3000, energy: 3000, adogen: 2200, grenade: 3000, missile: 3500, turret: 4000 }
-  const PROJ_DIG = { bullet: 0.15, sniper: 0.2, shell: 1.2, shellbig: 1.7, energy: 0.6, adogen: 0.9, grenade: 1.5, missile: 1.8, turret: 1.4 }
+  const PROJ_DIG = { bullet: 0.15, sniper: 0.2, shell: 1.2, shellbig: 1.7, energy: 0.6, adogen: 0.9, grenade: 1.5, missile: 1.8, turret: 0.7 }   // 터렛 파임 1.4→0.7(절반)
   // 총구/발사구 위치(스프라이트 로컬 좌표: x=앞쪽+, y=발밑에서 위로+). 스케일(s)·facing 적용해 실제 총구에서 발사되게.
   const PROJ_MUZZLE = { rifleman: { x: 26, y: 22 }, sniper: { x: 30, y: 22 }, grenadier: { x: 11, y: 28 }, drone: { x: 15, y: 20 }, freezer: { x: 14, y: 22 }, mechaAnt: { x: 22, y: 30 }, mechaHuman: { x: 18, y: 34 }, human: { x: 16, y: 28 }, boss: { x: 26, y: 40 }, _default: { x: 16, y: 22 } }
   // 무기(덱) 배틀 발사 — 오버레이 무기 시스템을 "그대로" 사용(캐릭터 기준 발사·커서 추적·합체·핵·리틀보이 등).
