@@ -501,6 +501,13 @@
   // Compares the last-seen version (localStorage) to the current app version; lists every changelog
   // entry between them (first run just shows the current version). Add newest versions at the TOP.
   const CHANGELOG = {
+    '1.2.3': [
+      '⚖ 배틀 밸런스 개편 — "마나 풀업하면 무조건 승리" 메타 완화',
+      '마나 강화 비용이 상위 단계로 갈수록 크게 증가 + 최대 회복 속도 하향(무작정 경제만 올리면 무방비 노출)',
+      '무방비 기지엔 저코스트 근접·자폭 유닛이 큰 피해(러시로 탐욕을 처벌) · 방어 유닛 있으면 요격돼 무효',
+      '기지가 밀리는 쪽은 마나 회복 보너스(컴백) — 한 번 앞섰다고 자동 승리가 안 되게',
+      '💠 브루드 타이탄: 레이저로 공중 유닛도 공격 가능 + 폭탄개미(자폭) 생산',
+    ],
     '1.2.2': [
       '🖥 바탕화면 모드 추가 — 메뉴에서 켜면 홍고캣이 다른 창들 뒤로 내려가, 창을 다 내렸을 때 바탕화면에서만 보여요(업무 방해 X)',
       '상점 업그레이드 화면 개편 — 희귀도 필터 + 강화 가능 우선 정렬 + 2열 카드 + "강화 가능 N개" 표시',

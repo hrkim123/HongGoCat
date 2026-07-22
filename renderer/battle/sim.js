@@ -11,10 +11,12 @@
   const DEFAULTS = { baseHp: 300, manaCap: 30, manaRegen: 0.3, baseRange: 0.03, speedScale: 1 }   // 기지 HP 300, 맥스 마나 30(고코스트 결전 유닛 대응), 기본 충전 0.3/s
   const KB_DUR = 0.30, KB_BACK = 0.09, KB_CD = 0.7   // 넉백: 0.30초간 살짝 뒤로(냥코풍 짧은 홉) + 재넉백 최소 간격 0.7s(락 방지)
   // 마나 강화(냥코 일꾼레벨): 마나 지불→이번 판 충전속도↑(판 끝나면 초기화). 기본 0.5/s, 강화 체감 소폭 상향.
-  // 마나 강화 10단계(잘게 쪼갬). rate = 그 단계의 초당 마나(누적 아님). 노업(0단계)=0.3.
+  // 마나 강화 10단계. rate = 그 단계의 초당 마나(누적 아님). 노업(0단계)=0.3.
+  // ⚖ "마나 풀업=무조건 승리" 지배메타 완화: 상위 단계 비용을 급증시키고 최종 상한을 낮춤(2.2, 이전 3.1).
+  //   (총 132, 이전 60) → 상위 강화는 마나를 캡 근처까지 은행처럼 모아야 해서(=군대 없음) 러시에 노출되는 "탐욕 처벌 창"이 생긴다.
   const MANA_LEVELS = [
-    { cost: 3, rate: 0.5 }, { cost: 5, rate: 0.7 }, { cost: 5, rate: 1.0 }, { cost: 5, rate: 1.3 }, { cost: 7, rate: 1.6 },
-    { cost: 7, rate: 1.9 }, { cost: 7, rate: 2.2 }, { cost: 7, rate: 2.5 }, { cost: 7, rate: 2.8 }, { cost: 7, rate: 3.1 },
+    { cost: 3, rate: 0.5 }, { cost: 4, rate: 0.65 }, { cost: 6, rate: 0.8 }, { cost: 8, rate: 0.95 }, { cost: 11, rate: 1.1 },
+    { cost: 14, rate: 1.25 }, { cost: 17, rate: 1.45 }, { cost: 20, rate: 1.65 }, { cost: 23, rate: 1.9 }, { cost: 26, rate: 2.2 },
   ]
 
   function baseStatsFor(type) {   // 업그레이드 미반영 원본 스탯(생산형이 뽑는 소환체용 — 플레이어 강화 영향 X)
@@ -91,6 +93,13 @@
       for (const g of st.ghosts) { if (g.hp <= 0 || isFlying(g)) continue; const d = Math.abs(g.L - u.L); if (d < bd) bd = d }
       return bd === Infinity ? null : bd
     }
+    // ⚖ 공성 배수(A: 러시 처벌): 저코스트(≤3) 근접/자폭은 기지에 ×1.7. 무방비 기지를 두들겨 "마나 업글 탐욕"을 처벌.
+    //   유닛전엔 영향 없음(기지 데미지에만 적용) → 방어 유닛이 있으면 요격돼 효과 없음 = 무방비일 때만 처벌.
+    function baseSiegeMul(u) {
+      const b = D.UNITS[u.type]; if (!b) return 1
+      const t = u.stats && u.stats.atk && u.stats.atk.type
+      return ((b.cost || 1) <= 3 && (t === 'melee' || t === 'suicide')) ? 1.7 : 1
+    }
     // 서포트 유닛 앞쪽(적 방향)에 있는 "가장 가까운 전투 아군"의 L. 없으면 null → 서포트는 그 뒤에서 대기·전진.
     function nearestCombatAllyAhead(u) {
       let best = null
@@ -158,6 +167,12 @@
       // 마나 (기본 회복 + 일개미(워커) 버프: 살아있는 워커 1마리당 +manaBuff/s)
       st.manaBuff = [0, 0]
       for (const u of st.units) { if (u.hp <= 0) continue; const mb = D.UNITS[u.type] && D.UNITS[u.type].manaBuff; if (mb) st.manaBuff[u.side] += mb }
+      // ⚖ 컴백(안티-눈덩이): 기지 HP가 상대보다 밀린 쪽에 격차 비례 마나 보너스(최대 +COMEBACK/s).
+      //   경제·러시 어느 쪽이든 앞서면 상대가 따라붙어, "한 번 앞서면 자동 승리"를 완화한다.
+      const COMEBACK = 1.2
+      const f0 = st.baseHp[0] / st.baseHpMax, f1 = st.baseHp[1] / st.baseHpMax
+      st.manaBuff[0] += clamp(f1 - f0, 0, 1) * COMEBACK
+      st.manaBuff[1] += clamp(f0 - f1, 0, 1) * COMEBACK
       for (let s = 0; s < 2; s++) st.mana[s] = clamp(st.mana[s] + (st.manaRate[s] + st.manaBuff[s]) * dt, 0, cfg.manaCap)   // 강화 레벨 반영
 
       // 지휘 개미 오라: 살아있는 커맨더 주변(같은 side) 아군 공격/속도 버프(최대치 적용, 중첩 X)
@@ -197,14 +212,15 @@
             const aoe = u.stats.atk.aoeR || 0.05, dmg = u.stats.atk.dmg || 1
             for (const e of st.units) { if (e.side !== u.side && e.hp > 0 && Math.abs(e.L - u.L) <= aoe) applyDamage(e, dmg, u.side) }   // 자폭은 공중 포함 광역 타격
             for (const g of st.ghosts) { if (g.hp > 0 && Math.abs(g.L - u.L) <= aoe) st.events.push({ type: 'ghosthit', uid: g.uid, dmg }) }   // 멀티: 고스트 광역 피격 릴레이(공중 포함)
-            if (inBase && !inTgt) { const es = u.side === 0 ? 1 : 0; damageBase(es, dmg) }
+            if (inBase && !inTgt) { const es = u.side === 0 ? 1 : 0; damageBase(es, Math.round(dmg * baseSiegeMul(u))) }
             st.events.push({ type: 'boom', uid: u.uid, L: u.L, side: u.side, aoeR: aoe })
             st.events.push({ type: 'die', uid: u.uid, side: u.side, L: u.L, unit: u.type })
             u.hp = 0; continue
           }
-        } else if (atkType === 'titan') {   // 브루드 타이탄: 근접=스톰프(짓밟기+넉백) / 원거리=땅 긁는 레이저(공중 제외). 근접 우선.
-          const a = u.stats.atk, stompR = a.stompR || 0.055, laserR = a.laserR || 0.22
-          const gd = nearestGroundEnemy(u)   // 가장 가까운 지상 적과의 거리(공중 제외)
+        } else if (atkType === 'titan') {   // 브루드 타이탄: 근접=스톰프(지상) / 원거리=레이저(laserAir면 대공 가능). 근접 우선.
+          const a = u.stats.atk, stompR = a.stompR || 0.055, laserR = a.laserR || 0.22, laserAir = !!a.laserAir
+          const gd = nearestGroundEnemy(u)   // 스톰프용: 가장 가까운 지상 적(공중 제외)
+          const ld = laserAir ? nearestEnemy(u).d : (gd != null ? gd : Infinity)   // 레이저용: 대공이면 공중 포함 최근접
           const es = u.side === 0 ? 1 : 0
           if ((gd != null && gd <= stompR) || distBase <= stompR) {   // ① 스톰프 존
             acting = true; u.cdLeft -= dt
@@ -216,14 +232,14 @@
               if (distBase <= stompR) damageBase(es, dmg)
               st.events.push({ type: 'hit', by: u.uid, dmg, slamL: u.L, slamR: stompR })   // 스톰프 충격 연출
             }
-          } else if ((gd != null && gd <= laserR) || distBase <= laserR) {   // ② 레이저 존(스톰프 존 비었을 때만)
+          } else if ((ld <= laserR) || distBase <= laserR) {   // ② 레이저 존(스톰프 존 비었을 때만) — laserAir면 공중 포함
             acting = true; u._laserCd = (u._laserCd || 0) - dt
             if (u._laserCd <= 0) {
               u._laserCd = a.laserCd || 2.4
               const dmg = Math.round((a.laserDmg || 11) * (1 + (u._auraAtk || 0)))
               const toL = clamp(u.L + u.dir * laserR, 0, 1), lo = Math.min(u.L, toL), hi = Math.max(u.L, toL)
-              for (const e of st.units) if (e.side !== u.side && e.hp > 0 && !isFlying(e) && e.L >= lo && e.L <= hi) applyDamage(e, dmg, u.side)
-              for (const g of st.ghosts) if (g.hp > 0 && !isFlying(g) && g.L >= lo && g.L <= hi) st.events.push({ type: 'ghosthit', uid: g.uid, dmg })
+              for (const e of st.units) if (e.side !== u.side && e.hp > 0 && (laserAir || !isFlying(e)) && e.L >= lo && e.L <= hi) applyDamage(e, dmg, u.side)
+              for (const g of st.ghosts) if (g.hp > 0 && (laserAir || !isFlying(g)) && g.L >= lo && g.L <= hi) st.events.push({ type: 'ghosthit', uid: g.uid, dmg })
               if (distBase <= laserR) damageBase(es, Math.round(dmg * 0.6))   // 레이저가 기지도 긁음(소량)
               st.events.push({ type: 'titanlaser', side: u.side, fromL: u.L, toL })   // 레이저 연출(+연쇄 폭발)
             }
@@ -247,7 +263,7 @@
                     st.events.push({ type: 'hit', by: u.uid, target: tgt.uid, dmg, slamL: u.L, slamR })
                   } else if (tgtGhost) st.events.push({ type: 'ghosthit', uid: tgt.uid, dmg, kb: kbHit })
                   else { applyDamage(tgt, dmg, u.side); if (kbHit) applyKb(tgt, true); if (stun) tgt.frozenUntil = Math.max(tgt.frozenUntil || 0, st.t + stun); st.events.push({ type: 'hit', by: u.uid, target: tgt.uid, dmg }) }
-                } else { const es = u.side === 0 ? 1 : 0; damageBase(es, dmg) }
+                } else { const es = u.side === 0 ? 1 : 0; damageBase(es, Math.round(dmg * baseSiegeMul(u))) }
               } else {   // 원거리: 실제 투사체 발사(컨트롤러가 처리). ghost=true면 명중 시 릴레이.
                 st.events.push({ type: 'fire', by: u.uid, side: u.side, fromL: u.L, dir: u.dir, dmg, atkType, aoeR: u.stats.atk.aoeR || 0, slow: u.stats.atk.slow || 0, slowDur: u.stats.atk.slowDur || 0, targetUid: inTgt ? tgt.uid : null, toL: inTgt ? tgt.L : (u.side === 0 ? 1 : 0), ghost: !!(inTgt && tgtGhost) })
               }
