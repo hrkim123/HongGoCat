@@ -4325,7 +4325,7 @@
       // 진행하며 얕은 파임 + 바로 뒤 폭발(접점이 지나간 자리)
       const step = 16 * view.scale
       if (t.dugTo == null) { t.dugTo = t.startX; t.boomAt = t.startX }
-      while (dir > 0 ? t.dugTo <= front : t.dugTo >= front) { carveTaskbar(t.dugTo, 0.09, false); t.dugTo += dir * step }   // 얕게(이전 0.3의 ~30%)
+      while (dir > 0 ? t.dugTo <= front : t.dugTo >= front) { carveTaskbar(t.dugTo, 0.03, false); t.dugTo += dir * step }   // 아주 얕게(0.09→0.03, 추가 30%)
       const bstep = 38 * view.scale
       while (dir > 0 ? t.boomAt <= front : t.boomAt >= front) { addEffect(t.boomAt, taskbarSurfaceY(t.boomAt), 1); t.boomAt += dir * bstep }   // 바로 따라오는 폭발
       // 빔 그리기: 입 → 현재 접점(front). 지나간 구간은 옅은 그을림 자국.
