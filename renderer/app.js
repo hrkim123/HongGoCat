@@ -911,6 +911,7 @@
       else if (msg.t === 'bunits') { if (battleMulti && msg.id === battleMulti.oppId && msg.to === me.netId) { const prev = new Map(battleGhosts.map((g) => [g.uid, g._dispL])); battleGhosts = (msg.list || []).filter((g) => !battleNetHeldUids.has(g.uid)).map((g) => { const L = 1 - g.L; return { uid: g.uid, type: g.type, L, hp: g.hp, shHp: g.shHp, frozen: g.frozen, slowed: g.slowed, _dispL: prev.has(g.uid) ? prev.get(g.uid) : L } }); battleGhostBase = msg.base != null ? msg.base : battleGhostBase } }   // 상대 유닛(미러링·표시위치 이어받아 보간) + 상대 기지 HP
       else if (msg.t === 'bghit') { if (battleMulti && msg.to === me.netId && battle) { battle.hitUnit(msg.uid, msg.dmg || 0, msg.slow || 0, msg.slowDur || 0, !!msg.kb, !!msg.kbBig) } }   // 내 유닛이 맞음(상대가 통지) → 로컬 적용(권한, 넉백 플래그 · kbBig=쉴드 파열 큰 밀림)
       else if (msg.t === 'bbhit') { if (battleMulti && msg.to === me.netId && battle) { battle.hitBase(0, msg.dmg || 0) } }   // 내 기지가 맞음 → 로컬 적용
+      else if (msg.t === 'bshot') { if (battleMulti && msg.to === me.netId && battleActive) { const W = canvas.clientWidth, H = canvas.clientHeight; remoteBattleShots.push({ x: msg.x * W, y: msg.y * H, vx: msg.vx * W, vy: msg.vy * H, ay: (msg.ay || 0) * H, kind: msg.k || 'bullet', born: performance.now(), life: msg.life || 1500 }) } }   // 상대 투사체 연출 재현
       else if (msg.t === 'gatling') {
         if (msg.active) remoteGatlings.set(msg.id, { nx: msg.nx, ny: msg.ny, hp: msg.hp, ang: msg.ang })
         else remoteGatlings.delete(msg.id)
@@ -3645,6 +3646,7 @@
     showToast(`↩ 베팅 환불(${reason || '무효'}) +${betLabel(battleBet)}`)
   }
   let battleGhosts = [], battleGhostBase = 100, bunitsLastSend = 0   // 상대(고스트) 유닛 + 상대 기지 HP
+  const remoteBattleShots = []; let rbsLastT = 0   // 멀티: 상대 소환체가 쏜 투사체(연출용 · 데미지는 bghit로 별도)
   const BUNITS_MS = 50   // 고스트 위치 브로드캐스트 주기(ms). 100→50(20/s)로 상향. 더 낮추면 트래픽·직렬화 부하↑, 인터넷선 지터가 병목이라 수확 체감. 튜닝 지점.
   const battleNetHeldUids = new Set()   // 배틀 그물이 붙잡은 상대 고스트 uid(들고 있는 동안 bunits 재갱신에서 제외)
   const BATTLE_NET_COST_CAP = 5         // 그물 1회 포획 최대 소환체 코스트 합
@@ -3710,7 +3712,7 @@
     littleBoys.length = 0; debris.length = 0; bloodStains.length = 0   // 낙하 폭탄·잔해도 정리
     battle = window.BattleSim.newBattle({ speedScale: 0.38 })   // 냥코풍 느린 행군(전략성). 0.44 → 0.38
     battleAtkAt = {}; battleShieldFlash = {}; battleHealFx = []; battleFalls = []; battleDead = []; bproj.length = 0
-    battleGhosts = []; battleGhostBase = battle.state.baseHpMax; bunitsLastSend = 0; unitReadyAt = {}
+    battleGhosts = []; battleGhostBase = battle.state.baseHpMax; bunitsLastSend = 0; unitReadyAt = {}; remoteBattleShots.length = 0
     { const dk = (window.BattleGacha && window.BattleGacha.getDeck) ? window.BattleGacha.getDeck() : { units: [] }; battleUnitOrder = (dk.units || []).slice(0, 10) }   // 배틀-로컬 순서(스왑용)
     battleCannon = { charge: 0 }; cannonSweep = null; battleTurretCd = [0, 0]; battleTurretAim = [0, 0]; battleTurretFire = [0, 0]; battleTurretTgtL = [null, null]; buildCannonUI()
     battleResultAt = 0; battleLastT = performance.now(); battleActive = true
@@ -3911,7 +3913,7 @@
     // 멀티: 결과 연출 없이 나가면(중도 이탈) 상대에게 패배 통지
     if (battleMulti && battlePhase !== 'result' && connected()) net.send(JSON.stringify({ t: 'battle-end', to: battleMulti.oppId, result: 'loser' }))
     if (battleCannonEl) { battleCannonEl.remove(); battleCannonEl = null } cannonSweep = null
-    battleMulti = null; battleGhosts = []; battleNetHeldUids.clear()
+    battleMulti = null; battleGhosts = []; battleNetHeldUids.clear(); remoteBattleShots.length = 0
     if (me.gatBattle) { setGat(false); me.gatBattle = false; me.gatStructUid = null; me.gatCdUntil = 0 }   // 배틀 종료 시 배틀 게틀링 제거
     battleActive = false; battle = null; bproj.length = 0; battlePhase = 'idle'; battleConfetti = []
     { const c = document.querySelector('.bx-confirm'); if (c) c.remove() }
@@ -4183,7 +4185,7 @@
       const x = battleLaneX(u.L), def = window.BattleData.UNITS[u.type] || {}
       const y = battleUnitFeetY(x, def.flying)
       const knocked = u.kbUntil && u.kbUntil > battle.state.t   // 넉백 중엔 공격 연출(총구 섬광·차지) 억제
-      const facing = u.side === 0 ? 1 : -1, atk = !knocked && battleAtkAt[u.uid] && now - battleAtkAt[u.uid] < 380
+      const facing = (u.side === 0 ? 1 : -1) * (battleFlip ? -1 : 1), atk = !knocked && battleAtkAt[u.uid] && now - battleAtkAt[u.uid] < 380   // ★ battleFlip(수락자) 반영 — 안 하면 화면상 반대로 걸음
       const s = view.scale * BATTLE_UNIT_SCALE * (def.size || 1)
       drawTeamMarker(x, y, u.side, u.type, def.size || 1)   // 진영 구분: 머리 위 삼각형(내편 파랑 / 상대 빨강)
       // 커맨더 오라 링(바닥, 유닛 뒤) — 주변 아군 버프 범위 표시
@@ -4232,17 +4234,18 @@
       ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(x - w / 2, y - 44 * s, w, 3.5)
       ctx.fillStyle = f > 0.4 ? '#7ecb7e' : '#e24b4a'; ctx.fillRect(x - w / 2, y - 44 * s, w * f, 3.5)
     }
-    // 멀티: 상대(고스트) 유닛 — 미러링돼 우측→좌측 전진, facing=-1
+    // 멀티: 상대(고스트) 유닛 — 내 기지 쪽으로 전진. facing은 내 유닛과 반대 방향(battleFlip 반영).
+    const gFacing = battleFlip ? 1 : -1   // ★ 수락자(flip)면 고스트는 오른쪽(내 기지)이 아니라... 내 유닛(-flip)의 반대 = flip?1:-1
     if (battleMulti) for (const g of battleGhosts) {
       if (g.hp <= 0) continue
       if (g._dispL == null) g._dispL = g.L; else g._dispL += (g.L - g._dispL) * 0.34   // 50ms 방송 사이 보간(버벅임 완화). 갱신 빨라져 계수 소폭↑(0.25→0.34)로 지연 감소
       const gdef = window.BattleData.UNITS[g.type] || {}, gx = battleLaneX(g._dispL), gy = battleUnitFeetY(gx, gdef.flying)
       const gs = view.scale * BATTLE_UNIT_SCALE * (gdef.size || 1)
       drawTeamMarker(gx, gy, 1, g.type, gdef.size || 1)   // 상대(고스트) = 빨강 머리 위 삼각형
-      if (g.type === 'mechaAnt') drawOverlayMechaAt(gx, gy, 0.43 * (gdef.size || 1.6), -1, 0, now, { walking: true, shHp01: g.shHp > 0 ? 1 : null })
-      else if (g.type === 'mechaHuman') drawOverlayMechaAt(gx, gy, 0.46 * (gdef.size || 1.7), -1, 1, now, { walking: false, shHp01: g.shHp > 0 ? 1 : null })
-      else if (g.type === 'human') drawOverlayHumanAt(gx, gy, 0.80 * (gdef.size || 1.3), -1, now)
-      else window.BattleSprites.draw(ctx, g.type, { x: gx, y: gy, scale: gs, facing: -1, state: 'walk', t: g.uid * 0.31 + now / 1000 })
+      if (g.type === 'mechaAnt') drawOverlayMechaAt(gx, gy, 0.43 * (gdef.size || 1.6), gFacing, 0, now, { walking: true, shHp01: g.shHp > 0 ? 1 : null })
+      else if (g.type === 'mechaHuman') drawOverlayMechaAt(gx, gy, 0.46 * (gdef.size || 1.7), gFacing, 1, now, { walking: false, shHp01: g.shHp > 0 ? 1 : null })
+      else if (g.type === 'human') drawOverlayHumanAt(gx, gy, 0.80 * (gdef.size || 1.3), gFacing, now)
+      else window.BattleSprites.draw(ctx, g.type, { x: gx, y: gy, scale: gs, facing: gFacing, state: 'walk', t: g.uid * 0.31 + now / 1000 })
       if (g.shHp > 0 && !(g.type === 'mechaAnt' || g.type === 'mechaHuman')) drawBattleShield(gx, gy, gs, { uid: 'g' + g.uid, shHp: 1, shMax: 1 }, now)
       if (g.frozen || g.slowed) { const hb = unitHitboxScreen(g.type, gdef.size); ctx.save(); ctx.globalAlpha = g.frozen ? 0.5 : 0.24; ctx.fillStyle = g.frozen ? 'rgba(170,225,255,1)' : 'rgba(140,200,255,1)'; ctx.beginPath(); ctx.roundRect(gx - hb.halfW, gy - hb.top, hb.halfW * 2, hb.top + 4 * view.scale, 6 * view.scale); ctx.fill(); ctx.restore() }
     }
@@ -4589,7 +4592,7 @@
     if (type === 'mechaHuman') return battleFireOverlay(ev, 'energy')
     if (type === 'human') return battleFireOverlay(ev, 'adogen')
     const def = window.BattleData.UNITS[type] || {}
-    const s = view.scale * BATTLE_UNIT_SCALE * (def.size || 1), face = ev.side === 0 ? 1 : -1
+    const s = view.scale * BATTLE_UNIT_SCALE * (def.size || 1), face = (ev.side === 0 ? 1 : -1) * (battleFlip ? -1 : 1)   // 총구 방향도 battleFlip 반영
     const mz = PROJ_MUZZLE[type] || PROJ_MUZZLE._default
     const laneX = battleLaneX(ev.fromL), feetY = battleUnitFeetY(laneX, def.flying)
     const fx = laneX + face * mz.x * s, fy = feetY - mz.y * s   // 실제 총구 위치에서 발사
@@ -4600,6 +4603,7 @@
     const atkL = (byU && byU.stats && byU.stats.atk) || def.atk || {}   // 레벨 반영 스탯(연발 Lv5 기믹 등)
     const burst = (kind === 'bullet' && atkL.burst > 1) ? atkL.burst : 1   // 라이플 3연발·Lv5 4연발 등
     const nowP = performance.now()
+    const before = bproj.length
     for (let b = 0; b < burst; b++) {
       let vx, vy, bx = fx, by = fy
       if (kind === 'grenade') { const dx = tx - fx; vx = dx / 0.8; vy = -260 * view.scale }   // 포물선 던지기
@@ -4610,6 +4614,13 @@
       }
       bproj.push({ x: bx, y: by, vx, vy, bside: ev.side, dmg: ev.dmg, pow: ev.dmg, kind, aoe: (ev.atkType === 'aoe' || kind === 'grenade') ? (ev.aoeR || 0.05) : 0, slow: ev.slow, slowDur: ev.slowDur, born: nowP, life: PROJ_LIFE[kind] })
     }
+    // 멀티: 상대 화면에도 이 투사체가 "보이도록" 시각 릴레이(데미지는 bghit로 별도, 여긴 순수 연출).
+    if (battleMulti && connected()) { const gy = (kind === 'grenade') ? 900 * view.scale : 0; for (let k = before; k < bproj.length; k++) relayBattleShot(bproj[k], kind, gy) }
+  }
+  // 배틀 투사체 시각 릴레이: 공용 절대 프레임(battleLaneX 산출) 화면분율로 전송 → 수신측이 자기 화면에 재현(연출용).
+  function relayBattleShot(p, kind, ayAbs) {
+    const W = canvas.clientWidth, H = canvas.clientHeight
+    net.send(JSON.stringify({ t: 'bshot', to: battleMulti.oppId, k: kind, x: +(p.x / W).toFixed(4), y: +(p.y / H).toFixed(4), vx: +(p.vx / W).toFixed(5), vy: +(p.vy / H).toFixed(5), ay: +((ayAbs || 0) / H).toFixed(6), life: p.life || 1500 }))
   }
   // 터렛 포탄 폭발 — 메카 스파크와 다른 연출: 큰 폭발 + 주황 파편 샤워
   function turretBoom(x, y) {
@@ -4669,6 +4680,22 @@
     const s = view.scale * 1.5   // 투사체 전체 확대(가시성)
     const t = (now || performance.now()) / 1000
     for (const p of bproj) drawOneProj(p, s, t)
+    // 멀티: 상대 소환체 투사체(연출용) 이동 + 그리기. 충돌/데미지 없음(bghit로 이미 처리).
+    if (remoteBattleShots.length) {
+      const W = canvas.clientWidth, H = canvas.clientHeight
+      let dt = (now - (rbsLastT || now)) / 1000; rbsLastT = now; if (dt > 0.05) dt = 0.05
+      for (let i = remoteBattleShots.length - 1; i >= 0; i--) {
+        const p = remoteBattleShots[i]
+        p.vy += (p.ay || 0) * dt; p.x += p.vx * dt; p.y += p.vy * dt
+        if (now - p.born > p.life || p.x < -40 || p.x > W + 40 || p.y > H + 60) { remoteBattleShots.splice(i, 1); continue }
+        // 연출 충돌: 내 유닛/기지에 닿으면 스파크 내고 사라짐(통과 방지 · 데미지는 bghit로 이미 적용됨)
+        let gone = false
+        for (const u of battle.state.units) { if (u.side !== 0 || u.hp <= 0 || u.structure) continue; const ux = battleLaneX(u.L), udef = window.BattleData.UNITS[u.type] || {}; if (inUnitBody(p.x, p.y, ux, battleUnitFeetY(ux, udef.flying), u.type, udef.size, 3 * view.scale)) { p.aoe ? addEffect(p.x, p.y, 2) : spawnSpark(p.x, p.y); gone = true; break } }
+        if (!gone) { const bx = battleLaneX(0); if (Math.abs(p.x - bx) < 26 * view.scale && p.y > antGroundY(bx) - 100 * view.scale) { addEffect(p.x, p.y, 1); gone = true } }
+        if (gone) { remoteBattleShots.splice(i, 1); continue }
+        drawOneProj(p, s, t)
+      }
+    } else rbsLastT = now
   }
   // 투사체 1개 그리기(배틀·오버레이 소환 공용). p.kind별 비주얼 재사용.
   function drawOneProj(p, s, t) {
