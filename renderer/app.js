@@ -41,6 +41,8 @@
   const GAT_COOL_RATE = GAT_HEAT_MAX / 4000          // cool per ms once released
   const GAT_FIRE_MS = 80, GAT_BSPEED = 13            // bullets live until off-screen or a collision
   const GAT_SCALE = 3.8, GAT_HIT_R = 46              // turret ~4x bigger; incoming-hit radius
+  const GAT_STRUCT_HP = 24, GAT_BATTLE_L = 0.12      // 배틀: 게틀링 구조물 HP + 내 진영 앞 배치 위치(레인)
+  let GAT_BATTLE_RANGE = 0                           // 자동 조준 사거리(px, view.scale 반영해 소환 시 계산)
   const gbullets = []                 // my bullets { id, x, y, vx, vy, born }
   let gbulletId = 1
   const gatSmoke = []                 // overheat smoke puffs { x, y, vx, vy, r, born, life }
@@ -697,6 +699,7 @@
     projectiles.length = 0; ants.length = 0; gbullets.length = 0; hbullets.length = 0; bolts.length = 0
     energyShots.length = 0; interceptors.length = 0; mechaShells.length = 0
     if (me.gatActive) setGat(false)
+    me.gatBattle = false; me.gatStructUid = null; me.gatCdUntil = 0   // 배틀 게틀링 상태·재배치 쿨 초기화
     if (me.humanActive) removeHuman()
     if (me.mechaActive) removeMecha()
     me.mechaMerging = false
@@ -2863,9 +2866,37 @@
     if (!spendCoins(USE_COST.gatling)) { showToast(`🪙 게틀링건 소환 비용 ${USE_COST.gatling} 부족`); return }
     if (me.humanActive) removeHuman()                        // gatling + human are mutually exclusive
     if (me.mechaActive) removeMecha()                        // mecha too
-    setGat(true); me.gatX = cursor.x; me.gatY = cursor.y
+    setGat(true); me.gatX = cursor.x; me.gatY = cursor.y; me.gatBattle = false
     me.gatHp = GAT_HP; me.gatHeat = 0; me.gatOverUntil = 0; me.gatLastShot = 0
     me.gatAng = 0
+  }
+  // 배틀 전용 게틀링: 커서가 아니라 내 진영 앞 작업표시줄에 고정 배치 + 정지 구조물로 sim 등록(적이 공격·파괴 가능).
+  function deployBattleGatling() {
+    const now = performance.now()
+    if (me.gatActive || now < (me.gatCdUntil || 0)) { showToast('🔫 게틀링 재배치 대기 중'); return }
+    if (me.humanActive) removeHuman()
+    if (me.mechaActive) removeMecha()
+    setGat(true); me.gatBattle = true
+    me.gatX = battleLaneX(GAT_BATTLE_L); me.gatY = antGroundY(me.gatX)
+    me.gatHp = GAT_STRUCT_HP; me.gatHeat = 0; me.gatOverUntil = 0; me.gatLastShot = 0
+    me.gatAng = battleFlip ? Math.PI : 0
+    GAT_BATTLE_RANGE = 380 * view.scale
+    me.gatStructUid = (battle && battle.addStructure) ? battle.addStructure({ side: 0, type: 'gatling', L: GAT_BATTLE_L, hp: GAT_STRUCT_HP }) : null
+    showToast('🔫 게틀링 배치 — 다가오는 적 자동 사격')
+  }
+  // 배틀: 게틀링 사거리 내 가장 가까운 적(고스트/side1)의 화면 위치. 없으면 null.
+  function nearestGatFoe() {
+    let best = null, bd = GAT_BATTLE_RANGE || 380 * view.scale
+    const foes = battleMulti ? battleGhosts : (battle ? battle.state.units.filter((u) => u.side === 1 && u.hp > 0) : [])
+    for (const e of foes) {
+      if (e.hp <= 0) continue
+      const L = battleMulti ? (e._dispL != null ? e._dispL : e.L) : e.L
+      const ex = battleLaneX(L), def = window.BattleData.UNITS[e.type] || {}
+      const ey = battleUnitFeetY(ex, def.flying)
+      const d = Math.hypot(ex - me.gatX, ey - me.gatY)
+      if (d < bd) { bd = d; best = { x: ex, y: ey - 16 * view.scale } }
+    }
+    return best
   }
   function damageMyGatling(dmg, byId) {
     if (!me.gatActive) return
@@ -2957,30 +2988,44 @@
       }
     }
     if (me.gatActive) {
-      me.gatAng = Math.atan2(cursor.y - me.gatY, cursor.x - me.gatX)
-      const dt = Math.min(100, now - (me.gatHeatT || now)); me.gatHeatT = now
-      const overheated = now < (me.gatOverUntil || 0)
-      if (overheated) {
-        me.gatHeat = GAT_HEAT_MAX                                   // stay maxed (red) during the lock
-        if (now - (me.gatSmokeT || 0) > 70) {                      // puff smoke from the barrels
-          me.gatSmokeT = now
-          const s = view.scale, bx = me.gatX + Math.cos(me.gatAng) * 22 * s * GAT_SCALE, by = me.gatY + Math.sin(me.gatAng) * 22 * s * GAT_SCALE - 10 * s
-          gatSmoke.push({ x: bx + (Math.random() - 0.5) * 10 * s, y: by, vx: (Math.random() - 0.5) * 0.5, vy: -0.8 - Math.random() * 0.7, r: 4 * s, born: now, life: 700 + Math.random() * 500 })
-          if (gatSmoke.length > 120) gatSmoke.shift()
+      // 배틀 게틀링: sim 구조물 HP 동기화 + 파괴 시 제거 + 자동 조준 타겟 산출
+      let battleTgt = null
+      if (me.gatBattle) {
+        if (battle && me.gatStructUid != null) {
+          const su = battle.state.units.find((u) => u.uid === me.gatStructUid)
+          if (!su) { spawnGatDestroy(me.gatX, me.gatY); setGat(false); me.gatBattle = false; me.gatStructUid = null; me.gatCdUntil = now + GAT_CD }
+          else me.gatHp = su.hp
         }
-      } else {
-        if (me.gatOverUntil && me.gatHeat >= GAT_HEAT_MAX) { me.gatHeat = 0; me.gatOverUntil = 0 }  // just recovered → reset
-        if (humanKeys.has('q')) {   // Q holds to fire (same key as the human's attack)
-          me.gatHeat = Math.min(GAT_HEAT_MAX, me.gatHeat + GAT_HEAT_RATE * dt)   // builds by TIME held, not per shot
-          if (me.gatHeat >= GAT_HEAT_MAX) me.gatOverUntil = now + GAT_OVERHEAT
-          if (now - me.gatLastShot >= GAT_FIRE_MS) {
-            me.gatLastShot = now
-            const a = me.gatAng + (Math.random() - 0.5) * 0.08, muzzle = 26 * view.scale * GAT_SCALE
-            gbullets.push({ id: gbulletId++, x: me.gatX + Math.cos(me.gatAng) * muzzle, y: me.gatY + Math.sin(me.gatAng) * muzzle, vx: Math.cos(a) * GAT_BSPEED, vy: Math.sin(a) * GAT_BSPEED, born: now })
-            if (gbullets.length > 200) gbullets.shift()
+        if (me.gatActive) battleTgt = (battlePhase === 'playing') ? nearestGatFoe() : null
+      }
+      if (me.gatActive) {
+        if (me.gatBattle) { if (battleTgt) me.gatAng = Math.atan2(battleTgt.y - me.gatY, battleTgt.x - me.gatX) }   // 자동 조준(타겟 없으면 마지막 각 유지)
+        else me.gatAng = Math.atan2(cursor.y - me.gatY, cursor.x - me.gatX)                                        // 오버레이: 커서 조준
+        const dt = Math.min(100, now - (me.gatHeatT || now)); me.gatHeatT = now
+        const overheated = now < (me.gatOverUntil || 0)
+        if (overheated) {
+          me.gatHeat = GAT_HEAT_MAX                                   // stay maxed (red) during the lock
+          if (now - (me.gatSmokeT || 0) > 70) {                      // puff smoke from the barrels
+            me.gatSmokeT = now
+            const s = view.scale, bx = me.gatX + Math.cos(me.gatAng) * 22 * s * GAT_SCALE, by = me.gatY + Math.sin(me.gatAng) * 22 * s * GAT_SCALE - 10 * s
+            gatSmoke.push({ x: bx + (Math.random() - 0.5) * 10 * s, y: by, vx: (Math.random() - 0.5) * 0.5, vy: -0.8 - Math.random() * 0.7, r: 4 * s, born: now, life: 700 + Math.random() * 500 })
+            if (gatSmoke.length > 120) gatSmoke.shift()
           }
         } else {
-          me.gatHeat = Math.max(0, me.gatHeat - GAT_COOL_RATE * dt)  // cool only when the button is released
+          if (me.gatOverUntil && me.gatHeat >= GAT_HEAT_MAX) { me.gatHeat = 0; me.gatOverUntil = 0 }  // just recovered → reset
+          const firing = me.gatBattle ? !!battleTgt : humanKeys.has('q')   // 배틀=적 자동 사격 / 오버레이=Q 홀드
+          if (firing) {
+            me.gatHeat = Math.min(GAT_HEAT_MAX, me.gatHeat + GAT_HEAT_RATE * dt)   // builds by TIME firing, not per shot
+            if (me.gatHeat >= GAT_HEAT_MAX) me.gatOverUntil = now + GAT_OVERHEAT
+            if (now - me.gatLastShot >= GAT_FIRE_MS) {
+              me.gatLastShot = now
+              const a = me.gatAng + (Math.random() - 0.5) * 0.08, muzzle = 26 * view.scale * GAT_SCALE
+              gbullets.push({ id: gbulletId++, x: me.gatX + Math.cos(me.gatAng) * muzzle, y: me.gatY + Math.sin(me.gatAng) * muzzle, vx: Math.cos(a) * GAT_BSPEED, vy: Math.sin(a) * GAT_BSPEED, born: now })
+              if (gbullets.length > 200) gbullets.shift()
+            }
+          } else {
+            me.gatHeat = Math.max(0, me.gatHeat - GAT_COOL_RATE * dt)  // cool when idle/released
+          }
         }
       }
     }
@@ -3837,6 +3882,7 @@
     if (battleMulti && battlePhase !== 'result' && connected()) net.send(JSON.stringify({ t: 'battle-end', to: battleMulti.oppId, result: 'loser' }))
     if (battleCannonEl) { battleCannonEl.remove(); battleCannonEl = null } cannonSweep = null
     battleMulti = null; battleGhosts = []; battleNetHeldUids.clear()
+    if (me.gatBattle) { setGat(false); me.gatBattle = false; me.gatStructUid = null; me.gatCdUntil = 0 }   // 배틀 종료 시 배틀 게틀링 제거
     battleActive = false; battle = null; bproj.length = 0; battlePhase = 'idle'; battleConfetti = []
     { const c = document.querySelector('.bx-confirm'); if (c) c.remove() }
     if (battleSavedCarve !== undefined) { carve = battleSavedCarve; barDamage = battleSavedBarDmg || 0; carveDirty = true; battleSavedCarve = undefined }   // 원래 작업표시줄 상태 복귀
@@ -3976,7 +4022,7 @@
     battleHud.querySelectorAll('.bhsegs div').forEach((s, i) => s.style.background = i < Math.floor(mana / 2) ? '#4aa3ff' : 'rgba(255,255,255,.14)')   // 세그먼트당 마나 2 (맥스 20)
     const v = battleHud.querySelector('.bhval'); if (v) v.textContent = `${mana.toFixed(1)}/${battle.state.cfg.manaCap}` + (buff > 0 ? ` ⚡+${buff.toFixed(1)}` : '')
     const mu = battleHud.querySelector('.bhmanaup')   // ⚡ 마나 강화 라벨(레벨/다음 비용/현재 속도)
-    if (mu && battle.manaUpInfo) { const info = battle.manaUpInfo(0); mu.innerHTML = info.maxed ? `⚡ 마나 강화 <b>MAX</b> <span style="opacity:.7">${info.rate.toFixed(1)}/s</span>` : `⚡ 마나 강화 Lv.${info.level} <span style="color:#ffd86b;font-weight:600">💧${info.nextCost}</span> <span style="opacity:.7">→${(({0:1.1,1:1.4,2:1.8,3:2.3,4:2.8})[info.level] || 0)}/s</span>`; mu.style.opacity = (info.maxed || mana >= info.nextCost) ? '1' : '0.5' }
+    if (mu && battle.manaUpInfo) { const info = battle.manaUpInfo(0); mu.innerHTML = info.maxed ? `⚡ 마나 강화 <b>MAX</b> <span style="opacity:.7">${info.rate.toFixed(1)}/s</span>` : `⚡ 마나 강화 Lv.${info.level} <span style="color:#ffd86b;font-weight:600">💧${info.nextCost}</span> <span style="opacity:.7">→${(({0:0.8,1:1.1,2:1.4,3:1.8,4:2.4})[info.level] || 0)}/s</span>`; mu.style.opacity = (info.maxed || mana >= info.nextCost) ? '1' : '0.5' }
     const nowH = performance.now()
     battleHud.querySelectorAll('.bhunits [data-id]').forEach((b) => {
       const id = b.dataset.id, u = window.BattleData.UNITS[id]
@@ -4058,6 +4104,7 @@
     if (!battle || !window.BattleSprites) return
     const st = battle.state
     for (const u of st.units) {
+      if (u.structure) continue   // 게틀링 등 구조물은 drawGatlings가 그림(여기선 충돌/타겟용으로만 존재)
       const x = battleLaneX(u.L), def = window.BattleData.UNITS[u.type] || {}
       const y = battleUnitFeetY(x, def.flying)
       const knocked = u.kbUntil && u.kbUntil > battle.state.t   // 넉백 중엔 공격 연출(총구 섬광·차지) 억제
@@ -4347,7 +4394,7 @@
     battle.state.mana[0] -= cost; updateBattleHud()
     // 오버레이 무기 그대로 — 미사일: 캐릭터에서 발사 → 커서 추적 → 합체 → 10합체 핵 → 상대 핵과 만나면 리틀보이
     if (id === 'missile') fireHoming()
-    else if (id === 'gatling') deployGatling()
+    else if (id === 'gatling') deployBattleGatling()   // 배틀: 진영 앞 고정 배치 + 자동 조준 + 구조물화
     else if (id === 'shield') activateShield()
     else if (id === 'net') toggleNetAim()
     else if (id === 'blackhole') activateBlackhole()

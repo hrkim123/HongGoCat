@@ -8,10 +8,10 @@
   const D = window.BattleData
   const U = window.BattleUpgrade
 
-  const DEFAULTS = { baseHp: 100, manaCap: 20, manaRegen: 0.8, baseRange: 0.03, speedScale: 1 }   // 맥스 마나 20, 기본 충전 0.8/s(초반 지루함 완화)
+  const DEFAULTS = { baseHp: 100, manaCap: 20, manaRegen: 0.5, baseRange: 0.03, speedScale: 1 }   // 맥스 마나 20, 기본 충전 0.5/s
   const KB_DUR = 0.30, KB_BACK = 0.09, KB_CD = 0.7   // 넉백: 0.30초간 살짝 뒤로(냥코풍 짧은 홉) + 재넉백 최소 간격 0.7s(락 방지)
-  // 마나 강화(냥코 일꾼레벨): 마나 지불→이번 판 충전속도↑(판 끝나면 초기화). 기본 0.8/s에 맞춰 상향.
-  const MANA_LEVELS = [{ cost: 6, rate: 1.1 }, { cost: 9, rate: 1.4 }, { cost: 12, rate: 1.8 }, { cost: 16, rate: 2.3 }, { cost: 20, rate: 2.8 }]
+  // 마나 강화(냥코 일꾼레벨): 마나 지불→이번 판 충전속도↑(판 끝나면 초기화). 기본 0.5/s, 강화 체감 소폭 상향.
+  const MANA_LEVELS = [{ cost: 6, rate: 0.8 }, { cost: 9, rate: 1.1 }, { cost: 12, rate: 1.4 }, { cost: 16, rate: 1.8 }, { cost: 20, rate: 2.4 }]
 
   function statsFor(type) {
     if (U && U.computeUnitStats) { const s = U.computeUnitStats(type); if (s) return s }
@@ -88,7 +88,7 @@
     }
 
     function applyKb(target, force) {   // 강제 넉백(임계 무관). force=true면 재넉백 쿨(KB_CD)도 무시(망치개미: 매 공격 넉백).
-      if (target.hp <= 0) return
+      if (target.hp <= 0 || target.structure) return   // 구조물(게틀링 등)은 넉백 안 됨(고정)
       if (target.frozenUntil && target.frozenUntil > st.t) return   // 빙결 중엔 넉백 X
       if (!force && target.kbCdUntil && target.kbCdUntil > st.t) return
       target.kbUntil = st.t + KB_DUR; target.kbCdUntil = st.t + KB_CD
@@ -264,8 +264,17 @@
     }
     function hitBase(side, dmg) { st.baseHp[side] = Math.max(0, st.baseHp[side] - dmg) }   // 승패는 step에서 판정
     function unitByUid(uid) { return st.units.find((x) => x.uid === uid) }
+    // 정지 구조물(게틀링 등): HP만 갖고 이동0·공격0. 적이 타겟·공격하고 파괴 가능(bunits로 방송돼 멀티도 동일). 발사는 컨트롤러가 처리.
+    function addStructure(cfg) {
+      cfg = cfg || {}
+      const side = cfg.side || 0, hp = cfg.hp || 30
+      const u = { uid: uidSeq++, side, type: cfg.type || 'structure', L: clamp(cfg.L || 0, 0, 1), dir: side === 0 ? 1 : -1, hp, maxHp: hp, stats: { id: cfg.type, speed: 0, atk: { type: 'none' }, flying: false }, cdLeft: 0, kbList: [], structure: true }
+      st.units.push(u)
+      st.events.push({ type: 'spawn', uid: u.uid, side, unit: u.type })
+      return u.uid
+    }
 
-    return { state: st, spawn, step, makeAI, drainEvents, hitUnit, hitBase, unitByUid, setGhosts, upgradeMana, manaUpInfo }
+    return { state: st, spawn, step, makeAI, drainEvents, hitUnit, hitBase, unitByUid, setGhosts, upgradeMana, manaUpInfo, addStructure }
   }
 
   window.BattleSim = { newBattle }

@@ -46,8 +46,8 @@
     },
     grenadier: {
       name: '수류탄 솔저', cat: 'unit', rarity: 'common', cost: 3, hp: 28,
-      speed: 0.11, atk: { type: 'aoe', dmg: 9, range: 0.15, cd: 1.8, aoeR: 0.06, arc: true },
-      art: 'ant-soldier', size: 1.0, // 범위 딜(광역 5dps)
+      speed: 0.11, atk: { type: 'aoe', dmg: 6, range: 0.15, cd: 1.8, aoeR: 0.09, arc: true },
+      art: 'ant-soldier', size: 1.0, // 범위 딜러: 넓은 착탄 범위(0.06→0.09) 대신 단발 데미지 낮춤(9→6)
     },
     shielder: {
       name: '쉴더', cat: 'unit', rarity: 'uncommon', cost: 2, hp: 80,
