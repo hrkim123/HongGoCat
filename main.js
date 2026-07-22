@@ -36,15 +36,21 @@ function initAutoUpdate() {
   // download → install → relaunch.
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = false
+  // 차등(differential) 다운로드 비활성 — 블록맵 재조립본이 sha512 검증에 실패해 "업데이트 눌러도 조용히 안 됨"이
+  // 되던 문제 방지. 항상 전체 파일을 받아 무결성 일치. (unsigned 빌드에서 특히 자주 깨짐)
+  autoUpdater.disableDifferentialDownload = true
   let promptedVersion = null   // ask at most once per version per session
   let downloading = false
   let manualCheck = false      // true while a user-initiated "업데이트 확인" is in flight
   autoUpdater.on('error', (e) => {
+    const wasDownloading = downloading
     downloading = false
     console.error('[bongo] update error:', e && e.message)
-    if (manualCheck) {
+    // 다운로드 도중 에러(무결성/네트워크)면 사용자에게 반드시 안내 — 예전엔 자동체크라 조용히 실패해서
+    // "업데이트 눌렀는데 안 됨"으로 보였다. 수동 체크든 다운로드 중이든 실패는 팝업으로 알린다.
+    if (manualCheck || wasDownloading) {
       manualCheck = false
-      dialog.showMessageBox({ type: 'error', buttons: ['확인'], noLink: true, title: 'HongGoCat 업데이트', message: '업데이트 확인에 실패했습니다.', detail: (e && e.message) || '네트워크 상태를 확인해 주세요.' }).catch(() => {})
+      dialog.showMessageBox({ type: 'error', buttons: ['확인'], noLink: true, title: 'HongGoCat 업데이트', message: wasDownloading ? '업데이트 다운로드에 실패했습니다.' : '업데이트 확인에 실패했습니다.', detail: ((e && e.message) || '네트워크 상태를 확인해 주세요.') + '\n\n계속 실패하면 GitHub 릴리스에서 최신 설치본을 직접 받아 실행해 주세요.' }).catch(() => {})
     }
   })
   autoUpdater.on('update-available', (info) => { const wasManual = manualCheck; manualCheck = false; promptUpdate(info && info.version, wasManual) })
