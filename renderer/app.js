@@ -918,6 +918,8 @@
       else if (msg.t === 'bunits') { if (battleMulti && msg.id === battleMulti.oppId && msg.to === me.netId) { const prev = new Map(battleGhosts.map((g) => [g.uid, g._dispL])); battleGhosts = (msg.list || []).filter((g) => !battleNetHeldUids.has(g.uid)).map((g) => { const L = 1 - g.L; return { uid: g.uid, type: g.type, L, hp: g.hp, shHp: g.shHp, frozen: g.frozen, slowed: g.slowed, _dispL: prev.has(g.uid) ? prev.get(g.uid) : L } }); battleGhostBase = msg.base != null ? msg.base : battleGhostBase } }   // 상대 유닛(미러링·표시위치 이어받아 보간) + 상대 기지 HP
       else if (msg.t === 'bghit') { if (battleMulti && msg.to === me.netId && battle) { battle.hitUnit(msg.uid, msg.dmg || 0, msg.slow || 0, msg.slowDur || 0, !!msg.kb, !!msg.kbBig) } }   // 내 유닛이 맞음(상대가 통지) → 로컬 적용(권한, 넉백 플래그 · kbBig=쉴드 파열 큰 밀림)
       else if (msg.t === 'bbhit') { if (battleMulti && msg.to === me.netId && battle) { battle.hitBase(0, msg.dmg || 0) } }   // 내 기지가 맞음 → 로컬 적용
+      else if (msg.t === 'bdig') { if (battleMulti && msg.to === me.netId && battleActive) carveTaskbar((msg.nx || 0) * canvas.clientWidth, msg.power || 1, false) }   // 배틀 지형 공유: 상대 파임 반영
+      else if (msg.t === 'bdigreset') { if (battleMulti && msg.to === me.netId && battleActive) resetTaskbarDig(false) }   // 배틀 지형 공유: 상대가 땅 복구
       else if (msg.t === 'bshot') { if (battleMulti && msg.to === me.netId && battleActive) { const W = canvas.clientWidth, H = canvas.clientHeight; remoteBattleShots.push({ x: msg.x * W, y: msg.y * H, vx: msg.vx * W, vy: msg.vy * H, ay: (msg.ay || 0) * H, kind: msg.k || 'bullet', born: performance.now(), life: msg.life || 1500 }) } }   // 상대 투사체 연출 재현
       else if (msg.t === 'gatling') {
         if (msg.active) remoteGatlings.set(msg.id, { nx: msg.nx, ny: msg.ny, hp: msg.hp, ang: msg.ang })
@@ -3884,7 +3886,7 @@
     // 연쇄 폭발: 프론트 위치에 계속 폭발 스폰(내 진영→상대 진영으로 이어짐)
     const fx = battleLaneX(Math.min(1, frontL)), fy = antGroundY(fx)
     addEffect(fx, fy - 18 * view.scale, 3); for (let k = 0; k < 3; k++) spawnDebris(fx + (Math.random() - 0.5) * 30 * view.scale, fy, 1, k % 2 ? '#ffb45a' : '#ff7d3a')
-    if (inTaskbar(fx, fy)) carveTaskbar(fx, 0.5, false)
+    if (inTaskbar(fx, fy)) battleDig(fx, 0.5)
     // 프론트가 지나간 적 유닛/고스트 → 데미지 + 강제 넉백(중복 방지)
     if (battleMulti) {
       for (const g of battleGhosts) { if (g.hp <= 0 || cannonSweep.hit.has(g.uid)) continue; if (g.L <= frontL) { cannonSweep.hit.add(g.uid); g.hp -= CANNON_DMG; if (connected()) net.send(JSON.stringify({ t: 'bghit', to: battleMulti.oppId, uid: g.uid, dmg: CANNON_DMG, slow: 0, slowDur: 0, kb: 1 })) } }
@@ -4025,7 +4027,7 @@
     if (!deck.weapons.length) ww.innerHTML = '<span style="font-size:11px;color:#7f8797">덱에 무기 없음</span>'
     const fw = h.querySelector('.bhfns')
     const rb = document.createElement('div'); rb.style.cssText = 'flex:1;text-align:center;padding:8px 2px;border-radius:9px;background:rgba(180,140,90,.14);border:1px solid rgba(180,140,90,.4);color:#e6d3b8;font-size:12px;cursor:pointer;user-select:none'; rb.innerHTML = '🧱 작업표시줄 복구 <span style="color:#ffd86b;font-weight:600">💧1</span>'
-    rb.onclick = () => { if (battle && battle.state.mana[0] >= 1) { battle.state.mana[0] -= 1; resetTaskbarDig(false); updateBattleHud() } else showToast('마나 부족 (1 필요)') }
+    rb.onclick = () => { if (battle && battle.state.mana[0] >= 1) { battle.state.mana[0] -= 1; resetTaskbarDig(false); if (battleMulti && connected() && net) net.send(JSON.stringify({ t: 'bdigreset', to: battleMulti.oppId })); updateBattleHud() } else showToast('마나 부족 (1 필요)') }
     fw.appendChild(rb)
     // ⚡ 마나 강화(냥코 일꾼레벨): 마나 지불 → 이번 판 충전속도↑
     const mu = document.createElement('div'); mu.className = 'bhmanaup'; mu.style.cssText = 'flex:1;text-align:center;padding:8px 2px;border-radius:9px;background:rgba(255,210,90,.14);border:1px solid rgba(255,210,90,.4);color:#ffe08a;font-size:11px;cursor:pointer;user-select:none'
@@ -4114,7 +4116,7 @@
       }
       else if (e.type === 'shieldblock' || e.type === 'shieldbreak') { battleShieldFlash[e.uid] = now }   // 쉴드가 막음 → 번쩍 연출
       else if (e.type === 'heal') battleHealFx.push({ medL: e.medL, healL: e.healL, born: now })           // 메딕 힐 → 초록 십자(본인+대상)
-      else if (e.type === 'boom') { const bx = battleLaneX(e.L), by = antGroundY(bx) - 20 * view.scale; addEffect(bx, by, 3); for (let k = 0; k < 12; k++) spawnSpark(bx + (Math.random() - 0.5) * (e.aoeR || 0.05) * canvas.clientWidth, by + (Math.random() - 0.5) * 30 * view.scale); if (inTaskbar(bx, antGroundY(bx))) carveTaskbar(bx, 0.6, false) }   // 카미카제 자폭
+      else if (e.type === 'boom') { const bx = battleLaneX(e.L), by = antGroundY(bx) - 20 * view.scale; addEffect(bx, by, 3); for (let k = 0; k < 12; k++) spawnSpark(bx + (Math.random() - 0.5) * (e.aoeR || 0.05) * canvas.clientWidth, by + (Math.random() - 0.5) * 30 * view.scale); if (inTaskbar(bx, antGroundY(bx))) battleDig(bx, 0.6) }   // 카미카제 자폭
       else if (e.type === 'freeze') { const fx = battleLaneX(e.L), fy = antGroundY(fx) - 22 * view.scale; for (let k = 0; k < 10; k++) spawnSpark(fx + (Math.random() - 0.5) * 30 * view.scale, fy + (Math.random() - 0.5) * 40 * view.scale) }   // 빙결 순간
       else if (e.type === 'knockback') { const kx = battleLaneX(e.L), ky = antGroundY(kx); addEffect(kx, ky - 12 * view.scale, 1); for (let k = 0; k < 4; k++) spawnSpark(kx + (Math.random() - 0.5) * 24 * view.scale, ky - Math.random() * 20 * view.scale) }   // 넉백: 먼지/충격
       else if (e.type === 'ghosthit') { if (battleMulti && connected()) net.send(JSON.stringify({ t: 'bghit', to: battleMulti.oppId, uid: e.uid, dmg: e.dmg, slow: e.slow || 0, slowDur: e.slowDur || 0, kb: e.kb ? 1 : 0 })) }   // 멀티: 상대 유닛 피격 릴레이(근접/광역, 넉백 플래그)
@@ -4535,7 +4537,7 @@
   // 투사체에 p.bfoe(맞을 side)·p.bdmg(데미지)를 태그해두고 각 스텝 최상단에서 호출. 명중/땅닿음이면 true.
   function battleProjCollide(p, R, dig) {
     if (battleHitSide(p.x, p.y, p.bdmg || 6, R, p.bfoe)) return true
-    if (inTaskbar(p.x, p.y)) { carveTaskbar(p.x, dig || 1.0, false); return true }
+    if (inTaskbar(p.x, p.y)) { battleDig(p.x, dig || 1.0); return true }
     return false
   }
   // 발사 타겟 해석: ★ 멀티 고스트는 uid가 내 유닛과 겹칠 수 있으니 반드시 battleGhosts에서 찾는다(unitByUid는 내 유닛만 봄).
@@ -4635,6 +4637,11 @@
     net.send(JSON.stringify({ t: 'bshot', to: battleMulti.oppId, k: kind, x: +(x / W).toFixed(4), y: +(y / H).toFixed(4), vx: +(vx / W).toFixed(5), vy: +(vy / H).toFixed(5), ay: +((ayAbs || 0) / H).toFixed(6), life: PROJ_LIFE[kind] || 2000 }))
   }
   function relayBattleShot(p, kind, ayAbs) { relayShot(kind, p.x, p.y, p.vx, p.vy, ayAbs) }   // bproj = 이미 초 단위
+  // 배틀 지형 파임: 로컬 반영 + (멀티면) 상대에게만 릴레이(bdig) → 두 배틀러의 전장 지형 공유(관전자 방 전체 X).
+  function battleDig(x, power) {
+    carveTaskbar(x, power, false)
+    if (battleMulti && connected() && net) net.send(JSON.stringify({ t: 'bdig', to: battleMulti.oppId, nx: +(x / canvas.clientWidth).toFixed(4), power }))
+  }
   // 터렛 포탄 폭발 — 메카 스파크와 다른 연출: 큰 폭발 + 주황 파편 샤워
   function turretBoom(x, y) {
     addEffect(x, y, 3)
@@ -4685,7 +4692,7 @@
         bproj.splice(i, 1); continue
       }
       // 땅 충돌 → 파임 (참호 전략)
-      if (inTaskbar(p.x, p.y)) { carveTaskbar(p.x, PROJ_DIG[p.kind], false); if (p.aoe || PROJ_DIG[p.kind] >= 1) addEffect(p.x, p.y, 1); else spawnSpark(p.x, p.y); bproj.splice(i, 1); continue }
+      if (inTaskbar(p.x, p.y)) { battleDig(p.x, PROJ_DIG[p.kind]); if (p.aoe || PROJ_DIG[p.kind] >= 1) addEffect(p.x, p.y, 1); else spawnSpark(p.x, p.y); bproj.splice(i, 1); continue }
       if (now - p.born > p.life || p.x < -30 || p.x > W + 30 || p.y > canvas.clientHeight + 40) bproj.splice(i, 1)
     }
   }
@@ -5054,7 +5061,7 @@
     if (connected()) for (const [pid, rec] of remoteAnts) for (const e of rec.items.values()) { if (e.dead) continue; const sp = remoteAntScreenPos(pid, e); if (sp && Math.abs(sp.x - x) <= rPx) net.send(JSON.stringify({ t: 'ant-hit', target: pid, ant: e.id, dmg: odmg })) }
   }
   function bombImpact(x, gy) {
-    carveTaskbar(x, 1.4, false)   // 땅 파임
+    battleDig(x, 1.4)   // 땅 파임(배틀이면 상대와 지형 공유)
     addEffect(x, gy - 14 * view.scale, 3); for (let k = 0; k < 8; k++) spawnDebris(x + (Math.random() - 0.5) * 40 * view.scale, gy, 1, k % 2 ? '#ffb45a' : '#ff7d3a')
     bombHitArea(x, bombRadius(), BOMB_DMG, true)   // 착탄 데미지 + 넉백(양측)
     fireZones.push({ x, r: bombRadius() * 0.9, until: performance.now() + FIRE_SEC * 1000, nextTick: 0 })   // 5초 불장판
