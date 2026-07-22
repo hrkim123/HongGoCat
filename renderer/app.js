@@ -4108,11 +4108,16 @@
     const mu = battleHud.querySelector('.bhmanaup')   // ⚡ 마나 강화: 단계 게이지 + 현재 속도 + 다음 비용/효과
     if (mu && battle.manaUpInfo) {
       const info = battle.manaUpInfo(0), total = 10
-      let segs = ''
-      for (let i = 0; i < total; i++) segs += `<div style="flex:1;height:7px;border-radius:2px;background:${i < info.level ? '#ffcf3a' : 'rgba(255,255,255,.14)'}"></div>`
-      const head = `⚡ 마나 강화 <b>Lv.${info.level}/${total}</b> · 현재 <b style="color:#fff">${info.rate.toFixed(1)}</b>/s`
-      const nextLine = info.maxed ? `<span style="color:#8ff0c8;font-weight:700">MAX</span>` : `다음 <b style="color:#ffd86b">💧${info.nextCost}</b> → <b style="color:#fff">${(info.nextRate || 0).toFixed(1)}</b>/s`
-      mu.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;font-size:10.5px"><span>${head}</span><span>${nextLine}</span></div><div style="display:flex;gap:2px">${segs}</div>`
+      // ★ innerHTML은 레벨이 바뀔 때만 재생성(매 프레임 재생성하면 클릭 도중 자식이 파괴돼 버튼이 안 눌림). 투명도만 매 프레임.
+      const sig = info.level + '/' + info.maxed
+      if (mu._sig !== sig) {
+        mu._sig = sig
+        let segs = ''
+        for (let i = 0; i < total; i++) segs += `<div style="flex:1;height:7px;border-radius:2px;background:${i < info.level ? '#ffcf3a' : 'rgba(255,255,255,.14)'};pointer-events:none"></div>`
+        const head = `⚡ 마나 강화 <b>Lv.${info.level}/${total}</b> · 현재 <b style="color:#fff">${info.rate.toFixed(1)}</b>/s`
+        const nextLine = info.maxed ? `<span style="color:#8ff0c8;font-weight:700">MAX</span>` : `다음 <b style="color:#ffd86b">💧${info.nextCost}</b> → <b style="color:#fff">${(info.nextRate || 0).toFixed(1)}</b>/s`
+        mu.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;font-size:10.5px;pointer-events:none"><span>${head}</span><span>${nextLine}</span></div><div style="display:flex;gap:2px;pointer-events:none">${segs}</div>`
+      }
       mu.style.opacity = (info.maxed || mana >= info.nextCost) ? '1' : '0.55'
     }
     const nowH = performance.now()
