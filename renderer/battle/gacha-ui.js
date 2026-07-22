@@ -261,28 +261,47 @@
     setTimeout(() => reveal.classList.add('show'), delay)
   }
 
-  // 10연 소환: 개별 연출을 순차 재생 + SKIP(→ 결과 그리드 즉시). onDone 호출 시 버튼 재활성.
+  // 10연 소환: 개별 연출을 순차 재생 + SKIP. 단, 전설이 포함돼 있으면 SKIP을 눌러도
+  // 아직 안 본 전설 연출은 마저 보여주고(전설급만) 결과 그리드로 넘어간다. onDone 호출 시 버튼 재활성.
+  function revealWait(res) { const anim = res.rarity.anim; return (anim === 'flash' ? 260 : anim === 'beam' ? 420 : anim === 'swirl' ? 620 : 780) + 820 }
   function playReveal10(stage, results, onDone) {
-    let idx = 0, timer = null, done = false
+    let idx = 0, timer = null, done = false, phase = 'seq'   // seq: 전체 순차 / legend: SKIP 후 전설만
     const skip = document.createElement('div'); skip.className = 'bg-skip'; skip.textContent = 'SKIP ⏭'
-    function finish() {
+    function toGrid() {
       if (done) return; done = true
       if (timer) { clearTimeout(timer); timer = null }
       showResultGrid(stage, results)
       if (onDone) onDone()
     }
     function stepOne() {
-      if (done) return
-      if (idx >= results.length) { finish(); return }
+      if (done || phase !== 'seq') return
+      if (idx >= results.length) { toGrid(); return }
       const res = results[idx++]
       playReveal(stage, res)               // stage 를 비우고 이번 결과 연출
       stage.appendChild(skip)              // SKIP 다시 부착(연출 위)
       const cnt = document.createElement('div'); cnt.className = 'bg-pullcount'; cnt.textContent = `${idx} / ${results.length}`; stage.appendChild(cnt)
-      const anim = res.rarity.anim
-      const wait = (anim === 'flash' ? 260 : anim === 'beam' ? 420 : anim === 'swirl' ? 620 : 780) + 820
-      timer = setTimeout(stepOne, wait)
+      timer = setTimeout(stepOne, revealWait(res))
     }
-    skip.onclick = finish
+    // SKIP: 전설 연출 중 다시 누르면 즉시 결과. 순차 중이면 아직 안 본 전설만 마저 재생 후 결과.
+    function onSkip() {
+      if (done) return
+      if (phase === 'legend') { toGrid(); return }
+      if (timer) { clearTimeout(timer); timer = null }
+      const legs = results.slice(idx).filter((r) => r.entry && r.entry.rarity === 'legend')   // 아직 안 본 전설
+      if (!legs.length) { toGrid(); return }
+      phase = 'legend'
+      let li = 0
+      function nextLeg() {
+        if (done) return
+        if (li >= legs.length) { toGrid(); return }
+        const res = legs[li++]
+        playReveal(stage, res); stage.appendChild(skip)
+        const tag = document.createElement('div'); tag.className = 'bg-pullcount'; tag.textContent = `✨ 전설 ${li} / ${legs.length}`; stage.appendChild(tag)
+        timer = setTimeout(nextLeg, revealWait(res))
+      }
+      nextLeg()
+    }
+    skip.onclick = onSkip
     stepOne()
   }
 
