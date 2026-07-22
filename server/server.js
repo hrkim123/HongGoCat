@@ -157,11 +157,30 @@ wss.on('connection', (ws, req) => {
     } else if (msg.t === 'battle-state') {
       broadcast(joinedRoom, { t: 'battle-state', id, on: !!msg.on, opp: msg.opp || null }, id) // 배틀 참여 상태(관전자 가리기용)
     } else if (msg.t === 'bunits' && Array.isArray(msg.list)) {
-      broadcast(joinedRoom, { t: 'bunits', id, to: msg.to, list: msg.list.slice(0, 40), base: msg.base, mana: msg.mana }, id)  // 내 유닛 목록+기지HP 방송
+      broadcast(joinedRoom, { t: 'bunits', id, to: msg.to, list: msg.list.slice(0, 60), base: msg.base, mana: msg.mana, bsh: msg.bsh, bshU: msg.bshU }, id)  // 내 유닛 목록+기지HP+방어돔 방송
     } else if (msg.t === 'bghit') {
-      broadcast(joinedRoom, { t: 'bghit', id, to: msg.to, uid: msg.uid, dmg: msg.dmg, slow: msg.slow, slowDur: msg.slowDur, kb: msg.kb }, id) // 상대 유닛 피격(소유자 적용)
+      broadcast(joinedRoom, { t: 'bghit', id, to: msg.to, uid: msg.uid, dmg: msg.dmg, slow: msg.slow, slowDur: msg.slowDur, kb: msg.kb, kbBig: msg.kbBig }, id) // 상대 유닛 피격(소유자 적용, kbBig=쉴드 파열 큰 넉백)
     } else if (msg.t === 'bbhit') {
       broadcast(joinedRoom, { t: 'bbhit', id, to: msg.to, dmg: msg.dmg }, id)                 // 상대 기지 피격(소유자 적용)
+    // ── 배틀/오버레이 연출·지형 릴레이(전부 상대 화면에도 동일하게 보이게) ──
+    } else if (msg.t === 'bshot') {
+      broadcast(joinedRoom, { t: 'bshot', id, to: msg.to, k: msg.k, x: msg.x, y: msg.y, vx: msg.vx, vy: msg.vy, ay: msg.ay, life: msg.life }, id)   // 배틀 유닛 투사체 연출
+    } else if (msg.t === 'bbomber') {
+      broadcast(joinedRoom, { t: 'bbomber', id, to: msg.to, x: msg.x }, id)                   // 배틀 폭격 연출
+    } else if (msg.t === 'obomber') {
+      broadcast(joinedRoom, { t: 'obomber', id, nx: msg.nx }, id)                             // 오버레이 폭격 연출(방 전체)
+    } else if (msg.t === 'bdig') {
+      broadcast(joinedRoom, { t: 'bdig', id, to: msg.to, nx: msg.nx, power: msg.power }, id)  // 배틀 지형 파임(상대만)
+    } else if (msg.t === 'bdigreset') {
+      broadcast(joinedRoom, { t: 'bdigreset', id, to: msg.to }, id)                           // 배틀 땅 복구(상대)
+    } else if (msg.t === 'bcannon') {
+      broadcast(joinedRoom, { t: 'bcannon', id, to: msg.to }, id)                             // 베이스 캐논 스윕 연출
+    } else if (msg.t === 'btitanlaser') {
+      broadcast(joinedRoom, { t: 'btitanlaser', id, to: msg.to, fx: msg.fx, tx: msg.tx }, id) // 타이탄 레이저 연출
+    } else if (msg.t === 'bnetgrab') {
+      broadcast(joinedRoom, { t: 'bnetgrab', id, to: msg.to, uid: msg.uid }, id)              // 그물 포획(상대 유닛 정지+숨김)
+    } else if (msg.t === 'sproj') {
+      broadcast(joinedRoom, { t: 'sproj', id, nx: msg.nx, ny: msg.ny, vx: msg.vx, vy: msg.vy, k: msg.k, ay: msg.ay, life: msg.life }, id)   // 오버레이 소환체 투사체 연출
     } else if (msg.t === 'chat' && typeof msg.text === 'string') {
       const now = Date.now()
       if (now - (me.lastChat || 0) < 400) return // spam guard
