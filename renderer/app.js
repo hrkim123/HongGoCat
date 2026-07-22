@@ -501,6 +501,9 @@
   // Compares the last-seen version (localStorage) to the current app version; lists every changelog
   // entry between them (first run just shows the current version). Add newest versions at the TOP.
   const CHANGELOG = {
+    '1.0.9': [
+      '자동 업데이트 안정화 — "업데이트 눌러도 조용히 안 되던" 문제 수정(항상 전체 파일 다운로드, 실패 시 안내)',
+    ],
     '1.0.8': [
       '신규 전설 무기 💥 폭격 — 폭격기가 지나가며 폭탄 5발 투하, 착탄 지점 5초 불장판(아군도 피해!)',
       '배틀 방어 돔(쉴드): 책상 전체를 덮는 반구로 확대 + 체력 균열 연출, 터질 때 그 자리부터 적을 크게 뒤로 넉백',
