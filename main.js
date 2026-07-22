@@ -289,11 +289,32 @@ function sendInput(kind) {
   if (win && !win.isDestroyed()) win.webContents.send('input', kind)
 }
 
+// 바탕화면 모드: 최상단 대신 "가장 뒤"로 — 다른 창들이 위에 오고, 창을 다 내리면 바탕화면에서만 보인다.
+let desktopMode = false
+// 창을 z-order 맨 뒤(HWND_BOTTOM)로. 네이티브 모듈 없이 stripWin11Chrome과 동일한 HWND+PowerShell(user32) 기법.
+function pushToBottom() {
+  if (process.platform !== 'win32' || !win || win.isDestroyed()) return
+  let hwnd
+  try { const buf = win.getNativeWindowHandle(); hwnd = (buf.length >= 8 ? buf.readBigUInt64LE(0) : BigInt(buf.readUInt32LE(0))).toString() } catch (e) { return }
+  const ps = [
+    'Add-Type -Namespace D -Name Z -MemberDefinition \'[DllImport("user32.dll")] public static extern bool SetWindowPos(System.IntPtr h,System.IntPtr a,int x,int y,int cx,int cy,uint f);\'',
+    `$h=[System.IntPtr]::new([long]${hwnd})`,
+    '$b=[System.IntPtr]::new(1)',                 // HWND_BOTTOM
+    '[D.Z]::SetWindowPos($h,$b,0,0,0,0,0x13)'     // SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE
+  ].join('; ')
+  require('child_process').execFile('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], { windowsHide: true }, () => {})
+}
+// 창 레이어 적용: 바탕화면 모드=맨 뒤(topmost 해제), 아니면=스크린세이버급 최상단.
+function applyLayer() {
+  if (!win || win.isDestroyed()) return
+  if (desktopMode) { win.setAlwaysOnTop(false); pushToBottom() }
+  else win.setAlwaysOnTop(true, 'screen-saver')
+}
 // Re-assert the overlay's chrome-free state. Windows re-draws the accent border on the
 // topmost window when ANOTHER window (settings/chat) closes, so call this on those events.
 function reassertOverlay() {
   if (!win || win.isDestroyed()) return
-  win.setAlwaysOnTop(true, 'screen-saver')
+  applyLayer()   // 바탕화면 모드면 최상단 대신 맨 뒤 유지
   win.setIgnoreMouseEvents(!interactive, { forward: true })
   stripWin11Chrome(win) // DWMWA_BORDER_COLOR = NONE again
 }
@@ -312,6 +333,7 @@ function recoverOverlay() {
   } catch (e) { console.error('[bongo] recover bounds failed:', e && e.message) }
   reassertOverlay()
   try { win.showInactive() } catch {}
+  if (desktopMode) pushToBottom()   // showInactive 후 다시 맨 뒤로(바탕화면 모드 유지)
   // 전역 입력 훅 재부착(세션 전환 후 저수준 훅이 떨어질 수 있음)
   if (uIOhook) { try { uIOhook.stop() } catch {} ; try { uIOhook.start() } catch (e) { console.error('[bongo] rehook failed:', e && e.message) } }
 }
@@ -366,6 +388,8 @@ function startCursorPoll() {
     if (want !== interactive) {
       interactive = want
       win.setIgnoreMouseEvents(!want, { forward: true })
+      // 바탕화면 모드: 고양이를 클릭(상호작용)하면 창이 앞으로 올라올 수 있으니, 상호작용이 끝나면 다시 맨 뒤로.
+      if (!want && desktopMode) pushToBottom()
     }
   }, 24)
 }
@@ -455,6 +479,7 @@ ipcMain.on('gatling-control', (_e, active) => { gatlingActive = !!active })
 ipcMain.on('antmecha-control', (_e, active) => { antMechaActive = !!active })
 ipcMain.on('set-keybinds', (_e, kb) => applyKeybinds(kb))
 ipcMain.on('open-settings', toggleSettings)
+ipcMain.on('desktop-mode', (_e, on) => { desktopMode = !!on; applyLayer() })   // 바탕화면 모드 토글(최상단 ↔ 맨 뒤)
 ipcMain.on('apply-update', () => { if (updater) { try { updater.quitAndInstall(true, true) } catch (e) {} } })
 ipcMain.on('check-update', () => {
   if (updater && updater.checkManual) { updater.checkManual(); return }

@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('bongo', {
   gatlingControl(active) { ipcRenderer.send('gatling-control', !!active) },
   antMechaControl(active) { ipcRenderer.send('antmecha-control', !!active) },
   setKeybinds(kb) { ipcRenderer.send('set-keybinds', kb) },
+  setDesktopMode(on) { ipcRenderer.send('desktop-mode', !!on) },   // 바탕화면 모드(최상단 ↔ 맨 뒤)
   pushState(state) { ipcRenderer.send('to-settings', state) },
   quit() { ipcRenderer.send('quit') },
 

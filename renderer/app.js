@@ -501,6 +501,14 @@
   // Compares the last-seen version (localStorage) to the current app version; lists every changelog
   // entry between them (first run just shows the current version). Add newest versions at the TOP.
   const CHANGELOG = {
+    '1.2.2': [
+      '🖥 바탕화면 모드 추가 — 메뉴에서 켜면 홍고캣이 다른 창들 뒤로 내려가, 창을 다 내렸을 때 바탕화면에서만 보여요(업무 방해 X)',
+      '상점 업그레이드 화면 개편 — 희귀도 필터 + 강화 가능 우선 정렬 + 2열 카드 + "강화 가능 N개" 표시',
+      '업그레이드 비용 희귀도 차등(일반<고급<희귀<전설) · 오버레이 폭격 쿨다운 2초',
+      '배틀 기지를 지면에 안착 · 소환체는 책상 앞에서 적을 보고 출발 · 덱 HUD 항상 내 진영 위',
+      '브루드 타이탄 밸런스(HP 절반·레이저 쿨 6초·땅파임 제거) · 생산 개미가 업그레이드로 2마리 나오던 버그 수정',
+      '원거리 유닛이 적 진영을 제대로 못 맞히던 문제 수정',
+    ],
     '1.2.0': [
       '💠 신규 전설 소환체 브루드 타이탄(25코스트) — 거대 요새: 근접 스톰프 + 땅 긁는 레이저 + 개미 생산, 죽을 때 잔해 벽(Lv5)',
       '마나 최대 30 + 마나 강화 10단계 세분화(HUD에 단계 게이지 표시)',
@@ -937,7 +945,7 @@
       else if (msg.t === 'bdigreset') { if (battleMulti && msg.to === me.netId && battleActive) resetTaskbarDig(false) }   // 배틀 지형 공유: 상대가 땅 복구
       else if (msg.t === 'bbomber') { if (battleMulti && msg.to === me.netId && battleActive) deployBomber((msg.x || 0) * canvas.clientWidth, true) }   // 상대 폭격 연출 재현(데미지·파임은 별도 릴레이)
       else if (msg.t === 'bcannon') { if (battleMulti && msg.to === me.netId && battleActive) remoteCannonSweep = { at: performance.now() } }   // 상대 베이스 캐논 스윕 연출
-      else if (msg.t === 'btitanlaser') { if (battleMulti && msg.to === me.netId && battleActive) { const W = canvas.clientWidth; titanLaserFx((msg.fx || 0) * W, (msg.tx || 0) * W) } }   // 상대 타이탄 레이저 연출·파임 동일 재현
+      else if (msg.t === 'btitanlaser') { if (battleMulti && msg.to === me.netId && battleActive) { const W = canvas.clientWidth; titanLaserFx((msg.fx || 0) * W, (msg.tx || 0) * W) } }   // 상대 타이탄 레이저 연출 동일 재현
       else if (msg.t === 'bnetgrab') { if (battleMulti && msg.to === me.netId && battle) { const u = battle.unitByUid(msg.uid); if (u) { u.netted = true; u.frozenUntil = battle.state.t + 30 } } }   // 내 유닛이 상대 그물에 잡힘 → 정지+숨김(해제/사망은 bghit로)
       else if (msg.t === 'bshot') { if (battleMulti && msg.to === me.netId && battleActive) { const W = canvas.clientWidth, H = canvas.clientHeight; remoteBattleShots.push({ x: msg.x * W, y: msg.y * H, vx: msg.vx * W, vy: msg.vy * H, ay: (msg.ay || 0) * H, kind: msg.k || 'bullet', born: performance.now(), life: msg.life || 1500 }) } }   // 상대 투사체 연출 재현
       else if (msg.t === 'gatling') {
@@ -1145,6 +1153,8 @@
       challenge: (id) => openBetDialog(id),      // 배틀 신청(베팅 다이얼로그)
       settings: () => inputSource.openSettings(), // ⚙ 설정: 기존 설정 창
       clearSummons: () => { clearMySummons(); showToast('🧹 내 소환체·투사체 전부 제거') }, // 🧹 소환체 제거: 내가 소환한 것 일괄 정리
+      getDesktopMode: () => desktopMode,                          // 🖥 바탕화면 모드 상태(토글 버튼 표시용)
+      toggleDesktopMode: () => { setDesktopMode(!desktopMode); return desktopMode },   // 🖥 최상단 ↔ 맨 뒤 전환
       restoreBar: () => resetTaskbarDig(),       // 🧱 땅 복구: 파인 작업표시줄 복원(모두 함께)
       switchView: () => { try { window.bongo.toOverlay({ t: 'next-monitor' }) } catch (e) {} }, // 🖥 화면 전환: 다음 모니터
       quit: () => { try { inputSource.quit() } catch (e) {} }, // ⏻ 홍고캣 종료
@@ -4177,10 +4187,10 @@
       else if (e.type === 'boom') { const bx = battleLaneX(e.L), by = antGroundY(bx) - 20 * view.scale; addEffect(bx, by, 3); for (let k = 0; k < 12; k++) spawnSpark(bx + (Math.random() - 0.5) * (e.aoeR || 0.05) * canvas.clientWidth, by + (Math.random() - 0.5) * 30 * view.scale); if (inTaskbar(bx, antGroundY(bx))) battleDig(bx, 0.6) }   // 카미카제 자폭
       else if (e.type === 'freeze') { const fx = battleLaneX(e.L), fy = antGroundY(fx) - 22 * view.scale; for (let k = 0; k < 10; k++) spawnSpark(fx + (Math.random() - 0.5) * 30 * view.scale, fy + (Math.random() - 0.5) * 40 * view.scale) }   // 빙결 순간
       else if (e.type === 'knockback') { const kx = battleLaneX(e.L), ky = antGroundY(kx); addEffect(kx, ky - 12 * view.scale, 1); for (let k = 0; k < 4; k++) spawnSpark(kx + (Math.random() - 0.5) * 24 * view.scale, ky - Math.random() * 20 * view.scale) }   // 넉백: 먼지/충격
-      else if (e.type === 'titanlaser') {   // 💠 타이탄 땅 긁는 레이저: 입 발사 빔 + 자글자글 파임 + 연쇄 폭발. 데미지는 sim(ghosthit)로 별도.
+      else if (e.type === 'titanlaser') {   // 💠 타이탄 땅 긁는 레이저: 입 발사 빔 + 연쇄 폭발(땅파임 없음). 데미지는 sim(ghosthit)로 별도.
         const fromX = battleLaneX(e.fromL), toX = battleLaneX(e.toL)
         titanLaserFx(fromX, toX)
-        if (battleMulti && connected() && e.side === 0) net.send(JSON.stringify({ t: 'btitanlaser', to: battleMulti.oppId, fx: +(fromX / canvas.clientWidth).toFixed(4), tx: +(toX / canvas.clientWidth).toFixed(4) }))   // 상대 화면 연출·파임 동일 재현(공용 절대프레임)
+        if (battleMulti && connected() && e.side === 0) net.send(JSON.stringify({ t: 'btitanlaser', to: battleMulti.oppId, fx: +(fromX / canvas.clientWidth).toFixed(4), tx: +(toX / canvas.clientWidth).toFixed(4) }))   // 상대 화면 연출 동일 재현(공용 절대프레임)
       }
       else if (e.type === 'ghosthit') { if (battleMulti && connected()) net.send(JSON.stringify({ t: 'bghit', to: battleMulti.oppId, uid: e.uid, dmg: e.dmg, slow: e.slow || 0, slowDur: e.slowDur || 0, kb: e.kb ? 1 : 0 })) }   // 멀티: 상대 유닛 피격 릴레이(근접/광역, 넉백 플래그)
       else if (e.type === 'basehit') { if (battleMulti && e.side === 1 && connected()) net.send(JSON.stringify({ t: 'bbhit', to: battleMulti.oppId, dmg: e.dmg })) }   // 멀티: 상대 기지 피격 릴레이(근접)
@@ -4335,10 +4345,8 @@
       const dir = t.dir, prog = Math.min(1, el / TITAN_SWEEP_MS)
       const mouthX = t.fromX + dir * 40 * view.scale, mouthY = taskbarSurfaceY(t.fromX) - 66 * view.scale
       const front = t.startX + (t.toX - t.startX) * prog   // 현재 긁는 접점
-      // 진행하며 얕은 파임 + 바로 뒤 폭발(접점이 지나간 자리)
-      const step = 16 * view.scale
-      if (t.dugTo == null) { t.dugTo = t.startX; t.boomAt = t.startX }
-      while (dir > 0 ? t.dugTo <= front : t.dugTo >= front) { carveTaskbar(t.dugTo, 0.006, false); t.dugTo += dir * step }   // 거의 안 파이게(느낌만) 0.012→0.006
+      // 접점이 지나간 자리에 바로 뒤따르는 폭발(연출 전용 — 땅파임 없음)
+      if (t.boomAt == null) { t.boomAt = t.startX }
       const bstep = 38 * view.scale
       while (dir > 0 ? t.boomAt <= front : t.boomAt >= front) { addEffect(t.boomAt, taskbarSurfaceY(t.boomAt), 1); t.boomAt += dir * bstep }   // 바로 따라오는 폭발
       // 빔 그리기: 입 → 현재 접점(front). 지나간 구간은 옅은 그을림 자국.
@@ -4690,7 +4698,7 @@
         }
       }
       const bx1 = battleLaneX(1)
-      if (!noBase && Math.abs(x - bx1) <= m + 26 * view.scale && y > antGroundY(bx1) - 104 * view.scale) { if (connected()) net.send(JSON.stringify({ t: 'bbhit', to: battleMulti.oppId, dmg })); hit = true }
+      if (!noBase && Math.abs(x - bx1) <= m + 34 * view.scale && y > battleDeskY() - 90 * view.scale) { if (connected()) net.send(JSON.stringify({ t: 'bbhit', to: battleMulti.oppId, dmg })); hit = true }
       return hit
     }
     for (const u of battle.state.units) {
@@ -4700,7 +4708,9 @@
       if (inUnitBody(x, y, ux, feetY, u.type, def.size, m)) { battle.hitUnit(u.uid, dmg); hit = true }
     }
     const bx = battleLaneX(foeSide)   // 그 side의 기지
-    if (!noBase && Math.abs(x - bx) <= m + 26 * view.scale && y > antGroundY(bx) - 104 * view.scale) { battle.hitBase(foeSide, dmg); hit = true }
+    // 기지 히트박스: 몸통 높이까지(battleDeskY 기준) 커버 — 지면 안착으로 몸통이 올라가 예전 antGroundY 기준은
+    // 너무 낮아 조준(baseAimY)이 위로 빗나갔다. 가로도 살짝 넓힘.
+    if (!noBase && Math.abs(x - bx) <= m + 34 * view.scale && y > battleDeskY() - 90 * view.scale) { battle.hitBase(foeSide, dmg); hit = true }
     return hit
   }
   // 플레이어 오버레이 무기(미사일 등)는 항상 적(side1) 타격. ★ 무기는 소환체·구조물만 공격 — 기지(진영)엔 데미지 X(noBase).
@@ -4767,7 +4777,7 @@
       if (inUnitBody(x, y, ux, feetY, u.type, def.size, 2 * view.scale)) return true
     }
     const bx = battleLaneX(1)
-    if (Math.abs(x - bx) < 26 * view.scale && y > antGroundY(bx) - 96 * view.scale) return true
+    if (Math.abs(x - bx) < 34 * view.scale && y > battleDeskY() - 90 * view.scale) return true   // 기지 몸통 높이 기준(지면 안착 반영)
     return false
   }
   function battleFire(ev) {
@@ -5925,6 +5935,18 @@
 
   let wx = null, wy = null // widget top-left (of me's cell)
   let primaryRect = null   // primary monitor work area (canvas coords), from main
+  // 🖥 바탕화면 모드: 창을 항상-위 대신 맨 뒤로(업무 방해 X). 위치는 그대로 두고 z-order만 바꾼다
+  // (고양이 위젯은 원래도 작업표시줄 위쪽에 있어 별도 올림 불필요).
+  let desktopMode = false
+  try { desktopMode = localStorage.getItem('desktopMode') === '1' } catch {}
+  function setDesktopMode(on) {
+    desktopMode = !!on
+    try { localStorage.setItem('desktopMode', desktopMode ? '1' : '0') } catch {}
+    try { window.bongo && window.bongo.setDesktopMode && window.bongo.setDesktopMode(desktopMode) } catch {}
+    showToast(desktopMode ? '🖥 바탕화면 모드 — 다른 창 뒤로(바탕화면에서만 보임)' : '🔝 오버레이 모드 — 항상 위')
+  }
+  // 시작 시 저장된 바탕화면 모드면 메인에 창 레이어 적용 요청(z-order만; 위치 변경 없음).
+  if (desktopMode) { try { window.bongo && window.bongo.setDesktopMode && window.bongo.setDesktopMode(true) } catch {} }
   // chosen preset as a grid cell {c,r} — persisted so it survives monitor switches & restarts
   let savedAnchor = null
   try { const s = JSON.parse(localStorage.getItem('anchor') || 'null'); if (s && typeof s.c === 'number') savedAnchor = s } catch {}

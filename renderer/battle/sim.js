@@ -17,10 +17,13 @@
     { cost: 7, rate: 1.9 }, { cost: 7, rate: 2.2 }, { cost: 7, rate: 2.5 }, { cost: 7, rate: 2.8 }, { cost: 7, rate: 3.1 },
   ]
 
-  function statsFor(type) {
-    if (U && U.computeUnitStats) { const s = U.computeUnitStats(type); if (s) return s }
+  function baseStatsFor(type) {   // 업그레이드 미반영 원본 스탯(생산형이 뽑는 소환체용 — 플레이어 강화 영향 X)
     const b = D.UNITS[type]
     return b ? { id: type, hp: b.hp, speed: b.speed, atk: Object.assign({}, b.atk), flying: !!b.flying, shield: b.shield } : null
+  }
+  function statsFor(type) {
+    if (U && U.computeUnitStats) { const s = U.computeUnitStats(type); if (s) return s }
+    return baseStatsFor(type)
   }
   function clamp(v, a, b) { return v < a ? a : v > b ? b : v }
 
@@ -49,7 +52,7 @@
       const cost = base.cost || 1
       if (!(opts && opts.free) && st.mana[side] < cost) return false
       if (!(opts && opts.free)) st.mana[side] -= cost
-      const s = statsFor(type)
+      const s = (opts && opts.base) ? baseStatsFor(type) : statsFor(type)   // 생산형이 뽑는 소환체(base)는 플레이어 업그레이드 미반영
       const sh = s.battleShield || null   // 자동 쉴드(레벨 반영). 실효 HP엔 미포함(별도 게이지)
       const hp = s.hp + (s.shield ? s.shield.absorb : 0)   // (구)shield는 실효 HP로 단순화
       // 진영 한가운데(L=0/1)가 아니라 책상 "앞"(상대 진영 쪽)에서 소환 — 소환 즉시 적을 바라보고 출발.
@@ -262,8 +265,8 @@
             if (sumDef.cap) {   // 생산 상한(여왕=솔져 5마리): 살아있는 자기 생산물만 카운트. 죽어서 미만이 되면 다시 소환.
               u._brood = (u._brood || []).filter((id) => st.units.some((x) => x.uid === id && x.hp > 0))
               if (u._brood.length >= sumDef.cap) { u.summonCd = 0.8 }   // 가득참 → 곧 재확인(빈자리 나면 채움)
-              else { u.summonCd = sumDef.every || 4; if (spawn(u.side, sumDef.unit, { free: true, atL: clamp(u.L + u.dir * 0.03, 0, 1) })) { const nu = st.units[st.units.length - 1]; if (nu) u._brood.push(nu.uid) } }
-            } else { u.summonCd = sumDef.every || 4; spawn(u.side, sumDef.unit, { free: true, atL: clamp(u.L + u.dir * 0.03, 0, 1) }) }
+              else { u.summonCd = sumDef.every || 4; if (spawn(u.side, sumDef.unit, { free: true, base: true, atL: clamp(u.L + u.dir * 0.03, 0, 1) })) { const nu = st.units[st.units.length - 1]; if (nu) u._brood.push(nu.uid) } }
+            } else { u.summonCd = sumDef.every || 4; spawn(u.side, sumDef.unit, { free: true, base: true, atL: clamp(u.L + u.dir * 0.03, 0, 1) }) }
           }
         }
 

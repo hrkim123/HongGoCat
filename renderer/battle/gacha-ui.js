@@ -758,6 +758,14 @@
     clr.style.cssText = 'padding:9px 12px;font-size:13px;flex:0 0 auto'
     clr.onclick = () => { if (bridges.clearSummons) bridges.clearSummons(); close() }
     arow.appendChild(clr)
+    // 🖥 바탕화면 모드 토글 — 켜면 창을 맨 뒤로(업무 방해 X), 끄면 항상 최상단
+    const dm = !!(bridges.getDesktopMode && bridges.getDesktopMode())
+    const desk = document.createElement('button'); desk.className = 'bg-btn'
+    desk.style.cssText = 'padding:9px 12px;font-size:13px;flex:0 0 auto'
+    const paintDesk = (on) => { desk.textContent = on ? '🖥 바탕화면 모드 ON' : '🖥 바탕화면 모드 OFF'; desk.style.borderColor = on ? '#3f7ce8' : '#2b2f39'; desk.style.color = on ? '#bcd8ff' : '' }
+    paintDesk(dm)
+    desk.onclick = () => { const now = bridges.toggleDesktopMode ? bridges.toggleDesktopMode() : false; paintDesk(!!now) }   // 닫지 않고 상태만 갱신(연속 토글 가능)
+    arow.appendChild(desk)
     wrap.appendChild(arow)
     // 하단 자주 쓰는 기능 행: [땅 복구] [화면 전환] [종료(위험 색)]
     const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:6px;margin-top:6px'
