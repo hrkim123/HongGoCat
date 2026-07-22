@@ -11,7 +11,7 @@
   const DEFAULTS = { baseHp: 300, manaCap: 30, manaRegen: 0.3, baseRange: 0.03, speedScale: 1 }   // 기지 HP 300, 맥스 마나 30(고코스트 결전 유닛 대응), 기본 충전 0.3/s
   const KB_DUR = 0.30, KB_BACK = 0.09, KB_CD = 0.7   // 넉백: 0.30초간 살짝 뒤로(냥코풍 짧은 홉) + 재넉백 최소 간격 0.7s(락 방지)
   // 마나 강화(냥코 일꾼레벨): 마나 지불→이번 판 충전속도↑(판 끝나면 초기화). 기본 0.5/s, 강화 체감 소폭 상향.
-  const MANA_LEVELS = [{ cost: 6, rate: 0.6 }, { cost: 9, rate: 0.9 }, { cost: 12, rate: 1.3 }, { cost: 16, rate: 1.7 }, { cost: 20, rate: 2.2 }]
+  const MANA_LEVELS = [{ cost: 6, rate: 0.7 }, { cost: 9, rate: 1.3 }, { cost: 12, rate: 2.1 }, { cost: 16, rate: 3.1 }]   // 노업 0.3 → 0.7 → 1.3 → 2.1 → 3.1 (4단계)
 
   function statsFor(type) {
     if (U && U.computeUnitStats) { const s = U.computeUnitStats(type); if (s) return s }

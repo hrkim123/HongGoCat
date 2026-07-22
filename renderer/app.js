@@ -124,7 +124,7 @@
     return isOwned(id)
   }
   // 오버레이 단축키 슬롯에 넣을 수 있는 항목: 고정 오버레이 무기 + 스프라이트 소환체 전부(fireWeapon dispatch 기준)
-  const SLOT_FIXED = ['missile', 'shield', 'ant', 'blackhole', 'gatling', 'human', 'lightning', 'net', 'bomber']
+  const SLOT_FIXED = ['missile', 'shield', 'ant', 'blackhole', 'gatling', 'human', 'lightning', 'net', 'bomber', 'broodTitan']
   function slotEligible(id) { return SLOT_FIXED.includes(id) || !!(window.BattleSprites && window.BattleSprites.has && window.BattleSprites.has(id)) }
   const SHIELD_DUR = 10000, SHIELD_CD = 3000      // 10s active, then 3s cooldown
   // A real "shield plate" that floats OUT in front of the cat (not a sector from the center)
@@ -5017,12 +5017,12 @@
       const uatk = (udef && udef.atk) ? udef.atk : { type: 'melee', dmg: (a.sprite ? 5 : 1), range: 0.02, cd: 0.6 }
       const atkType = uatk.type, cdMs = Math.max(200, (uatk.cd || 0.6) * 1000)
       const rangePx = Math.max(22 * view.scale, (uatk.range || 0.02) * W * 0.6)
-      const odmg = Math.max(1, Math.round((uatk.dmg || 1) / 6))   // 오버레이 축약 HP 스케일에 맞춘 데미지
+      const odmg = Math.max(1, Math.round((uatk.dmg || uatk.stompDmg || 1) / 6))   // 오버레이 축약 HP 스케일에 맞춘 데미지(타이탄=스톰프 데미지)
       // 여왕 등 생산 유닛: 적 유무와 무관하게 주기적으로 아군 소환체 생산
       if (udef && udef.summon) { if (!a.prodAt) a.prodAt = now + (udef.summon.every || 5) * 1000; else if (now >= a.prodAt) { a.prodAt = now + (udef.summon.every || 5) * 1000; summonProduce(a, udef.summon.unit) } }
       // 타겟: 적 소환체(원격 ant/gatling/메카/인간) 우선, 없으면 가장 가까운 적 캐릭터.
       // ★ 메카개미·메카인간·인간도 반드시 후보에 포함(예전엔 ant/gatling만 봐서 상대가 메카/인간만 내면 캐릭터로 폴백하던 버그).
-      const isMeleeAtk = (atkType === 'melee')   // 순수 근접만 공중 불가(자폭은 공중도 타격 → 배회 X)
+      const isMeleeAtk = (atkType === 'melee' || atkType === 'titan')   // 순수 근접·타이탄(스톰프)은 지상만(공중 못 침)
       const cands = []
       { const e = nearestEnemyAnt(a.x); if (e) cands.push({ x: e.s.x, y: e.s.y, kind: 'rant', pid: e.pid, id: e.s.id, fly: false }) }
       { const e = nearestEnemyGatling(a.x); if (e) cands.push({ x: e.x, y: e.y, kind: 'gat', pid: e.pid, fly: false }) }
@@ -5041,7 +5041,7 @@
       } else if (tgt) {
         a.dir = tgt.x >= a.x ? 1 : -1
         const dist = Math.abs(tgt.x - a.x)
-        const isMelee = (atkType === 'melee' || atkType === 'suicide')
+        const isMelee = (atkType === 'melee' || atkType === 'suicide' || atkType === 'titan')   // 타이탄=스톰프(근접 접촉)
         if (isMelee) {                          // 근접/자폭: 접촉 사거리에서
           if (dist <= Math.max(22 * view.scale, rangePx) && Math.abs((tgt.y != null ? tgt.y : a.y) - a.y) <= 46 * view.scale) {
             moving = false; acting = true
@@ -5284,6 +5284,7 @@
     }
   }
   function drawAnt(a, now, fighting, color) {
+    if (a.sprite === 'broodTitan') return drawBroodTitan(a.x, a.y, view.scale * 0.85, a.dir >= 0 ? 1 : -1, now)   // 거대 타이탄(오버레이도 커스텀 렌더)
     if (a.sprite && window.BattleSprites && window.BattleSprites.has(a.sprite)) return drawSpriteAnt(a, now, fighting)
     const s = view.scale * ANT_DRAW, dir = a.dir || 1
     const body = color || '#5b5b66', leg = 'rgba(18,16,24,0.9)'   // body = owner color, dark legs
