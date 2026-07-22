@@ -4074,7 +4074,7 @@
       else if (e.type === 'baseshieldbreak') {   // 방어 돔 파괴 → 파열 연출(넉백은 sim이 로컬 유닛에 적용)
         const bx = battleLaneX(e.side), by = battleDeskY()
         addEffect(bx, by - 34 * view.scale, 4); for (let k = 0; k < 18; k++) spawnSpark(bx + (Math.random() - 0.5) * 150 * view.scale, by - Math.random() * 60 * view.scale)
-        if (e.side === 0) showToast('🛡 방어 돔 파괴 — 근처 적 넉백!')
+        if (e.side === 0) showToast('🛡 방어 돔 폭발 — 근처 적 넉백!')
         if (battleMulti && e.side === 0 && connected()) for (const g of battleGhosts) { if (g.hp > 0 && g.L < 0.5) net.send(JSON.stringify({ t: 'bghit', to: battleMulti.oppId, uid: g.uid, dmg: 0, slow: 0, slowDur: 0, kb: 1 })) }   // 멀티: 근처 고스트 넉백 릴레이(베스트에포트)
       }
     }
@@ -4115,7 +4115,27 @@
     const hp = battle.state.baseShield[side], until = battle.state.baseShieldUntil[side]
     if (!(hp > 0 && until > battle.state.t)) return
     const x = battleLaneX(side), cy = battleDeskY()
-    drawHexDome(x, cy, 108 * view.scale, Math.max(0, hp / BATTLE_SHIELD_HP), now, true)
+    const r = (CELL_W / 2) * view.scale * 1.3   // ★ 고양이만이 아니라 책상 전체(CELL_W)를 덮는 반구
+    const hp01 = Math.max(0, hp / BATTLE_SHIELD_HP)
+    drawHexDome(x, cy, r, hp01, now, true)
+    // HP 저하 연출: 낮을수록 균열 증가(체력에 따른 연출)
+    if (hp01 < 0.7) {
+      const cracks = hp01 < 0.35 ? 5 : hp01 < 0.55 ? 3 : 2
+      ctx.save(); ctx.beginPath(); ctx.arc(x, cy, r * 0.99, Math.PI, 2 * Math.PI); ctx.closePath(); ctx.clip()
+      ctx.strokeStyle = `rgba(255,${Math.round(90 + 90 * hp01)},${Math.round(70 * hp01)},${0.55 + 0.3 * (1 - hp01)})`; ctx.lineWidth = 1.4 * view.scale; ctx.lineJoin = 'round'
+      for (let c = 0; c < cracks; c++) {
+        const ang = Math.PI + (0.12 + (c + 0.5) / cracks * 0.76) * Math.PI   // 윗 반구 범위
+        let px = x + Math.cos(ang) * r * 0.12, py = cy + Math.sin(ang) * r * 0.12
+        ctx.beginPath(); ctx.moveTo(px, py)
+        for (let k = 1; k <= 4; k++) {
+          const rr = r * (0.12 + 0.86 * k / 4), aa = ang + Math.sin(c * 3.1 + k * 1.7) * 0.18
+          px = x + Math.cos(aa) * rr; py = Math.min(cy, cy + Math.sin(aa) * rr)
+          ctx.lineTo(px, py)
+        }
+        ctx.stroke()
+      }
+      ctx.restore()
+    }
   }
   function drawBattleUnits(now) {
     if (!battle || !window.BattleSprites) return

@@ -128,6 +128,10 @@
     function step(dt) {
       if (st.winner != null) return
       st.t += dt
+      // 방어 돔: 깨지든 시간이 다 되든 "마지막엔 팡" — 시간 만료도 파열 이벤트 + 넉백으로 처리.
+      for (let s = 0; s < 2; s++) {
+        if (st.baseShield[s] > 0 && st.baseShieldUntil[s] <= st.t) { st.baseShield[s] = 0; st.baseShieldUntil[s] = 0; st.events.push({ type: 'baseshieldbreak', side: s }); baseShieldBreakKnockback(s) }
+      }
       // 마나 (기본 회복 + 일개미(워커) 버프: 살아있는 워커 1마리당 +manaBuff/s)
       st.manaBuff = [0, 0]
       for (const u of st.units) { if (u.hp <= 0) continue; const mb = D.UNITS[u.type] && D.UNITS[u.type].manaBuff; if (mb) st.manaBuff[u.side] += mb }

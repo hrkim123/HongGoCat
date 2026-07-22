@@ -79,11 +79,23 @@
       `<rect x="20" y="30" width="12" height="3.4" rx="1.2"/>` +
       `</g>` +
       `<circle cx="26.5" cy="24.5" r="3.2" fill="#8a90a0" stroke="#454b59" stroke-width="0.8"/>`,
+    // 폭격: 하늘에서 떨어지는 폭탄 2발 + 낙하 궤적 + 바닥 착탄 화염
+    bomber: () =>
+      `<path d="M13 6 L15.5 15 M22 4 L20 13 M31 10 L31.5 21" stroke="rgba(255,180,90,.55)" stroke-width="1.5" stroke-linecap="round" fill="none"/>` +
+      `<g stroke="#3a3d24" stroke-width="0.8">` +
+      `<ellipse cx="18" cy="29" rx="5" ry="7" fill="#6b7043"/>` +
+      `<rect x="15.6" y="18" width="4.8" height="7" rx="1.5" fill="#565b34"/>` +
+      `<path d="M16 17 L12.5 12.5 L16 19 Z" fill="#4a4e2c"/><path d="M20 17 L23.5 12.5 L20 19 Z" fill="#4a4e2c"/>` +
+      `<ellipse cx="32" cy="35" rx="4" ry="5.6" fill="#6b7043"/>` +
+      `<rect x="30" y="26.5" width="4" height="5.6" rx="1.2" fill="#565b34"/>` +
+      `</g>` +
+      `<path d="M15 44 Q18 36 21 44 Q24 37 27 44 Q30 38 33 44 Z" fill="#ff7d3a"/>` +
+      `<path d="M18 44 Q20 39 22 44 Q25 40 28 44 Z" fill="#ffd27a"/>`,
   }
 
   const EMOJI = { ant: '🐜', rifleman: '🐜', grenadier: '🐜', shielder: '🛡', mechaAnt: '🤖', mechaHuman: '🦾',
     missile: '🚀', gatling: '🔫', shield: '🛡', net: '🕸️', human: '🕺', lightning: '⚡', adogen: '🔵', blackhole: '🕳',
-    scout: '🐜', kamikaze: '💣', medic: '🩹', drone: '🐝', freezer: '❄️', worker: '🐜', commander: '🚩', sniper: '🎯', boss: '👑' }
+    scout: '🐜', kamikaze: '💣', medic: '🩹', drone: '🐝', freezer: '❄️', worker: '🐜', commander: '🚩', sniper: '🎯', boss: '👑', bomber: '💥' }
 
   // 실제 배틀 스프라이트가 있는 유닛은 그 리소스를 렌더해 아이콘으로(이족보행 등 실제 모습 일치)
   function spriteImg(id, px) {
