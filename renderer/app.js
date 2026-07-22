@@ -3505,7 +3505,7 @@
   const summonProj = []        // 오버레이 소환체(원거리/광역)가 쏘는 투사체 — 적 소환체/캐릭터에 명중
   const bombs = [], bombQueue = [], fireZones = []   // 💣 폭격 무기: 낙하 폭탄 / 예약 투하 / 착탄 불장판(DoT)
   let bomberPlane = null   // ✈️ 폭격기(화면을 지나가며 폭탄 투하하는 연출)
-  const BOMB_N = 5, BOMB_DROP_MS = 150, BOMB_DMG = 14, FIRE_SEC = 5, FIRE_TICK_MS = 450, FIRE_DMG = 3   // 5발·순차·착탄14+넉백·5초 불장판 3/틱
+  const BOMB_N = 5, BOMB_DROP_MS = 150, BOMB_DMG = 20, FIRE_SEC = 5, FIRE_TICK_MS = 450, FIRE_DMG = 5   // 5발·순차·착탄20+넉백·5초 불장판 5/틱(상향: 14→20, 3→5)
   const remoteAnts = new Map() // peerId -> { list:[{id,x,y,hp,dead}], ts }  (x,y relative to peer cat)
   const ANT_HP = 1
   const ANT_DRAW = 2   // ant visual size multiplier (on top of view.scale)
