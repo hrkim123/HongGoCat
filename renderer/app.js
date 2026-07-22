@@ -3854,10 +3854,7 @@
     } else {
       for (const u of battle.state.units) { if (u.side !== 1 || u.hp <= 0 || cannonSweep.hit.has(u.uid)) continue; if (u.L <= frontL) { cannonSweep.hit.add(u.uid); battle.hitUnit(u.uid, CANNON_DMG, 0, 0, true) } }
     }
-    if (frontL >= 1 && !cannonSweep.basedone) {   // 상대 진영 도달 → 기지 소량 데미지
-      cannonSweep.basedone = true
-      if (battleMulti) { if (connected()) net.send(JSON.stringify({ t: 'bbhit', to: battleMulti.oppId, dmg: CANNON_BASE_DMG })) } else battle.hitBase(1, CANNON_BASE_DMG)
-    }
+    // ★ 무기는 기지(진영)에 데미지 X — 베이스 캐논도 무기라 스윕 유닛 데미지·넉백만, 기지 타격은 없음.
     if (el > CANNON_SWEEP_SEC + 0.1) cannonSweep = null
   }
   // 기지 터렛 기본 공격: 근접한 적에게 포물선 포탄(메카 포탄 궤도) 발사
@@ -4424,7 +4421,7 @@
     else fireHoming()
   }
   // 지정한 side(foeSide)의 유닛/기지에만 데미지. 투사체 소유 side에 따라 상대만 맞게(양측 유닛 무기 재사용 일관).
-  function battleHitSide(x, y, dmg, radius, foeSide) {
+  function battleHitSide(x, y, dmg, radius, foeSide, noBase) {
     if (!battleActive || !battle || battlePhase !== 'playing') return false
     const m = (radius || 0) + 4 * view.scale   // 폭발 반경 등은 몸통 박스를 확장하는 margin으로 처리
     let hit = false
@@ -4438,7 +4435,7 @@
         }
       }
       const bx1 = battleLaneX(1)
-      if (Math.abs(x - bx1) <= m + 26 * view.scale && y > antGroundY(bx1) - 104 * view.scale) { if (connected()) net.send(JSON.stringify({ t: 'bbhit', to: battleMulti.oppId, dmg })); hit = true }
+      if (!noBase && Math.abs(x - bx1) <= m + 26 * view.scale && y > antGroundY(bx1) - 104 * view.scale) { if (connected()) net.send(JSON.stringify({ t: 'bbhit', to: battleMulti.oppId, dmg })); hit = true }
       return hit
     }
     for (const u of battle.state.units) {
@@ -4448,11 +4445,11 @@
       if (inUnitBody(x, y, ux, feetY, u.type, def.size, m)) { battle.hitUnit(u.uid, dmg); hit = true }
     }
     const bx = battleLaneX(foeSide)   // 그 side의 기지
-    if (Math.abs(x - bx) <= m + 26 * view.scale && y > antGroundY(bx) - 104 * view.scale) { battle.hitBase(foeSide, dmg); hit = true }
+    if (!noBase && Math.abs(x - bx) <= m + 26 * view.scale && y > antGroundY(bx) - 104 * view.scale) { battle.hitBase(foeSide, dmg); hit = true }
     return hit
   }
-  // 플레이어 오버레이 무기(미사일 등)는 항상 적(side1) 타격.
-  function battleHitAt(x, y, dmg, radius) { return battleHitSide(x, y, dmg, radius, 1) }
+  // 플레이어 오버레이 무기(미사일 등)는 항상 적(side1) 타격. ★ 무기는 소환체·구조물만 공격 — 기지(진영)엔 데미지 X(noBase).
+  function battleHitAt(x, y, dmg, radius) { return battleHitSide(x, y, dmg, radius, 1, true) }
   // 배틀에서 재사용하는 오버레이 유닛 투사체(메카 포탄/에너지/아도겐 등)의 충돌 — 상대 side + 빗나가면 땅파임.
   // 투사체에 p.bfoe(맞을 side)·p.bdmg(데미지)를 태그해두고 각 스텝 최상단에서 호출. 명중/땅닿음이면 true.
   function battleProjCollide(p, R, dig) {
