@@ -3651,6 +3651,7 @@
   const battleNetHeldUids = new Set()   // 배틀 그물이 붙잡은 상대 고스트 uid(들고 있는 동안 bunits 재갱신에서 제외)
   const BATTLE_NET_COST_CAP = 5         // 그물 1회 포획 최대 소환체 코스트 합
   let unitReadyAt = {}   // 유닛별 재출격 쿨다운(냥코풍): 소환 후 일정 시간 재소환 불가
+  let weaponCdUntil = {}   // 무기별 쿨다운(마나와 별개): battleCd 초. 저코스트 무기 연타 방지
   let battleUnitOrder = []   // 배틀-로컬 소환체 순서(앞 5 활성 + 뒤 5 벤치). 벤치 탭 → 같은 열 앞뒤 스왑(판 중 전략 교체)
   function redeployCd(id) { const u = window.BattleData.UNITS[id]; return 1500 + (u ? (u.cost || 1) : 1) * 900 }   // 코스트 비례(ms): 개미 2.4s ~ 여왕 10.5s
   // 베이스 캐논(냥코): 시간에 따라 충전, 만충 시 발사 → 내 진영→상대 진영 연쇄 폭발(전원 데미지+넉백). 덱 HUD와 별도 UI.
@@ -3712,7 +3713,7 @@
     littleBoys.length = 0; debris.length = 0; bloodStains.length = 0   // 낙하 폭탄·잔해도 정리
     battle = window.BattleSim.newBattle({ speedScale: 0.38 })   // 냥코풍 느린 행군(전략성). 0.44 → 0.38
     battleAtkAt = {}; battleShieldFlash = {}; battleHealFx = []; battleFalls = []; battleDead = []; bproj.length = 0
-    battleGhosts = []; battleGhostBase = battle.state.baseHpMax; bunitsLastSend = 0; unitReadyAt = {}; remoteBattleShots.length = 0
+    battleGhosts = []; battleGhostBase = battle.state.baseHpMax; bunitsLastSend = 0; unitReadyAt = {}; weaponCdUntil = {}; remoteBattleShots.length = 0
     { const dk = (window.BattleGacha && window.BattleGacha.getDeck) ? window.BattleGacha.getDeck() : { units: [] }; battleUnitOrder = (dk.units || []).slice(0, 10) }   // 배틀-로컬 순서(스왑용)
     battleCannon = { charge: 0 }; cannonSweep = null; battleTurretCd = [0, 0]; battleTurretAim = [0, 0]; battleTurretFire = [0, 0]; battleTurretTgtL = [null, null]; buildCannonUI()
     battleResultAt = 0; battleLastT = performance.now(); battleActive = true
@@ -4074,7 +4075,7 @@
       if (cdEl) { if (onCd) { cdEl.style.display = 'flex'; cdEl.textContent = (cdLeft / 1000).toFixed(1) } else cdEl.style.display = 'none' }
       b.style.opacity = onCd ? '1' : ((u && mana >= (u.cost || 1)) ? '1' : '0.4')   // 쿨 중엔 오버레이로 표시(딤은 마나부족만)
     })
-    battleHud.querySelectorAll('.bhweaps [data-wid]').forEach((b) => { const w = window.BattleData.WEAPONS[b.dataset.wid]; b.style.opacity = (w && mana >= (w.mana != null ? w.mana : 2)) ? '1' : '0.4' })
+    { const nowH = performance.now(); battleHud.querySelectorAll('.bhweaps [data-wid]').forEach((b) => { const w = window.BattleData.WEAPONS[b.dataset.wid]; const onCd = nowH < (weaponCdUntil[b.dataset.wid] || 0); const ok = w && mana >= (w.mana != null ? w.mana : 2) && !onCd; b.style.opacity = ok ? '1' : '0.4'; let cdEl = b.querySelector('.bhwcd'); if (onCd) { if (!cdEl) { cdEl = document.createElement('div'); cdEl.className = 'bhwcd'; cdEl.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;background:rgba(10,14,20,.55);border-radius:9px;pointer-events:none'; b.style.position = 'relative'; b.appendChild(cdEl) } cdEl.textContent = Math.ceil((weaponCdUntil[b.dataset.wid] - nowH) / 1000) } else if (cdEl) cdEl.remove() }) }
   }
   function stepBattle(now) {
     let dt = (now - (battleLastT || now)) / 1000; battleLastT = now; if (dt > 0.1) dt = 0.1
@@ -4480,7 +4481,9 @@
     if (battlePhase !== 'playing') { showToast('전투 시작 후 사용'); return }
     const cost = w.mana != null ? w.mana : 2
     if (battle.state.mana[0] < cost) { showToast(`마나 부족 (${cost} 필요)`); return }
-    battle.state.mana[0] -= cost; updateBattleHud()
+    const nowW = performance.now()
+    if (nowW < (weaponCdUntil[id] || 0)) { showToast(`${w.name} 쿨타임 ${((weaponCdUntil[id] - nowW) / 1000).toFixed(1)}초`); return }   // 무기 쿨다운(마나와 별개)
+    battle.state.mana[0] -= cost; if (w.battleCd) weaponCdUntil[id] = nowW + w.battleCd * 1000; updateBattleHud()
     // 오버레이 무기 그대로 — 미사일: 캐릭터에서 발사 → 커서 추적 → 합체 → 10합체 핵 → 상대 핵과 만나면 리틀보이
     if (id === 'missile') fireHoming()
     else if (id === 'gatling') deployBattleGatling()   // 배틀: 진영 앞 고정 배치 + 자동 조준 + 구조물화

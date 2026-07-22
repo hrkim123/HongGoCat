@@ -62,9 +62,10 @@
       art: 'mecha', size: 1.6, // 기존 메카 아트·포물선 대포 재사용
     },
     mechaHuman: {
-      name: '메카 인간폼', cat: 'unit', rarity: 'legend', cost: 7, hp: 120,
+      name: '메카 인간폼', cat: 'unit', rarity: 'legend', cost: 9, hp: 120,
       speed: 0.12, atk: { type: 'proj', dmg: 15, range: 0.20, cd: 1.05, charge: 1.0 }, kb: 1, // 에너지포 = 1초 충전 후 최대 빔(오버레이 ECANNON_MS 동일). ≈14dps (사거리 0.28→0.20)
-      battleShield: { absorb: 20, cooldown: 6 },
+      battleShield: { absorb: 16, cooldown: 6 }, // 공중 면역이 이미 큰 생존기 → 실드 20→16(코스트 7→9 상향과 함께 밸런스). 여왕(10) 근처의 결전급으로 재조정
+
       art: 'human', size: 1.7, flying: true, // 공중 타입(구멍 무시). 기존 건담폼 아트·에너지포 재사용
     },
     human: {
@@ -118,13 +119,13 @@
   // ── 무기 (cat:'weapon') — 가챠로 획득. 오버레이(재미용)에서도 사용. battle:true = 배틀 덱 가능.
   // 획득은 가챠로 전환(카운트 구매 폐지). starter는 기본 지급. rarity는 docs/battle-mode.md 표.
   const WEAPONS = {
-    missile:   { name: '미사일', cat: 'weapon', rarity: 'common',   starter: true, battle: true, mana: 0.5, merge: true }, // 합체 유지
-    shield:    { name: '쉴드',   cat: 'weapon', rarity: 'common', battle: true, mana: 5 },   // 배틀: 기지 방어 돔(HP30·10초, 깨지면 근처 적 넉백)
-    net:       { name: '그물',   cat: 'weapon', rarity: 'uncommon', battle: true, mana: 6 },   // 배틀: 적 소환체를 최대 5코스트까지 포획, 쌔게 던지면 사망
-    gatling:   { name: '게틀링건', cat: 'weapon', rarity: 'uncommon', battle: true, mana: 7, place: 'base-fixed', aim: 'cursor' },
-    lightning: { name: '낙뢰',   cat: 'weapon', rarity: 'rare' },
-    blackhole: { name: '블랙홀', cat: 'weapon', rarity: 'legend', battle: true }, // 배틀: 1게임 1회
-    bomber:    { name: '폭격',   cat: 'weapon', rarity: 'legend', battle: true, mana: 9 },   // 배틀: 커서 X부터 오른쪽 30% 범위 5발 순차 투하, 착탄=땅파임+양측 데미지·넉백+5초 불장판(DoT)
+    missile:   { name: '미사일', cat: 'weapon', rarity: 'common',   starter: true, battle: true, mana: 0.5, merge: true, battleCd: 0.6 }, // 합체 유지(쿨 짧게)
+    shield:    { name: '쉴드',   cat: 'weapon', rarity: 'common', battle: true, mana: 5, battleCd: 12 },   // 배틀: 기지 방어 돔(HP30·10초, 깨지면 근처 적 넉백). 10초 지속 → 재시전 쿨 12
+    net:       { name: '그물',   cat: 'weapon', rarity: 'uncommon', battle: true, mana: 6, battleCd: 6 },   // 배틀: 적 소환체를 최대 5코스트까지 포획, 쌔게 던지면 사망
+    gatling:   { name: '게틀링건', cat: 'weapon', rarity: 'uncommon', battle: true, mana: 7, place: 'base-fixed', aim: 'cursor', battleCd: 12 },   // 구조물 배치 → 연속 배치 방지
+    lightning: { name: '낙뢰',   cat: 'weapon', rarity: 'rare', battleCd: 4 },
+    blackhole: { name: '블랙홀', cat: 'weapon', rarity: 'legend', battle: true }, // 배틀: 1게임 1회(자체 제한)
+    bomber:    { name: '폭격',   cat: 'weapon', rarity: 'legend', battle: true, mana: 9, battleCd: 8 },   // 배틀: 커서 X부터 오른쪽 30% 범위 5발 순차 투하, 착탄=땅파임+양측 데미지·넉백+5초 불장판(DoT)
     // (인간은 유닛으로 이동, 아도겐은 인간의 기본 기능으로 편입 — 무기 목록에서 제외)
   }
 
