@@ -501,6 +501,13 @@
   // Compares the last-seen version (localStorage) to the current app version; lists every changelog
   // entry between them (first run just shows the current version). Add newest versions at the TOP.
   const CHANGELOG = {
+    '1.0.11': [
+      '멀티 배틀: 상대 소환체가 쏘는 투사체가 이제 내 화면에도 보여요(메카·인간 포함 전부)',
+      '멀티 배틀: 소환체가 반대로 걷던 방향 버그 수정',
+      '자폭(폭탄 개미)이 공중 유닛도 타격하도록 변경',
+      '무기 쿨타임 추가 — 폭격 20초·쉴드 10초·게틀링 10초(그 외는 마나만)',
+      '메카 인간폼 코스트 7→9로 상향(성능 대비 밸런스)',
+    ],
     '1.0.10': [
       '멀티 배틀: 소환체가 상대를 못 맞히고 땅으로 쏘던 치명적 버그 수정 — 이제 서로 제대로 교전해요',
       '카미카제(자폭)가 멀티에서 공중 유닛을 때리던 불일치 수정(솔로와 동일)',
@@ -4558,19 +4565,20 @@
         const T = Math.max(28, Math.min(82, Math.abs(tx - sh.x) / (6 * view.scale)))   // 비행 프레임(멀수록 길게 = 더 높은 포물선)
         sh.vx = (tx - sh.x) / T
         sh.vy = (ty - sh.y - 0.5 * a * T * T) / T   // T프레임 뒤 (tx,ty)에 착탄하는 포물선(적 위치 반영)
+        if (battleMulti && connected()) relayShot('shell', sh.x, sh.y, sh.vx * 60, sh.vy * 60, a * 3600)   // 프레임→초 변환 시각 릴레이
       }
       me.mechaX = sv.x; me.mechaY = sv.y; me.mechaCharge = sv.cg; me.mechaFace = sv.f
     } else if (which === 'energy') {   // 메카인간폼 = 기존 에너지포(fireEnergyCannon)
       const sv = { x: me.mechaX, y: me.mechaY, cg: me.mechaCharge, f: me.mechaFace }
       me.mechaX = laneX; me.mechaY = antGroundY(laneX) - 30 * view.scale; me.mechaCharge = 1
       const before = energyShots.length; fireEnergyCannon(now)
-      for (let k = before; k < energyShots.length; k++) { energyShots[k].bfoe = foe; energyShots[k].bdmg = dmg }
+      for (let k = before; k < energyShots.length; k++) { const p = energyShots[k]; p.bfoe = foe; p.bdmg = dmg; if (battleMulti && connected()) relayShot('energy', p.x, p.y, p.vx * 60, p.vy * 60, 0) }
       me.mechaX = sv.x; me.mechaY = sv.y; me.mechaCharge = sv.cg; me.mechaFace = sv.f
     } else {   // 인간 = 기존 아도겐(fireAdogen)
       const sv = { x: me.humanX, y: me.humanY, f: me.humanFace }
       me.humanX = laneX; me.humanY = antGroundY(laneX)
       const before = hbullets.length; fireAdogen(now, 0.6)
-      for (let k = before; k < hbullets.length; k++) { hbullets[k].bfoe = foe; hbullets[k].bdmg = dmg }
+      for (let k = before; k < hbullets.length; k++) { const p = hbullets[k]; p.bfoe = foe; p.bdmg = dmg; if (battleMulti && connected()) relayShot('adogen', p.x, p.y, p.vx * 60, p.vy * 60, 0) }
       me.humanX = sv.x; me.humanY = sv.y; me.humanFace = sv.f
     }
     cursor.x = cxs; cursor.y = cys
@@ -4620,11 +4628,13 @@
     // 멀티: 상대 화면에도 이 투사체가 "보이도록" 시각 릴레이(데미지는 bghit로 별도, 여긴 순수 연출).
     if (battleMulti && connected()) { const gy = (kind === 'grenade') ? 900 * view.scale : 0; for (let k = before; k < bproj.length; k++) relayBattleShot(bproj[k], kind, gy) }
   }
-  // 배틀 투사체 시각 릴레이: 공용 절대 프레임(battleLaneX 산출) 화면분율로 전송 → 수신측이 자기 화면에 재현(연출용).
-  function relayBattleShot(p, kind, ayAbs) {
+  // 배틀 투사체 시각 릴레이: 공용 절대 프레임(battleLaneX 산출) 화면분율 + 초당 속도로 전송 → 수신측이 자기 화면에 재현(연출용).
+  // vx/vy·ayAbs는 반드시 "초 단위"(px/s, px/s²)로 넘길 것. 프레임 기준 투사체(메카/에너지/아도겐)는 호출부에서 ×60 변환.
+  function relayShot(kind, x, y, vx, vy, ayAbs) {
     const W = canvas.clientWidth, H = canvas.clientHeight
-    net.send(JSON.stringify({ t: 'bshot', to: battleMulti.oppId, k: kind, x: +(p.x / W).toFixed(4), y: +(p.y / H).toFixed(4), vx: +(p.vx / W).toFixed(5), vy: +(p.vy / H).toFixed(5), ay: +((ayAbs || 0) / H).toFixed(6), life: p.life || 1500 }))
+    net.send(JSON.stringify({ t: 'bshot', to: battleMulti.oppId, k: kind, x: +(x / W).toFixed(4), y: +(y / H).toFixed(4), vx: +(vx / W).toFixed(5), vy: +(vy / H).toFixed(5), ay: +((ayAbs || 0) / H).toFixed(6), life: PROJ_LIFE[kind] || 2000 }))
   }
+  function relayBattleShot(p, kind, ayAbs) { relayShot(kind, p.x, p.y, p.vx, p.vy, ayAbs) }   // bproj = 이미 초 단위
   // 터렛 포탄 폭발 — 메카 스파크와 다른 연출: 큰 폭발 + 주황 파편 샤워
   function turretBoom(x, y) {
     addEffect(x, y, 3)
