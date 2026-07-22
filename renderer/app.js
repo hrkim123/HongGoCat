@@ -3723,7 +3723,7 @@
     if (sprite === 'mechaAnt') return { halfW: 27 * view.scale, top: 92 * view.scale }     // 자체 메카 아트(×0.7 축소 반영)
     if (sprite === 'mechaHuman') return { halfW: 30 * view.scale, top: 104 * view.scale }
     if (sprite === 'human') return { halfW: 18 * view.scale, top: 78 * view.scale }
-    if (sprite === 'broodTitan') return { halfW: 62 * view.scale, top: 128 * view.scale }   // 거대 요새
+    if (sprite === 'broodTitan') return { halfW: 93 * view.scale, top: 192 * view.scale }   // 거대 요새
     if (sprite === 'moundwall') return { halfW: 46 * view.scale, top: 40 * view.scale }      // 잔해 벽(낮고 넓음)
     const b = UNIT_HB_LOCAL[sprite] || UNIT_HB_LOCAL._default
     const s = view.scale * BATTLE_UNIT_SCALE * sz
@@ -4359,7 +4359,7 @@
         drawOverlayMechaAt(x, y, 0.46 * (def.size || 1.7), facing, 1, now, { walking: false, lean: u._lean, shHp01: sh01, charge })
       }
       else if (u.type === 'human') drawOverlayHumanAt(x, y, 0.80 * (def.size || 1.3), facing, now)
-      else if (u.type === 'broodTitan') { if (u._lastHp != null && u.hp < u._lastHp) u._hitAt = now; u._lastHp = u.hp; const hitT = (u._hitAt && now - u._hitAt < 160) ? (now - u._hitAt) : -1; drawBroodTitan(x, y + 5 * view.scale, view.scale * 1.15, facing, now, { walking: !atk && !knocked, atkT: atk ? (now - battleAtkAt[u.uid]) : -1, knocked, hitT }) }
+      else if (u.type === 'broodTitan') { if (u._lastHp != null && u.hp < u._lastHp) u._hitAt = now; u._lastHp = u.hp; const hitT = (u._hitAt && now - u._hitAt < 160) ? (now - u._hitAt) : -1; drawBroodTitan(x, y + 5 * view.scale, view.scale * 1.725, facing, now, { walking: !atk && !knocked, atkT: atk ? (now - battleAtkAt[u.uid]) : -1, knocked, hitT }) }
       else window.BattleSprites.draw(ctx, u.type, { x, y: y + 5 * view.scale, scale: s, facing, state: atk ? 'attack' : 'walk', t: u.uid * 0.37 + now / 1000, flash: atk })   // +5: 발이 표면에 닿게
       const isMecha = u.type === 'mechaAnt' || u.type === 'mechaHuman'
       // 원거리 공격 순간 총구/포구 섬광(재사용 아트 위에 얹어 "발사"가 보이게)
@@ -4405,7 +4405,7 @@
       if (g.type === 'mechaAnt') drawOverlayMechaAt(gx, gy, 0.43 * (gdef.size || 1.6), gFacing, 0, now, { walking: true, shHp01: g.shHp > 0 ? 1 : null })
       else if (g.type === 'mechaHuman') drawOverlayMechaAt(gx, gy, 0.46 * (gdef.size || 1.7), gFacing, 1, now, { walking: false, shHp01: g.shHp > 0 ? 1 : null })
       else if (g.type === 'human') drawOverlayHumanAt(gx, gy, 0.80 * (gdef.size || 1.3), gFacing, now)
-      else if (g.type === 'broodTitan') { if (g._lastHp != null && g.hp < g._lastHp) g._hitAt = now; g._lastHp = g.hp; const ghT = (g._hitAt && now - g._hitAt < 160) ? (now - g._hitAt) : -1; drawBroodTitan(gx, gy + 5 * view.scale, view.scale * 1.15, gFacing, now, { walking: !g.frozen, atkT: -1, knocked: false, hitT: ghT }) }
+      else if (g.type === 'broodTitan') { if (g._lastHp != null && g.hp < g._lastHp) g._hitAt = now; g._lastHp = g.hp; const ghT = (g._hitAt && now - g._hitAt < 160) ? (now - g._hitAt) : -1; drawBroodTitan(gx, gy + 5 * view.scale, view.scale * 1.725, gFacing, now, { walking: !g.frozen, atkT: -1, knocked: false, hitT: ghT }) }
       else window.BattleSprites.draw(ctx, g.type, { x: gx, y: gy + 5 * view.scale, scale: gs, facing: gFacing, state: 'walk', t: g.uid * 0.31 + now / 1000 })   // +5: 발이 표면에 닿게
       if (g.shHp > 0 && !(g.type === 'mechaAnt' || g.type === 'mechaHuman')) drawBattleShield(gx, gy, gs, { uid: 'g' + g.uid, shHp: 1, shMax: 1 }, now)
       if (g.frozen || g.slowed) { const hb = unitHitboxScreen(g.type, gdef.size); ctx.save(); ctx.globalAlpha = g.frozen ? 0.5 : 0.24; ctx.fillStyle = g.frozen ? 'rgba(170,225,255,1)' : 'rgba(140,200,255,1)'; ctx.beginPath(); ctx.roundRect(gx - hb.halfW, gy - hb.top, hb.halfW * 2, hb.top + 4 * view.scale, 6 * view.scale); ctx.fill(); ctx.restore() }
@@ -4417,13 +4417,13 @@
       const a = 1 - (now - h.born) / 650
       for (const L of [h.medL, h.healL]) { const hx = battleLaneX(L), hy = antGroundY(hx) - 46 * view.scale - (1 - a) * 10 * view.scale; ctx.save(); ctx.globalAlpha = Math.max(0, a); ctx.fillStyle = '#3ad06a'; const r = 5 * view.scale; ctx.fillRect(hx - r / 3, hy - r, r * 0.66, r * 2); ctx.fillRect(hx - r, hy - r / 3, r * 2, r * 0.66); ctx.restore() }
     }
-    for (const d of battleDead) { const p = Math.min(1, (now - d.born) / 900); const dx = battleLaneX(d.L); if (d.id === 'broodTitan') drawBroodTitan(dx, antGroundY(dx), view.scale * 1.15, d.side === 0 ? 1 : -1, now, { walking: false, atkT: -1, deathT: p }); else window.BattleSprites.draw(ctx, d.id, { x: dx, y: antGroundY(dx), scale: view.scale * BATTLE_UNIT_SCALE, facing: d.side === 0 ? 1 : -1, state: 'death', t: 0, deathT: p }) }
+    for (const d of battleDead) { const p = Math.min(1, (now - d.born) / 900); const dx = battleLaneX(d.L); if (d.id === 'broodTitan') drawBroodTitan(dx, antGroundY(dx), view.scale * 1.725, d.side === 0 ? 1 : -1, now, { walking: false, atkT: -1, deathT: p }); else window.BattleSprites.draw(ctx, d.id, { x: dx, y: antGroundY(dx), scale: view.scale * BATTLE_UNIT_SCALE, facing: d.side === 0 ? 1 : -1, state: 'death', t: 0, deathT: p }) }
     for (const f of battleFalls) {
       const fx = battleLaneX(f.L), sz = view.scale * BATTLE_UNIT_SCALE * (window.BattleData.UNITS[f.id] ? (window.BattleData.UNITS[f.id].size || 1) : 1)
       const base = f.air ? battleUnitFeetY(fx, true) : antGroundY(fx), fy = base + (f._y || 0)
       ctx.save(); ctx.globalAlpha = Math.max(0, 1 - (f._y || 0) / (canvas.clientHeight * 0.8))
       if (f.air) { ctx.translate(fx, fy - 18 * sz / (BATTLE_UNIT_SCALE)); ctx.rotate(f.rot || 0); ctx.translate(-fx, -(fy - 18 * sz / (BATTLE_UNIT_SCALE))) }   // 격추: 회전하며 추락
-      if (f.id === 'broodTitan') drawBroodTitan(fx, fy, view.scale * 1.15, f.side === 0 ? 1 : -1, now, { walking: false, atkT: -1 })
+      if (f.id === 'broodTitan') drawBroodTitan(fx, fy, view.scale * 1.725, f.side === 0 ? 1 : -1, now, { walking: false, atkT: -1 })
       else window.BattleSprites.draw(ctx, f.id, { x: fx, y: fy, scale: sz, facing: f.side === 0 ? 1 : -1, state: f.air ? 'death' : 'walk', t: now / 1000, deathT: f.air ? Math.min(1, (now - f.born) / 500) : 0 })
       ctx.restore()
     }   // 구멍 낙하 / 공중 격추(회전 추락)
@@ -5326,7 +5326,7 @@
     }
   }
   function drawAnt(a, now, fighting, color) {
-    if (a.sprite === 'broodTitan') return drawBroodTitan(a.x, a.y + 5 * view.scale, view.scale * 0.85, a.dir >= 0 ? 1 : -1, now, { walking: !fighting, atkT: (a.atkFlash && now < a.atkFlash) ? (220 - (a.atkFlash - now)) : -1 })   // 거대 타이탄(오버레이도 커스텀 렌더+애니, +5 발 보정)
+    if (a.sprite === 'broodTitan') return drawBroodTitan(a.x, a.y + 5 * view.scale, view.scale * 1.275, a.dir >= 0 ? 1 : -1, now, { walking: !fighting, atkT: (a.atkFlash && now < a.atkFlash) ? (220 - (a.atkFlash - now)) : -1 })   // 거대 타이탄(오버레이도 커스텀 렌더+애니, +5 발 보정)
     if (a.sprite && window.BattleSprites && window.BattleSprites.has(a.sprite)) return drawSpriteAnt(a, now, fighting)
     const s = view.scale * ANT_DRAW, dir = a.dir || 1
     const body = color || '#5b5b66', leg = 'rgba(18,16,24,0.9)'   // body = owner color, dark legs
