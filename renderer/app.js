@@ -124,7 +124,7 @@
     return isOwned(id)
   }
   // 오버레이 단축키 슬롯에 넣을 수 있는 항목: 고정 오버레이 무기 + 스프라이트 소환체 전부(fireWeapon dispatch 기준)
-  const SLOT_FIXED = ['missile', 'shield', 'ant', 'blackhole', 'gatling', 'human', 'lightning', 'net']
+  const SLOT_FIXED = ['missile', 'shield', 'ant', 'blackhole', 'gatling', 'human', 'lightning', 'net', 'bomber']
   function slotEligible(id) { return SLOT_FIXED.includes(id) || !!(window.BattleSprites && window.BattleSprites.has && window.BattleSprites.has(id)) }
   const SHIELD_DUR = 10000, SHIELD_CD = 3000      // 10s active, then 3s cooldown
   // A real "shield plate" that floats OUT in front of the cat (not a sector from the center)
@@ -698,6 +698,7 @@
   function clearMySummons() {
     projectiles.length = 0; ants.length = 0; gbullets.length = 0; hbullets.length = 0; bolts.length = 0
     energyShots.length = 0; interceptors.length = 0; mechaShells.length = 0
+    summonProj.length = 0; bombs.length = 0; bombQueue.length = 0; fireZones.length = 0   // 소환 투사체·폭격 정리
     if (me.gatActive) setGat(false)
     me.gatBattle = false; me.gatStructUid = null; me.gatCdUntil = 0   // 배틀 게틀링 상태·재배치 쿨 초기화
     if (me.humanActive) removeHuman()
@@ -1361,6 +1362,7 @@
     else if (id === 'human') deployHuman()
     else if (id === 'lightning') lightningPress()   // (release handled via fire-slot key-up)
     else if (id === 'net') toggleNetAim()
+    else if (id === 'bomber') deployBomber()   // 💣 폭격: 커서 X부터 오른쪽 순차 투하
     else if (window.BattleSprites && window.BattleSprites.has(id)) summonSpriteUnit(id)   // 신규 소환체(라이플병 등) — 커서에 소환(체력·충돌 ants 시스템 재사용)
     // future: else if (id === 'rock') fireRock() ...
   }
@@ -3496,6 +3498,8 @@
   // ---------- ants (🐜) — crawl on the taskbar, fight enemy ants, die in 3 hits ----------
   const ants = []              // MY ants (I simulate them authoritatively)
   const summonProj = []        // 오버레이 소환체(원거리/광역)가 쏘는 투사체 — 적 소환체/캐릭터에 명중
+  const bombs = [], bombQueue = [], fireZones = []   // 💣 폭격 무기: 낙하 폭탄 / 예약 투하 / 착탄 불장판(DoT)
+  const BOMB_N = 5, BOMB_DROP_MS = 150, BOMB_DMG = 14, FIRE_SEC = 5, FIRE_TICK_MS = 450, FIRE_DMG = 3   // 5발·순차·착탄14+넉백·5초 불장판 3/틱
   const remoteAnts = new Map() // peerId -> { list:[{id,x,y,hp,dead}], ts }  (x,y relative to peer cat)
   const ANT_HP = 1
   const ANT_DRAW = 2   // ant visual size multiplier (on top of view.scale)
@@ -4415,6 +4419,7 @@
     else if (id === 'net') toggleNetAim()
     else if (id === 'blackhole') activateBlackhole()
     else if (id === 'lightning') fireBolt(cursor.x, cursor.y, 3)   // 배틀에선 즉발(충전 키업 없음)
+    else if (id === 'bomber') deployBomber()   // 💣 폭격
     else fireHoming()
   }
   // 지정한 side(foeSide)의 유닛/기지에만 데미지. 투사체 소유 side에 따라 상대만 맞게(양측 유닛 무기 재사용 일관).
@@ -4784,7 +4789,9 @@
       let tgt = null
       if (eAnt && dAnt <= dGat) tgt = { x: eAnt.s.x, y: eAnt.s.y, kind: 'rant', pid: eAnt.pid, id: eAnt.s.id }
       else if (eGat) tgt = { x: eGat.x, y: eGat.y, kind: 'gat', pid: eGat.pid }
-      if (!tgt) { const ec = nearestEnemyCat(a.x); if (ec) tgt = { x: ec.c.x, y: ec.c.y - 22 * view.scale, kind: 'cat', cat: ec.cat } }
+      // 적 소환체가 없을 때만 캐릭터로 폴백 — 단 캐릭터는 책상 위(공중)라 원거리(proj/aoe)만 공격 가능.
+      // 근접/자폭은 공중 캐릭터를 못 때리므로 폴백하지 않고 그냥 배회한다.
+      if (!tgt && (atkType === 'proj' || atkType === 'aoe')) { const ec = nearestEnemyCat(a.x); if (ec) tgt = { x: ec.c.x, y: ec.c.y - 22 * view.scale, kind: 'cat', cat: ec.cat } }
       let moving = true, acting = false
       if (atkType === 'heal') {                 // 메딕: 주변 다친 아군 소환체 회복(투사체 X)
         const ally = nearestHurtAlly(a, rangePx)
@@ -4885,6 +4892,66 @@
     }
   }
   function drawSummonProj(now) { const s = view.scale * 1.5, t = now / 1000; for (const p of summonProj) drawOneProj(p, s, t) }
+  // ── 💣 폭격 무기: 커서 X부터 오른쪽 30% 범위에 5발 순차 투하(하늘 낙하) → 착탄 땅파임+양측 데미지·넉백+5초 불장판 ──
+  function bombRadius() { return 0.05 * canvas.clientWidth }
+  function deployBomber() {
+    const W = canvas.clientWidth, now = performance.now()
+    const startX = Math.max(6, Math.min(W - 6, cursor.x)), range = W * 0.30, spacing = range / Math.max(1, BOMB_N - 1)
+    for (let i = 0; i < BOMB_N; i++) bombQueue.push({ x: Math.min(W - 6, startX + i * spacing), at: now + i * BOMB_DROP_MS })
+    showToast('💣 폭격 개시! (아군도 피해 — 주의)')
+  }
+  // 착탄/불장판 공용 범위 타격: 배틀 유닛(양측)+고스트(릴레이) + 오버레이 개미(양측). 아군 포함(프렌들리 파이어).
+  function bombHitArea(x, rPx, dmg, kb) {
+    if (battleActive && battle && battlePhase === 'playing') {
+      for (const u of battle.state.units) { if (u.hp <= 0) continue; if (Math.abs(battleLaneX(u.L) - x) <= rPx) battle.hitUnit(u.uid, dmg, 0, 0, kb) }
+      if (battleMulti) for (const g of battleGhosts) { if (g.hp <= 0) continue; const gx = battleLaneX(g._dispL != null ? g._dispL : g.L); if (Math.abs(gx - x) <= rPx) { g.hp -= dmg; if (connected()) net.send(JSON.stringify({ t: 'bghit', to: battleMulti.oppId, uid: g.uid, dmg, slow: 0, slowDur: 0, kb: kb ? 1 : 0 })) } }
+    }
+    const odmg = Math.max(1, Math.round(dmg / 6))
+    for (const a of ants) if (!a.dead && Math.abs(a.x - x) <= rPx) { antTakeDmg(a, odmg); if (a.dead) addAntKill() }
+    if (connected()) for (const [pid, rec] of remoteAnts) for (const e of rec.items.values()) { if (e.dead) continue; const sp = remoteAntScreenPos(pid, e); if (sp && Math.abs(sp.x - x) <= rPx) net.send(JSON.stringify({ t: 'ant-hit', target: pid, ant: e.id, dmg: odmg })) }
+  }
+  function bombImpact(x, gy) {
+    carveTaskbar(x, 1.4, false)   // 땅 파임
+    addEffect(x, gy - 14 * view.scale, 3); for (let k = 0; k < 8; k++) spawnDebris(x + (Math.random() - 0.5) * 40 * view.scale, gy, 1, k % 2 ? '#ffb45a' : '#ff7d3a')
+    bombHitArea(x, bombRadius(), BOMB_DMG, true)   // 착탄 데미지 + 넉백(양측)
+    fireZones.push({ x, r: bombRadius() * 0.9, until: performance.now() + FIRE_SEC * 1000, nextTick: 0 })   // 5초 불장판
+  }
+  function stepBombs(now) {
+    for (let i = bombQueue.length - 1; i >= 0; i--) if (now >= bombQueue[i].at) { const q = bombQueue.splice(i, 1)[0]; bombs.push({ x: q.x, y: -20 * view.scale, vy: 3 * view.scale }) }
+    const grav = 0.6 * view.scale
+    for (let i = bombs.length - 1; i >= 0; i--) {
+      const b = bombs[i]; b.vy += grav; b.y += b.vy
+      const gy = antGroundY(b.x)
+      if (b.y >= gy) { bombImpact(b.x, gy); bombs.splice(i, 1) }
+      else if (b.y > canvas.clientHeight + 60) bombs.splice(i, 1)
+    }
+  }
+  function stepFireZones(now) {
+    for (let i = fireZones.length - 1; i >= 0; i--) {
+      const z = fireZones[i]
+      if (now >= z.until) { fireZones.splice(i, 1); continue }
+      if (now >= (z.nextTick || 0)) { z.nextTick = now + FIRE_TICK_MS; bombHitArea(z.x, z.r, FIRE_DMG, false) }   // 지속 데미지(넉백 X)
+    }
+  }
+  function drawFireZones(now) {
+    const t = (now || performance.now()) / 1000, s = view.scale
+    for (const z of fireZones) {
+      const gy = antGroundY(z.x)
+      ctx.save()
+      for (let k = 0; k <= 8; k++) { const fx = z.x - z.r + (k / 8) * z.r * 2, h = (9 + 9 * Math.abs(Math.sin(t * 7 + k * 1.3))) * s; ctx.fillStyle = k % 2 ? 'rgba(255,150,45,0.82)' : 'rgba(255,95,30,0.75)'; ctx.beginPath(); ctx.moveTo(fx - 4 * s, gy + 2); ctx.quadraticCurveTo(fx, gy - h, fx + 4 * s, gy + 2); ctx.closePath(); ctx.fill() }
+      ctx.fillStyle = 'rgba(255,210,120,0.5)'; for (let k = 0; k < 3; k++) { const px = z.x + (Math.sin(t * 5 + k * 2) * z.r * 0.6); ctx.beginPath(); ctx.arc(px, gy - (10 + k * 4) * s - (t * 30 % 14) * s, 2 * s, 0, 7); ctx.fill() }
+      ctx.restore()
+    }
+  }
+  function drawBombs(now) {
+    const s = view.scale
+    for (const b of bombs) {
+      ctx.save(); ctx.fillStyle = '#2a2d35'; ctx.beginPath(); ctx.ellipse(b.x, b.y, 5 * s, 8 * s, 0, 0, 7); ctx.fill()
+      ctx.fillStyle = '#5a5a66'; ctx.beginPath(); ctx.arc(b.x - 1.5 * s, b.y - 2.5 * s, 1.8 * s, 0, 7); ctx.fill()
+      ctx.fillStyle = '#ffb45a'; ctx.beginPath(); ctx.moveTo(b.x, b.y + 8 * s); ctx.lineTo(b.x - 3 * s, b.y + 14 * s); ctx.lineTo(b.x + 3 * s, b.y + 14 * s); ctx.closePath(); ctx.fill()   // 꼬리 날개
+      ctx.restore()
+    }
+  }
   function drawRemoteAnts(now) {
     const W = canvas.clientWidth
     for (const [pid, rec] of [...remoteAnts]) {
@@ -5734,6 +5801,8 @@
     drawDebris(now)
     stepAnts(now)
     stepSummonProj(now); drawSummonProj(now)   // 오버레이 소환체 투사체(원거리/광역 전투)
+    stepFireZones(now); drawFireZones(now)     // 💣 폭격 불장판(DoT) — 바닥
+    stepBombs(now); drawBombs(now)             // 💣 낙하 폭탄 — 위
     ctx.save(); drawRemoteAnts(now); ctx.restore()
     stepFieldUnits(now); drawFieldUnits(now)   // 신규 소환체(오버레이)
     if (battleActive && battle) { stepBattle(now); drawBattleUnits(now) }   // 배틀 모드(오버레이 통합)
