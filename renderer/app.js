@@ -4921,7 +4921,7 @@
   function bombRadius() { return 0.05 * canvas.clientWidth }
   function deployBomber() {
     const W = canvas.clientWidth, now = performance.now()
-    const startX = Math.max(6, Math.min(W - 6, cursor.x)), range = W * 0.30, spacing = range / Math.max(1, BOMB_N - 1)
+    const startX = Math.max(6, Math.min(W - 6, cursor.x)), range = W * 0.18, spacing = range / Math.max(1, BOMB_N - 1)   // 0.30→0.18: 간격/범위 축소
     for (let i = 0; i < BOMB_N; i++) bombQueue.push({ x: Math.min(W - 6, startX + i * spacing), at: now + i * BOMB_DROP_MS })
     showToast('💣 폭격 개시! (아군도 피해 — 주의)')
   }
@@ -4961,21 +4961,39 @@
   function drawFireZones(now) {
     const t = (now || performance.now()) / 1000, s = view.scale
     for (const z of fireZones) {
-      const gy = antGroundY(z.x)
-      ctx.save()
-      for (let k = 0; k <= 8; k++) { const fx = z.x - z.r + (k / 8) * z.r * 2, h = (9 + 9 * Math.abs(Math.sin(t * 7 + k * 1.3))) * s; ctx.fillStyle = k % 2 ? 'rgba(255,150,45,0.82)' : 'rgba(255,95,30,0.75)'; ctx.beginPath(); ctx.moveTo(fx - 4 * s, gy + 2); ctx.quadraticCurveTo(fx, gy - h, fx + 4 * s, gy + 2); ctx.closePath(); ctx.fill() }
-      ctx.fillStyle = 'rgba(255,210,120,0.5)'; for (let k = 0; k < 3; k++) { const px = z.x + (Math.sin(t * 5 + k * 2) * z.r * 0.6); ctx.beginPath(); ctx.arc(px, gy - (10 + k * 4) * s - (t * 30 % 14) * s, 2 * s, 0, 7); ctx.fill() }
+      const left = z.x - z.r, right = z.x + z.r, span = right - left
+      const remain = (z.until - now) / 1000, fade = remain < 0.8 ? Math.max(0, remain / 0.8) : 1   // 꺼지기 직전 페이드
+      const step = Math.max(4 * s, span / 22)   // 촘촘하게 샘플링(듬성듬성 방지)
+      ctx.save(); ctx.lineJoin = 'round'
+      let idx = 0
+      for (let x = left; x <= right; x += step, idx++) {
+        const gy = taskbarSurfaceY(x)                        // ★ 파임 반영된 작업표시줄 표면 경계에 정확히 붙임
+        const edge = Math.max(0.22, 1 - Math.abs((x - z.x) / z.r))   // 가운데 높고 가장자리 낮게
+        // 바닥 잉걸 글로우
+        ctx.globalAlpha = 0.13 * fade * (0.4 + edge); ctx.fillStyle = '#ff7a2a'
+        ctx.beginPath(); ctx.ellipse(x, gy + 1, step * 0.95, 5 * s, 0, 0, 7); ctx.fill()
+        // 불꽃 혀 — 외곽(주황) + 내부(노랑) 2겹, 개별 플리커
+        const flick = 0.55 + 0.45 * Math.sin(t * 9 + idx * 1.7) + 0.18 * Math.sin(t * 19 + idx)
+        const h = (11 + 17 * edge) * s * Math.max(0.4, flick), w = (3.4 + 1.6 * edge) * s
+        ctx.globalAlpha = 0.9 * fade; ctx.fillStyle = idx % 2 ? 'rgba(255,120,32,0.92)' : 'rgba(255,88,24,0.9)'
+        ctx.beginPath(); ctx.moveTo(x - w, gy + 2); ctx.quadraticCurveTo(x - w * 0.4, gy - h * 0.55, x, gy - h); ctx.quadraticCurveTo(x + w * 0.4, gy - h * 0.55, x + w, gy + 2); ctx.closePath(); ctx.fill()
+        ctx.globalAlpha = 0.92 * fade; ctx.fillStyle = 'rgba(255,216,120,0.95)'
+        ctx.beginPath(); ctx.moveTo(x - w * 0.5, gy + 1); ctx.quadraticCurveTo(x, gy - h * 0.52, x, gy - h * 0.66); ctx.quadraticCurveTo(x, gy - h * 0.52, x + w * 0.5, gy + 1); ctx.closePath(); ctx.fill()
+      }
+      // 떠오르는 잉걸(스파크)
+      for (let k = 0; k < 12; k++) {
+        const px = z.x + Math.sin(t * 3 + k * 2.1) * z.r * 0.88, gy = taskbarSurfaceY(px)
+        const ph = ((t * 42 + k * 7) % 36)
+        ctx.globalAlpha = 0.72 * fade * (1 - ph / 36); ctx.fillStyle = k % 2 ? '#ffd27a' : '#ff9a3a'
+        ctx.beginPath(); ctx.arc(px, gy - ph * s - 4 * s, (1.4 - ph / 36) * s + 0.7 * s, 0, 7); ctx.fill()
+      }
       ctx.restore()
     }
+    ctx.globalAlpha = 1
   }
   function drawBombs(now) {
-    const s = view.scale
-    for (const b of bombs) {
-      ctx.save(); ctx.fillStyle = '#2a2d35'; ctx.beginPath(); ctx.ellipse(b.x, b.y, 5 * s, 8 * s, 0, 0, 7); ctx.fill()
-      ctx.fillStyle = '#5a5a66'; ctx.beginPath(); ctx.arc(b.x - 1.5 * s, b.y - 2.5 * s, 1.8 * s, 0, 7); ctx.fill()
-      ctx.fillStyle = '#ffb45a'; ctx.beginPath(); ctx.moveTo(b.x, b.y + 8 * s); ctx.lineTo(b.x - 3 * s, b.y + 14 * s); ctx.lineTo(b.x + 3 * s, b.y + 14 * s); ctx.closePath(); ctx.fill()   // 꼬리 날개
-      ctx.restore()
-    }
+    // 리틀보이 폭탄 이미지를 재사용하되 살짝 작게(scaleMul<1). 코가 아래로 낙하.
+    for (const b of bombs) drawLittleBoy(b, now, 0.5)
   }
   function drawRemoteAnts(now) {
     const W = canvas.clientWidth
@@ -5287,8 +5305,8 @@
     if (me.humanActive && Math.hypot(x - me.humanX, y - me.humanY) <= R) humanTakeDmg(dmg, now)
     for (const [pid, h] of remoteHumans) if (Math.hypot(x - h.nx * W, y - h.ny * H) <= R && connected()) net.send(JSON.stringify({ t: 'human-hit', target: pid, dmg, hx: +(x / W).toFixed(4), hy: +(y / H).toFixed(4) }))
   }
-  function drawLittleBoy(b, now) {   // Little Boy bomb, falling nose-down — narrow tail, FAT bulbous warhead
-    const s = view.scale * 4.4, x = b.x, y = b.y   // 2× the old size
+  function drawLittleBoy(b, now, scaleMul) {   // Little Boy bomb, falling nose-down — narrow tail, FAT bulbous warhead
+    const s = view.scale * 4.4 * (scaleMul || 1), x = b.x, y = b.y   // 2× the old size (scaleMul<1 = 폭격 폭탄용 축소)
     ctx.save(); ctx.translate(x, y); ctx.lineJoin = 'round'; ctx.lineCap = 'round'
     const olive = '#6b7043', dark = '#565b34', darker = '#4a4e2c'
     // fat rounded warhead (lower / bottom) — much wider than the tail
