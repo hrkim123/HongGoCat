@@ -32,6 +32,7 @@
     commander:  { kind: 'unit', hpPer: 0.08, dmgPer: 0.08, gimmick: { at: 5, gk: 'auraUp', text: '오라 강화(+20→+35%)·범위↑' } },
     sniper:     { kind: 'unit', dmgPer: 0.12, gimmick: { at: 5, gk: 'range40', text: '초장거리 +40%' } },
     boss:       { kind: 'unit', hpPer: 0.10, gimmick: { at: 5, gk: 'summon3', text: '소환 간격 5→3초' } },
+    broodTitan: { kind: 'unit', hpPer: 0.10, dmgPer: 0.09, gimmick: { at: 5, gk: 'deathMound', text: '죽을 때 잔해 벽 생성(라인 저지)' } },
     // ── 무기 ────────────────────────────────────────────────────────────────
     missile:    { kind: 'weapon', dmgPer: 0.10, gimmick: { at: 5, text: '합체 임계 완화(핵 쉬움)' }, note: 'Lv3·5 동시발사 +1' },
     gatling:    { kind: 'weapon', dmgPer: 0.08, ratePer: 0.05, gimmick: { at: 5, text: '관통 +1' } },
@@ -71,6 +72,7 @@
     }
     const a = out.atk
     if (a.dmg && sp.dmgPer) a.dmg = +(a.dmg * (1 + sp.dmgPer * n)).toFixed(2)
+    if (sp.dmgPer && a.type === 'titan') { if (a.stompDmg) a.stompDmg = +(a.stompDmg * (1 + sp.dmgPer * n)).toFixed(1); if (a.laserDmg) a.laserDmg = +(a.laserDmg * (1 + sp.dmgPer * n)).toFixed(1) }   // 타이탄 커스텀 데미지 스케일
     if (a.heal && sp.healPer) a.heal = +(a.heal * (1 + sp.healPer * n)).toFixed(2)
     if (a.slow && sp.slowPer) a.slow = +Math.min(0.9, a.slow * (1 + sp.slowPer * n)).toFixed(3)
     if (a.aoeR && sp.aoePer) a.aoeR = +(a.aoeR * (1 + sp.aoePer * n)).toFixed(4)
@@ -100,6 +102,7 @@
     else if (gk === 'stun') a.stun = 0.4
     else if (gk === 'auraUp' && out.aura) { out.aura.atk = 0.35; out.aura.speed = 0.35; out.aura.range = +(out.aura.range * 1.3).toFixed(4) }
     else if (gk === 'summon3' && out.summon) out.summon.every = 3
+    else if (gk === 'deathMound') out.deathMound = true   // 타이탄: 죽을 때 잔해 벽
     return out
   }
 

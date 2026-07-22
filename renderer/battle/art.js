@@ -95,7 +95,7 @@
 
   const EMOJI = { ant: '🐜', rifleman: '🐜', grenadier: '🐜', shielder: '🛡', mechaAnt: '🤖', mechaHuman: '🦾',
     missile: '🚀', gatling: '🔫', shield: '🛡', net: '🕸️', human: '🕺', lightning: '⚡', adogen: '🔵', blackhole: '🕳',
-    scout: '🐜', kamikaze: '💣', medic: '🩹', drone: '🐝', freezer: '❄️', worker: '🐜', commander: '🚩', sniper: '🎯', boss: '👑', bomber: '💥' }
+    scout: '🐜', kamikaze: '💣', medic: '🩹', drone: '🐝', freezer: '❄️', worker: '🐜', commander: '🚩', sniper: '🎯', boss: '👑', bomber: '💥', broodTitan: '💠' }
 
   // 실제 배틀 스프라이트가 있는 유닛은 그 리소스를 렌더해 아이콘으로(이족보행 등 실제 모습 일치)
   function spriteImg(id, px) {

@@ -929,6 +929,7 @@
       else if (msg.t === 'bdigreset') { if (battleMulti && msg.to === me.netId && battleActive) resetTaskbarDig(false) }   // 배틀 지형 공유: 상대가 땅 복구
       else if (msg.t === 'bbomber') { if (battleMulti && msg.to === me.netId && battleActive) deployBomber((msg.x || 0) * canvas.clientWidth, true) }   // 상대 폭격 연출 재현(데미지·파임은 별도 릴레이)
       else if (msg.t === 'bcannon') { if (battleMulti && msg.to === me.netId && battleActive) remoteCannonSweep = { at: performance.now() } }   // 상대 베이스 캐논 스윕 연출
+      else if (msg.t === 'btitanlaser') { if (battleMulti && msg.to === me.netId && battleActive) { const W = canvas.clientWidth, fromX = (msg.fx || 0) * W, toX = (msg.tx || 0) * W; titanLasers.push({ fromX, toX, born: performance.now() }); const lo = Math.min(fromX, toX), hi = Math.max(fromX, toX), step = Math.max(1, (hi - lo) / 4); for (let bx = lo; bx <= hi; bx += step) addEffect(bx, taskbarSurfaceY(bx), 1) } }   // 상대 타이탄 레이저 연출
       else if (msg.t === 'bnetgrab') { if (battleMulti && msg.to === me.netId && battle) { const u = battle.unitByUid(msg.uid); if (u) { u.netted = true; u.frozenUntil = battle.state.t + 30 } } }   // 내 유닛이 상대 그물에 잡힘 → 정지+숨김(해제/사망은 bghit로)
       else if (msg.t === 'bshot') { if (battleMulti && msg.to === me.netId && battleActive) { const W = canvas.clientWidth, H = canvas.clientHeight; remoteBattleShots.push({ x: msg.x * W, y: msg.y * H, vx: msg.vx * W, vy: msg.vy * H, ay: (msg.ay || 0) * H, kind: msg.k || 'bullet', born: performance.now(), life: msg.life || 1500 }) } }   // 상대 투사체 연출 재현
       else if (msg.t === 'gatling') {
@@ -3667,6 +3668,7 @@
   }
   let battleGhosts = [], battleGhostBase = 100, bunitsLastSend = 0   // 상대(고스트) 유닛 + 상대 기지 HP
   const remoteBattleShots = []; let rbsLastT = 0   // 멀티: 상대 소환체가 쏜 투사체(연출용 · 데미지는 bghit로 별도)
+  const titanLasers = []   // 💠 브루드 타이탄 땅 긁는 레이저 연출(데미지는 sim에서 처리·릴레이)
   let battleGhostShield = { hp: 0, until: 0 }   // 멀티: 상대 기지 방어 돔(상대가 bunits로 방송) — 내 화면에 표시
   let remoteCannonSweep = null   // 멀티: 상대 베이스 캐논 스윕 연출(데미지·넉백은 bghit로 별도)
   const BUNITS_MS = 50   // 고스트 위치 브로드캐스트 주기(ms). 100→50(20/s)로 상향. 더 낮추면 트래픽·직렬화 부하↑, 인터넷선 지터가 병목이라 수확 체감. 튜닝 지점.
@@ -3721,6 +3723,8 @@
     if (sprite === 'mechaAnt') return { halfW: 27 * view.scale, top: 92 * view.scale }     // 자체 메카 아트(×0.7 축소 반영)
     if (sprite === 'mechaHuman') return { halfW: 30 * view.scale, top: 104 * view.scale }
     if (sprite === 'human') return { halfW: 18 * view.scale, top: 78 * view.scale }
+    if (sprite === 'broodTitan') return { halfW: 62 * view.scale, top: 128 * view.scale }   // 거대 요새
+    if (sprite === 'moundwall') return { halfW: 46 * view.scale, top: 40 * view.scale }      // 잔해 벽(낮고 넓음)
     const b = UNIT_HB_LOCAL[sprite] || UNIT_HB_LOCAL._default
     const s = view.scale * BATTLE_UNIT_SCALE * sz
     return { halfW: b.w * s, top: b.h * s }
@@ -3735,7 +3739,7 @@
     littleBoys.length = 0; debris.length = 0; bloodStains.length = 0   // 낙하 폭탄·잔해도 정리
     battle = window.BattleSim.newBattle({ speedScale: 0.38 })   // 냥코풍 느린 행군(전략성). 0.44 → 0.38
     battleAtkAt = {}; battleShieldFlash = {}; battleHealFx = []; battleFalls = []; battleDead = []; bproj.length = 0
-    battleGhosts = []; battleGhostBase = battle.state.baseHpMax; bunitsLastSend = 0; unitReadyAt = {}; weaponCdUntil = {}; remoteBattleShots.length = 0; battleGhostShield = { hp: 0, until: 0 }; remoteCannonSweep = null
+    battleGhosts = []; battleGhostBase = battle.state.baseHpMax; bunitsLastSend = 0; unitReadyAt = {}; weaponCdUntil = {}; remoteBattleShots.length = 0; battleGhostShield = { hp: 0, until: 0 }; remoteCannonSweep = null; titanLasers.length = 0
     { const dk = (window.BattleGacha && window.BattleGacha.getDeck) ? window.BattleGacha.getDeck() : { units: [] }; battleUnitOrder = (dk.units || []).slice(0, 10) }   // 배틀-로컬 순서(스왑용)
     battleCannon = { charge: 0 }; cannonSweep = null; battleTurretCd = [0, 0]; battleTurretAim = [0, 0]; battleTurretFire = [0, 0]; battleTurretTgtL = [null, null]; buildCannonUI()
     battleResultAt = 0; battleLastT = performance.now(); battleActive = true
@@ -4099,7 +4103,7 @@
     }
     if (!battleHud || !battle) return
     const mana = battle.state.mana[0], buff = battle.state.manaBuff ? (battle.state.manaBuff[0] || 0) : 0
-    battleHud.querySelectorAll('.bhsegs div').forEach((s, i) => s.style.background = i < Math.floor(mana / 2) ? '#4aa3ff' : 'rgba(255,255,255,.14)')   // 세그먼트당 마나 2 (맥스 20)
+    { const cap = (battle && battle.state.cfg.manaCap) || 30, per = cap / 10; battleHud.querySelectorAll('.bhsegs div').forEach((s, i) => s.style.background = i < Math.floor(mana / per) ? '#4aa3ff' : 'rgba(255,255,255,.14)') }   // 세그먼트 10칸 = 마나캡/10 (맥스 30 → 칸당 3)
     const v = battleHud.querySelector('.bhval'); if (v) v.textContent = `${mana.toFixed(1)}/${battle.state.cfg.manaCap}` + (buff > 0 ? ` ⚡+${buff.toFixed(1)}` : '')
     const mu = battleHud.querySelector('.bhmanaup')   // ⚡ 마나 강화 라벨(레벨/다음 비용/현재 속도)
     if (mu && battle.manaUpInfo) { const info = battle.manaUpInfo(0); mu.innerHTML = info.maxed ? `⚡ 마나 강화 <b>MAX</b> <span style="opacity:.7">${info.rate.toFixed(1)}/s</span>` : `⚡ 마나 강화 Lv.${info.level} <span style="color:#ffd86b;font-weight:600">💧${info.nextCost}</span> <span style="opacity:.7">→${(({0:0.8,1:1.1,2:1.4,3:1.8,4:2.4})[info.level] || 0)}/s</span>`; mu.style.opacity = (info.maxed || mana >= info.nextCost) ? '1' : '0.5' }
@@ -4146,6 +4150,13 @@
       else if (e.type === 'boom') { const bx = battleLaneX(e.L), by = antGroundY(bx) - 20 * view.scale; addEffect(bx, by, 3); for (let k = 0; k < 12; k++) spawnSpark(bx + (Math.random() - 0.5) * (e.aoeR || 0.05) * canvas.clientWidth, by + (Math.random() - 0.5) * 30 * view.scale); if (inTaskbar(bx, antGroundY(bx))) battleDig(bx, 0.6) }   // 카미카제 자폭
       else if (e.type === 'freeze') { const fx = battleLaneX(e.L), fy = antGroundY(fx) - 22 * view.scale; for (let k = 0; k < 10; k++) spawnSpark(fx + (Math.random() - 0.5) * 30 * view.scale, fy + (Math.random() - 0.5) * 40 * view.scale) }   // 빙결 순간
       else if (e.type === 'knockback') { const kx = battleLaneX(e.L), ky = antGroundY(kx); addEffect(kx, ky - 12 * view.scale, 1); for (let k = 0; k < 4; k++) spawnSpark(kx + (Math.random() - 0.5) * 24 * view.scale, ky - Math.random() * 20 * view.scale) }   // 넉백: 먼지/충격
+      else if (e.type === 'titanlaser') {   // 💠 타이탄 땅 긁는 레이저: 빔+긁힘 띠+작은 연쇄 폭발. 데미지는 sim(ghosthit)로 별도.
+        const fromX = battleLaneX(e.fromL), toX = battleLaneX(e.toL)
+        titanLasers.push({ fromX, toX, born: now })
+        const lo = Math.min(fromX, toX), hi = Math.max(fromX, toX), step = Math.max(1, (hi - lo) / 4)
+        for (let bx = lo; bx <= hi; bx += step) addEffect(bx, taskbarSurfaceY(bx), 1)   // 작은 연쇄 폭발
+        if (battleMulti && connected() && e.side === 0) net.send(JSON.stringify({ t: 'btitanlaser', to: battleMulti.oppId, fx: +(fromX / canvas.clientWidth).toFixed(4), tx: +(toX / canvas.clientWidth).toFixed(4) }))   // 상대 화면 연출 릴레이(공용 절대프레임)
+      }
       else if (e.type === 'ghosthit') { if (battleMulti && connected()) net.send(JSON.stringify({ t: 'bghit', to: battleMulti.oppId, uid: e.uid, dmg: e.dmg, slow: e.slow || 0, slowDur: e.slowDur || 0, kb: e.kb ? 1 : 0 })) }   // 멀티: 상대 유닛 피격 릴레이(근접/광역, 넉백 플래그)
       else if (e.type === 'basehit') { if (battleMulti && e.side === 1 && connected()) net.send(JSON.stringify({ t: 'bbhit', to: battleMulti.oppId, dmg: e.dmg })) }   // 멀티: 상대 기지 피격 릴레이(근접)
       else if (e.type === 'baseshieldbreak') {   // 방어 돔 파괴 → 파열 연출(넉백은 sim이 로컬 유닛에 적용)
@@ -4218,6 +4229,68 @@
       ctx.restore()
     }
   }
+  // 💠 브루드 타이탄 — 거대 여왕 요새(가시=갑각 윤곽에서 직접 돋음, 빛나는 알주머니, 왕관, 레이저 포구)
+  function drawBroodTitan(x, feetY, s, facing, now) {
+    const glow = 0.6 + 0.4 * Math.abs(Math.sin(now / 500))
+    ctx.save(); ctx.translate(x, feetY); ctx.scale(facing, 1); ctx.lineJoin = 'round'
+    // 다리
+    ctx.strokeStyle = '#20261a'; ctx.lineWidth = 5 * s; ctx.lineCap = 'round'
+    for (const lx of [-34, -14, 8, 28]) { ctx.beginPath(); ctx.moveTo(lx * s, -30 * s); ctx.lineTo((lx - 6) * s, -8 * s); ctx.lineTo((lx - 8) * s, 0); ctx.stroke() }
+    // 알주머니(발광)
+    const g = ctx.createRadialGradient(-32 * s, -36 * s, 4 * s, -32 * s, -36 * s, 46 * s)
+    g.addColorStop(0, '#ffe08a'); g.addColorStop(0.5, '#ff9d3a'); g.addColorStop(1, '#c25916')
+    ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(-32 * s, -36 * s, 46 * s, 40 * s, 0, 0, 7); ctx.fill()
+    ctx.strokeStyle = '#8a3d12'; ctx.lineWidth = 1.5 * s; ctx.stroke()
+    ctx.fillStyle = 'rgba(255,255,255,' + (0.35 + 0.25 * glow) + ')'
+    for (const c of [[-48, -46, 6], [-32, -30, 7], [-54, -24, 5], [-20, -48, 5]]) { ctx.beginPath(); ctx.arc(c[0] * s, c[1] * s, c[2] * s, 0, 7); ctx.fill() }
+    // 갑각 + 뿌리박은 가시(한 실루엣)
+    ctx.fillStyle = '#2b3420'; ctx.strokeStyle = '#151a0f'; ctx.lineWidth = 1.6 * s
+    ctx.beginPath(); ctx.moveTo(-62 * s, -54 * s); ctx.quadraticCurveTo(-48 * s, -86 * s, -30 * s, -86 * s)
+    ctx.lineTo(-24 * s, -100 * s); ctx.lineTo(-18 * s, -84 * s); ctx.lineTo(-8 * s, -106 * s); ctx.lineTo(2 * s, -82 * s); ctx.lineTo(8 * s, -98 * s); ctx.lineTo(14 * s, -76 * s)
+    ctx.quadraticCurveTo(8 * s, -64 * s, -4 * s, -62 * s); ctx.closePath(); ctx.fill(); ctx.stroke()
+    // 흉부
+    ctx.beginPath(); ctx.ellipse(18 * s, -42 * s, 24 * s, 28 * s, 0, 0, 7); ctx.fill(); ctx.stroke()
+    // 머리
+    ctx.save(); ctx.translate(48 * s, -44 * s)
+    ctx.fillStyle = '#2b3420'; ctx.beginPath(); ctx.ellipse(0, 0, 20 * s, 18 * s, 0, 0, 7); ctx.fill(); ctx.stroke()
+    ctx.fillStyle = '#c9a23a'; ctx.strokeStyle = '#7a5e12'; ctx.beginPath()
+    ctx.moveTo(-12 * s, -14 * s); ctx.lineTo(-13 * s, -25 * s); ctx.lineTo(-5 * s, -16 * s); ctx.lineTo(0, -28 * s); ctx.lineTo(5 * s, -16 * s); ctx.lineTo(12 * s, -25 * s); ctx.lineTo(12 * s, -14 * s); ctx.closePath(); ctx.fill(); ctx.stroke()
+    ctx.fillStyle = '#ff5a2a'; ctx.beginPath(); ctx.ellipse(8 * s, -2 * s, 4 * s, 5 * s, 0, 0, 7); ctx.fill()
+    ctx.fillStyle = '#fff3c4'; ctx.beginPath(); ctx.arc(8 * s, -2 * s, 1.6 * s, 0, 7); ctx.fill()
+    ctx.fillStyle = '#d9d2c0'; ctx.strokeStyle = '#5a5240'; ctx.lineWidth = 1.4 * s
+    ctx.beginPath(); ctx.moveTo(18 * s, 2 * s); ctx.quadraticCurveTo(34 * s, 0, 40 * s, 10 * s); ctx.quadraticCurveTo(30 * s, 7 * s, 22 * s, 11 * s); ctx.closePath(); ctx.fill()
+    ctx.beginPath(); ctx.moveTo(18 * s, 8 * s); ctx.quadraticCurveTo(34 * s, 13 * s, 38 * s, 22 * s); ctx.quadraticCurveTo(28 * s, 16 * s, 21 * s, 15 * s); ctx.closePath(); ctx.fill()
+    ctx.fillStyle = 'rgba(255,58,110,' + glow + ')'; ctx.beginPath(); ctx.arc(2 * s, -15 * s, 4 * s, 0, 7); ctx.fill()
+    ctx.restore(); ctx.restore()
+  }
+  // 잔해 벽(타이탄 Lv5 사망 시) — 낮고 넓은 시체산. 땅(파임 반영)에 안착.
+  function drawMoundWall(x, feetY, s) {
+    ctx.save(); ctx.translate(x, feetY); ctx.lineJoin = 'round'
+    ctx.fillStyle = '#2b3420'; ctx.strokeStyle = '#151a0f'; ctx.lineWidth = 2
+    ctx.beginPath(); ctx.moveTo(-42 * s, 2); ctx.quadraticCurveTo(-22 * s, -34 * s, 0, -30 * s); ctx.quadraticCurveTo(26 * s, -40 * s, 42 * s, 2); ctx.closePath(); ctx.fill(); ctx.stroke()
+    ctx.fillStyle = '#4a5836'
+    for (const b of [[-18, -30], [4, -34], [22, -28]]) { ctx.beginPath(); ctx.moveTo(b[0] * s, b[1] * s); ctx.lineTo((b[0] - 3) * s, (b[1] - 14) * s); ctx.lineTo((b[0] + 5) * s, (b[1] - 4) * s); ctx.closePath(); ctx.fill() }
+    ctx.fillStyle = 'rgba(255,157,58,0.4)'; ctx.beginPath(); ctx.ellipse(-14 * s, -8 * s, 12 * s, 8 * s, 0, 0, 7); ctx.fill()
+    ctx.restore()
+  }
+  // 💠 타이탄 레이저: 포구→땅 빔 + 땅 긁힘 띠(파임 따라감). 연쇄 폭발은 addEffect로 별도.
+  function drawTitanLasers(now) {
+    for (let i = titanLasers.length - 1; i >= 0; i--) {
+      const t = titanLasers[i], el = now - t.born
+      if (el > 400) { titanLasers.splice(i, 1); continue }
+      const a = Math.max(0, 1 - el / 400), lo = Math.min(t.fromX, t.toX), hi = Math.max(t.fromX, t.toX)
+      const gy0 = taskbarSurfaceY(t.fromX), ex = t.fromX, ey = gy0 - 118 * view.scale
+      ctx.save(); ctx.globalAlpha = a; ctx.lineCap = 'round'
+      // 포구→땅 빔
+      ctx.strokeStyle = 'rgba(255,58,110,0.9)'; ctx.lineWidth = 6 * view.scale; ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(t.fromX, gy0); ctx.stroke()
+      // 땅 긁힘 띠(표면 따라)
+      ctx.beginPath(); for (let x = lo; x <= hi; x += 8 * view.scale) { const yy = taskbarSurfaceY(x); x === lo ? ctx.moveTo(x, yy) : ctx.lineTo(x, yy) } ctx.lineTo(hi, taskbarSurfaceY(hi)); ctx.stroke()
+      // 밝은 코어
+      ctx.strokeStyle = 'rgba(255,243,196,0.95)'; ctx.lineWidth = 2.4 * view.scale
+      ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(t.fromX, gy0); for (let x = lo; x <= hi; x += 8 * view.scale) { const yy = taskbarSurfaceY(x); ctx.lineTo(x, yy) } ctx.stroke()
+      ctx.restore()
+    }
+  }
   function drawBattleUnits(now) {
     if (!battle || !window.BattleSprites) return
     const st = battle.state
@@ -4245,6 +4318,7 @@
         drawOverlayMechaAt(x, y, 0.46 * (def.size || 1.7), facing, 1, now, { walking: false, lean: u._lean, shHp01: sh01, charge })
       }
       else if (u.type === 'human') drawOverlayHumanAt(x, y, 0.80 * (def.size || 1.3), facing, now)
+      else if (u.type === 'broodTitan') drawBroodTitan(x, y, view.scale * 1.15, facing, now)
       else window.BattleSprites.draw(ctx, u.type, { x, y, scale: s, facing, state: atk ? 'attack' : 'walk', t: u.uid * 0.37 + now / 1000, flash: atk })
       const isMecha = u.type === 'mechaAnt' || u.type === 'mechaHuman'
       // 원거리 공격 순간 총구/포구 섬광(재사용 아트 위에 얹어 "발사"가 보이게)
@@ -4276,17 +4350,21 @@
       ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(x - w / 2, y - 44 * s, w, 3.5)
       ctx.fillStyle = f > 0.4 ? '#7ecb7e' : '#e24b4a'; ctx.fillRect(x - w / 2, y - 44 * s, w * f, 3.5)
     }
+    // 내 잔해 벽(구조물이라 위 유닛 루프에서 스킵됨) — 땅 위에 그림
+    for (const u of st.units) { if (u.type === 'moundwall') { const mx = battleLaneX(u.L); drawMoundWall(mx, antGroundY(mx), view.scale * 1.1) } }
     // 멀티: 상대(고스트) 유닛 — 내 기지 쪽으로 전진. facing은 내 유닛과 반대 방향(battleFlip 반영).
     const gFacing = battleFlip ? 1 : -1   // ★ 수락자(flip)면 고스트는 오른쪽(내 기지)이 아니라... 내 유닛(-flip)의 반대 = flip?1:-1
     if (battleMulti) for (const g of battleGhosts) {
       if (g.hp <= 0) continue
       if (g._dispL == null) g._dispL = g.L; else g._dispL += (g.L - g._dispL) * 0.34   // 50ms 방송 사이 보간(버벅임 완화). 갱신 빨라져 계수 소폭↑(0.25→0.34)로 지연 감소
+      if (g.type === 'moundwall') { const mx = battleLaneX(g._dispL); drawMoundWall(mx, antGroundY(mx), view.scale * 1.1); continue }   // 상대 잔해 벽(지형 위)
       const gdef = window.BattleData.UNITS[g.type] || {}, gx = battleLaneX(g._dispL), gy = battleUnitFeetY(gx, gdef.flying)
       const gs = view.scale * BATTLE_UNIT_SCALE * (gdef.size || 1)
       drawTeamMarker(gx, gy, 1, g.type, gdef.size || 1)   // 상대(고스트) = 빨강 머리 위 삼각형
       if (g.type === 'mechaAnt') drawOverlayMechaAt(gx, gy, 0.43 * (gdef.size || 1.6), gFacing, 0, now, { walking: true, shHp01: g.shHp > 0 ? 1 : null })
       else if (g.type === 'mechaHuman') drawOverlayMechaAt(gx, gy, 0.46 * (gdef.size || 1.7), gFacing, 1, now, { walking: false, shHp01: g.shHp > 0 ? 1 : null })
       else if (g.type === 'human') drawOverlayHumanAt(gx, gy, 0.80 * (gdef.size || 1.3), gFacing, now)
+      else if (g.type === 'broodTitan') drawBroodTitan(gx, gy, view.scale * 1.15, gFacing, now)
       else window.BattleSprites.draw(ctx, g.type, { x: gx, y: gy, scale: gs, facing: gFacing, state: 'walk', t: g.uid * 0.31 + now / 1000 })
       if (g.shHp > 0 && !(g.type === 'mechaAnt' || g.type === 'mechaHuman')) drawBattleShield(gx, gy, gs, { uid: 'g' + g.uid, shHp: 1, shMax: 1 }, now)
       if (g.frozen || g.slowed) { const hb = unitHitboxScreen(g.type, gdef.size); ctx.save(); ctx.globalAlpha = g.frozen ? 0.5 : 0.24; ctx.fillStyle = g.frozen ? 'rgba(170,225,255,1)' : 'rgba(140,200,255,1)'; ctx.beginPath(); ctx.roundRect(gx - hb.halfW, gy - hb.top, hb.halfW * 2, hb.top + 4 * view.scale, 6 * view.scale); ctx.fill(); ctx.restore() }
@@ -4309,6 +4387,7 @@
     }   // 구멍 낙하 / 공중 격추(회전 추락)
     drawBattleTurret(turretBaseX(0), 0, now); drawBattleTurret(turretBaseX(1), 1, now)   // 각 진영 포탑(고양이 옆 책상 위, 상대 바라봄)
     drawBattleProj(now)   // 투사체(총알·포탄·에너지·수류탄 등)
+    drawTitanLasers(now)  // 💠 타이탄 땅 긁는 레이저
     // 기지 HP 바 (양 끝 고양이 위)
     drawBattleBaseHp(battleLaneX(0), 0); drawBattleBaseHp(battleLaneX(1), 1)
     drawBaseShieldDome(0, now); drawBaseShieldDome(1, now)   // 기지 방어 돔(쉴드 무기)

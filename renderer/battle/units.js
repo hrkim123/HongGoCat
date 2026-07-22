@@ -114,6 +114,14 @@
       summon: { unit: 'rifleman', every: 5 }, // 직접 공격 X → 5초마다 라이플 솔저를 바로 앞에 1마리 소환(생산형 결전병기)
       art: 'boss', size: 2.0,
     },
+    broodTitan: {
+      name: '브루드 타이탄', cat: 'unit', rarity: 'legend', cost: 25, hp: 600,
+      speed: 0.04, kb: 0,   // 걸어다니는 성벽: 초고 HP·초저속·넉백 면역(강제만)
+      // 커스텀 이중 공격(sim에서 titan 타입 처리): 근접=스톰프(짓밟기 광역+넉백), 원거리=땅 긁는 레이저(공중 제외)
+      atk: { type: 'titan', stompDmg: 34, stompR: 0.055, stompCd: 1.5, laserDmg: 11, laserR: 0.22, laserCd: 2.4 },
+      summon: { unit: 'ant', every: 4.5 },   // 알주머니: 개미 출산(전진하며 물량 보급)
+      art: 'broodTitan', size: 2.6,
+    },
   }
 
   // ── 무기 (cat:'weapon') — 가챠로 획득. 오버레이(재미용)에서도 사용. battle:true = 배틀 덱 가능.

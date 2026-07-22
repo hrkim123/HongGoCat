@@ -8,7 +8,7 @@
   const D = window.BattleData
   const U = window.BattleUpgrade
 
-  const DEFAULTS = { baseHp: 300, manaCap: 20, manaRegen: 0.3, baseRange: 0.03, speedScale: 1 }   // 기지 HP 300(접근만으로 빨리 안 끝나게), 맥스 마나 20, 기본 충전 0.3/s
+  const DEFAULTS = { baseHp: 300, manaCap: 30, manaRegen: 0.3, baseRange: 0.03, speedScale: 1 }   // 기지 HP 300, 맥스 마나 30(고코스트 결전 유닛 대응), 기본 충전 0.3/s
   const KB_DUR = 0.30, KB_BACK = 0.09, KB_CD = 0.7   // 넉백: 0.30초간 살짝 뒤로(냥코풍 짧은 홉) + 재넉백 최소 간격 0.7s(락 방지)
   // 마나 강화(냥코 일꾼레벨): 마나 지불→이번 판 충전속도↑(판 끝나면 초기화). 기본 0.5/s, 강화 체감 소폭 상향.
   const MANA_LEVELS = [{ cost: 6, rate: 0.6 }, { cost: 9, rate: 0.9 }, { cost: 12, rate: 1.3 }, { cost: 16, rate: 1.7 }, { cost: 20, rate: 2.2 }]
@@ -75,6 +75,13 @@
       for (const g of st.ghosts) { if (g.hp <= 0 || !canHit(u, g)) continue; const d = Math.abs(g.L - u.L); if (d < bd) { bd = d; best = g; ghost = true } }   // 멀티: 상대 고스트도 타겟
       return { e: best, d: bd, ghost }
     }
+    // 가장 가까운 지상(비공중) 적과의 거리(타이탄 스톰프/레이저용 — 공중 무시)
+    function nearestGroundEnemy(u) {
+      let bd = Infinity
+      for (const e of st.units) { if (e.side === u.side || e.hp <= 0 || isFlying(e)) continue; const d = Math.abs(e.L - u.L); if (d < bd) bd = d }
+      for (const g of st.ghosts) { if (g.hp <= 0 || isFlying(g)) continue; const d = Math.abs(g.L - u.L); if (d < bd) bd = d }
+      return bd === Infinity ? null : bd
+    }
     // 서포트 유닛 앞쪽(적 방향)에 있는 "가장 가까운 전투 아군"의 L. 없으면 null → 서포트는 그 뒤에서 대기·전진.
     function nearestCombatAllyAhead(u) {
       let best = null
@@ -117,7 +124,14 @@
         while (target.kbList.length && target.hp <= target.kbList[0]) { target.kbList.shift(); bumped = true }
         if (bumped) applyKb(target, false)   // 임계 넉백도 공통 처리(공격 쿨 리셋 포함)
       }
-      if (target.hp <= 0) { target.hp = 0; st.events.push({ type: 'die', uid: target.uid, side: target.side, L: target.L, unit: target.type }) }
+      if (target.hp <= 0) {
+        target.hp = 0; st.events.push({ type: 'die', uid: target.uid, side: target.side, L: target.L, unit: target.type })
+        // 브루드 타이탄 Lv5: 죽을 때 잔해 벽(HP 구조물) 생성 → 몇 초간 라인 저지(소프트 블록). 구조물은 bunits로 상대에게도 방송됨.
+        if (target.type === 'broodTitan' && target.stats && target.stats.deathMound) {
+          const mUid = addStructure({ side: target.side, type: 'moundwall', hp: 140, L: target.L })
+          const mu = st.units.find((x) => x.uid === mUid); if (mu) mu.decayAt = st.t + 8
+        }
+      }
     }
 
     function nearestAllyHurt(u, range) {   // 메딕: 사거리 내 체력 깎인 아군(자기 제외)
@@ -179,6 +193,32 @@
             st.events.push({ type: 'die', uid: u.uid, side: u.side, L: u.L, unit: u.type })
             u.hp = 0; continue
           }
+        } else if (atkType === 'titan') {   // 브루드 타이탄: 근접=스톰프(짓밟기+넉백) / 원거리=땅 긁는 레이저(공중 제외). 근접 우선.
+          const a = u.stats.atk, stompR = a.stompR || 0.055, laserR = a.laserR || 0.22
+          const gd = nearestGroundEnemy(u)   // 가장 가까운 지상 적과의 거리(공중 제외)
+          const es = u.side === 0 ? 1 : 0
+          if ((gd != null && gd <= stompR) || distBase <= stompR) {   // ① 스톰프 존
+            acting = true; u.cdLeft -= dt
+            if (u.cdLeft <= 0) {
+              u.cdLeft = a.stompCd || 1.5
+              const dmg = Math.round((a.stompDmg || 30) * (1 + (u._auraAtk || 0)))
+              for (const e of st.units) if (e.side !== u.side && e.hp > 0 && !isFlying(e) && Math.abs(e.L - u.L) <= stompR) { applyDamage(e, dmg, u.side); applyKb(e, true) }
+              for (const g of st.ghosts) if (g.hp > 0 && !isFlying(g) && Math.abs(g.L - u.L) <= stompR) st.events.push({ type: 'ghosthit', uid: g.uid, dmg, kb: true })
+              if (distBase <= stompR) damageBase(es, dmg)
+              st.events.push({ type: 'hit', by: u.uid, dmg, slamL: u.L, slamR: stompR })   // 스톰프 충격 연출
+            }
+          } else if ((gd != null && gd <= laserR) || distBase <= laserR) {   // ② 레이저 존(스톰프 존 비었을 때만)
+            acting = true; u._laserCd = (u._laserCd || 0) - dt
+            if (u._laserCd <= 0) {
+              u._laserCd = a.laserCd || 2.4
+              const dmg = Math.round((a.laserDmg || 11) * (1 + (u._auraAtk || 0)))
+              const toL = clamp(u.L + u.dir * laserR, 0, 1), lo = Math.min(u.L, toL), hi = Math.max(u.L, toL)
+              for (const e of st.units) if (e.side !== u.side && e.hp > 0 && !isFlying(e) && e.L >= lo && e.L <= hi) applyDamage(e, dmg, u.side)
+              for (const g of st.ghosts) if (g.hp > 0 && !isFlying(g) && g.L >= lo && g.L <= hi) st.events.push({ type: 'ghosthit', uid: g.uid, dmg })
+              if (distBase <= laserR) damageBase(es, Math.round(dmg * 0.6))   // 레이저가 기지도 긁음(소량)
+              st.events.push({ type: 'titanlaser', side: u.side, fromL: u.L, toL })   // 레이저 연출(+연쇄 폭발)
+            }
+          }
         } else if (hasAtk) {
           const isMelee = atkType === 'melee'
           const inTgt = tgt && td <= range
@@ -227,6 +267,8 @@
         if (allowMove) u.L = clamp(u.L + u.dir * u.stats.speed * (cfg.speedScale || 1) * spdMul * dt, 0, 1)
       }
 
+      // 시간 만료 구조물(잔해 벽 등) 소멸
+      for (const u of st.units) if (u.decayAt && st.t >= u.decayAt) u.hp = 0
       // 사망 제거
       st.units = st.units.filter((u) => u.hp > 0)
 
