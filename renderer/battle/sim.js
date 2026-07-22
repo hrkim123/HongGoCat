@@ -256,7 +256,13 @@
         const sumDef = (u.stats && u.stats.summon) || (baseDef && baseDef.summon)
         if (sumDef && u.summonCd != null) {
           u.summonCd -= dt
-          if (u.summonCd <= 0) { u.summonCd = sumDef.every || 4; spawn(u.side, sumDef.unit, { free: true, atL: clamp(u.L + u.dir * 0.03, 0, 1) }) }
+          if (u.summonCd <= 0) {
+            if (sumDef.cap) {   // 생산 상한(여왕=솔져 5마리): 살아있는 자기 생산물만 카운트. 죽어서 미만이 되면 다시 소환.
+              u._brood = (u._brood || []).filter((id) => st.units.some((x) => x.uid === id && x.hp > 0))
+              if (u._brood.length >= sumDef.cap) { u.summonCd = 0.8 }   // 가득참 → 곧 재확인(빈자리 나면 채움)
+              else { u.summonCd = sumDef.every || 4; if (spawn(u.side, sumDef.unit, { free: true, atL: clamp(u.L + u.dir * 0.03, 0, 1) })) { const nu = st.units[st.units.length - 1]; if (nu) u._brood.push(nu.uid) } }
+            } else { u.summonCd = sumDef.every || 4; spawn(u.side, sumDef.unit, { free: true, atL: clamp(u.L + u.dir * 0.03, 0, 1) }) }
+          }
         }
 
         // 이동: 오라 속도 버프 + 감속(slow). 근접 교전/사격 중엔 정지.

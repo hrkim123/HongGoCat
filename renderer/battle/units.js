@@ -111,7 +111,7 @@
       name: '여왕 개미', cat: 'unit', rarity: 'legend', cost: 12, hp: 200,
       speed: 0.06, atk: { type: 'none' }, support: true, kb: 0,
       // 규칙: 본인 전투력이 중요치 않은 유닛(생산·서포트)은 자체 HP를 낮게 → 보호받아야 하는 후방 유닛. (320→200)
-      summon: { unit: 'rifleman', every: 5 }, // 직접 공격 X → 5초마다 라이플 솔저를 바로 앞에 1마리 소환(생산형 결전병기)
+      summon: { unit: 'rifleman', every: 5, cap: 5 }, // 5초마다 라이플 솔저 1마리(직접 공격 X). 최대 5마리 유지(죽으면 재소환)
       art: 'boss', size: 2.0,
     },
     broodTitan: {
@@ -119,7 +119,7 @@
       speed: 0.04, kb: 0,   // 걸어다니는 성벽: 초고 HP·초저속·넉백 면역(강제만)
       // 커스텀 이중 공격(sim에서 titan 타입 처리): 근접=스톰프(짓밟기 광역+넉백), 원거리=땅 긁는 레이저(공중 제외)
       atk: { type: 'titan', stompDmg: 34, stompR: 0.055, stompCd: 1.5, laserDmg: 11, laserR: 0.22, laserCd: 2.4 },
-      summon: { unit: 'ant', every: 4.5 },   // 알주머니: 개미 출산(전진하며 물량 보급)
+      summon: { unit: 'ant', every: 7 },   // 알주머니: 개미 출산(전진하며 물량 보급). 제한 없음 · 속도 완화(4.5→7)
       art: 'broodTitan', size: 2.6,
     },
   }

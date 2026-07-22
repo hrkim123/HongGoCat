@@ -929,7 +929,7 @@
       else if (msg.t === 'bdigreset') { if (battleMulti && msg.to === me.netId && battleActive) resetTaskbarDig(false) }   // 배틀 지형 공유: 상대가 땅 복구
       else if (msg.t === 'bbomber') { if (battleMulti && msg.to === me.netId && battleActive) deployBomber((msg.x || 0) * canvas.clientWidth, true) }   // 상대 폭격 연출 재현(데미지·파임은 별도 릴레이)
       else if (msg.t === 'bcannon') { if (battleMulti && msg.to === me.netId && battleActive) remoteCannonSweep = { at: performance.now() } }   // 상대 베이스 캐논 스윕 연출
-      else if (msg.t === 'btitanlaser') { if (battleMulti && msg.to === me.netId && battleActive) { const W = canvas.clientWidth, fromX = (msg.fx || 0) * W, toX = (msg.tx || 0) * W; titanLasers.push({ fromX, toX, born: performance.now() }); const lo = Math.min(fromX, toX), hi = Math.max(fromX, toX), step = Math.max(1, (hi - lo) / 4); for (let bx = lo; bx <= hi; bx += step) addEffect(bx, taskbarSurfaceY(bx), 1) } }   // 상대 타이탄 레이저 연출
+      else if (msg.t === 'btitanlaser') { if (battleMulti && msg.to === me.netId && battleActive) { const W = canvas.clientWidth; titanLaserFx((msg.fx || 0) * W, (msg.tx || 0) * W) } }   // 상대 타이탄 레이저 연출·파임 동일 재현
       else if (msg.t === 'bnetgrab') { if (battleMulti && msg.to === me.netId && battle) { const u = battle.unitByUid(msg.uid); if (u) { u.netted = true; u.frozenUntil = battle.state.t + 30 } } }   // 내 유닛이 상대 그물에 잡힘 → 정지+숨김(해제/사망은 bghit로)
       else if (msg.t === 'bshot') { if (battleMulti && msg.to === me.netId && battleActive) { const W = canvas.clientWidth, H = canvas.clientHeight; remoteBattleShots.push({ x: msg.x * W, y: msg.y * H, vx: msg.vx * W, vy: msg.vy * H, ay: (msg.ay || 0) * H, kind: msg.k || 'bullet', born: performance.now(), life: msg.life || 1500 }) } }   // 상대 투사체 연출 재현
       else if (msg.t === 'gatling') {
@@ -4164,12 +4164,10 @@
       else if (e.type === 'boom') { const bx = battleLaneX(e.L), by = antGroundY(bx) - 20 * view.scale; addEffect(bx, by, 3); for (let k = 0; k < 12; k++) spawnSpark(bx + (Math.random() - 0.5) * (e.aoeR || 0.05) * canvas.clientWidth, by + (Math.random() - 0.5) * 30 * view.scale); if (inTaskbar(bx, antGroundY(bx))) battleDig(bx, 0.6) }   // 카미카제 자폭
       else if (e.type === 'freeze') { const fx = battleLaneX(e.L), fy = antGroundY(fx) - 22 * view.scale; for (let k = 0; k < 10; k++) spawnSpark(fx + (Math.random() - 0.5) * 30 * view.scale, fy + (Math.random() - 0.5) * 40 * view.scale) }   // 빙결 순간
       else if (e.type === 'knockback') { const kx = battleLaneX(e.L), ky = antGroundY(kx); addEffect(kx, ky - 12 * view.scale, 1); for (let k = 0; k < 4; k++) spawnSpark(kx + (Math.random() - 0.5) * 24 * view.scale, ky - Math.random() * 20 * view.scale) }   // 넉백: 먼지/충격
-      else if (e.type === 'titanlaser') {   // 💠 타이탄 땅 긁는 레이저: 빔+긁힘 띠+작은 연쇄 폭발. 데미지는 sim(ghosthit)로 별도.
+      else if (e.type === 'titanlaser') {   // 💠 타이탄 땅 긁는 레이저: 입 발사 빔 + 자글자글 파임 + 연쇄 폭발. 데미지는 sim(ghosthit)로 별도.
         const fromX = battleLaneX(e.fromL), toX = battleLaneX(e.toL)
-        titanLasers.push({ fromX, toX, born: now })
-        const lo = Math.min(fromX, toX), hi = Math.max(fromX, toX), step = Math.max(1, (hi - lo) / 4)
-        for (let bx = lo; bx <= hi; bx += step) addEffect(bx, taskbarSurfaceY(bx), 1)   // 작은 연쇄 폭발
-        if (battleMulti && connected() && e.side === 0) net.send(JSON.stringify({ t: 'btitanlaser', to: battleMulti.oppId, fx: +(fromX / canvas.clientWidth).toFixed(4), tx: +(toX / canvas.clientWidth).toFixed(4) }))   // 상대 화면 연출 릴레이(공용 절대프레임)
+        titanLaserFx(fromX, toX)
+        if (battleMulti && connected() && e.side === 0) net.send(JSON.stringify({ t: 'btitanlaser', to: battleMulti.oppId, fx: +(fromX / canvas.clientWidth).toFixed(4), tx: +(toX / canvas.clientWidth).toFixed(4) }))   // 상대 화면 연출·파임 동일 재현(공용 절대프레임)
       }
       else if (e.type === 'ghosthit') { if (battleMulti && connected()) net.send(JSON.stringify({ t: 'bghit', to: battleMulti.oppId, uid: e.uid, dmg: e.dmg, slow: e.slow || 0, slowDur: e.slowDur || 0, kb: e.kb ? 1 : 0 })) }   // 멀티: 상대 유닛 피격 릴레이(근접/광역, 넉백 플래그)
       else if (e.type === 'basehit') { if (battleMulti && e.side === 1 && connected()) net.send(JSON.stringify({ t: 'bbhit', to: battleMulti.oppId, dmg: e.dmg })) }   // 멀티: 상대 기지 피격 릴레이(근접)
@@ -4310,20 +4308,27 @@
     ctx.restore()
   }
   // 💠 타이탄 레이저: 포구→땅 빔 + 땅 긁힘 띠(파임 따라감). 연쇄 폭발은 addEffect로 별도.
+  // 레이저 연출+자글자글 파임 공용(owner 이벤트·수신 릴레이 양쪽에서 호출 → 동일). fromX=타이탄 중심, toX=사거리 끝.
+  function titanLaserFx(fromX, toX) {
+    titanLasers.push({ fromX, toX, born: performance.now() })
+    const dir = toX >= fromX ? 1 : -1, startX = fromX + dir * 30 * view.scale   // 자신 조금 앞부터
+    const lo = Math.min(startX, toX), hi = Math.max(startX, toX)
+    for (let bx = lo + 12 * view.scale; bx < hi; bx += Math.max(34 * view.scale, (hi - lo) / 6)) addEffect(bx, taskbarSurfaceY(bx), 1)   // 연쇄 폭발
+    for (let bx = lo; bx <= hi; bx += 13 * view.scale) carveTaskbar(bx, 0.3, false)   // 자글자글 얕은 파임(폭탄식 뭉텅이 X). 양 클라 동일 x 로컬 적용
+  }
   function drawTitanLasers(now) {
     for (let i = titanLasers.length - 1; i >= 0; i--) {
       const t = titanLasers[i], el = now - t.born
-      if (el > 400) { titanLasers.splice(i, 1); continue }
-      const a = Math.max(0, 1 - el / 400), lo = Math.min(t.fromX, t.toX), hi = Math.max(t.fromX, t.toX)
-      const gy0 = taskbarSurfaceY(t.fromX), ex = t.fromX, ey = gy0 - 118 * view.scale
+      if (el > 420) { titanLasers.splice(i, 1); continue }
+      const a = Math.max(0, 1 - el / 420)
+      const dir = t.toX >= t.fromX ? 1 : -1
+      const mouthX = t.fromX + dir * 40 * view.scale, mouthY = taskbarSurfaceY(t.fromX) - 66 * view.scale   // 입(상부 앞)
+      const startX = t.fromX + dir * 30 * view.scale                                                        // 조금 앞 착지
+      const lo = Math.min(startX, t.toX), hi = Math.max(startX, t.toX)
       ctx.save(); ctx.globalAlpha = a; ctx.lineCap = 'round'
-      // 포구→땅 빔
-      ctx.strokeStyle = 'rgba(255,58,110,0.9)'; ctx.lineWidth = 6 * view.scale; ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(t.fromX, gy0); ctx.stroke()
-      // 땅 긁힘 띠(표면 따라)
-      ctx.beginPath(); for (let x = lo; x <= hi; x += 8 * view.scale) { const yy = taskbarSurfaceY(x); x === lo ? ctx.moveTo(x, yy) : ctx.lineTo(x, yy) } ctx.lineTo(hi, taskbarSurfaceY(hi)); ctx.stroke()
-      // 밝은 코어
-      ctx.strokeStyle = 'rgba(255,243,196,0.95)'; ctx.lineWidth = 2.4 * view.scale
-      ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(t.fromX, gy0); for (let x = lo; x <= hi; x += 8 * view.scale) { const yy = taskbarSurfaceY(x); ctx.lineTo(x, yy) } ctx.stroke()
+      const beamPath = (w, col) => { ctx.strokeStyle = col; ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(mouthX, mouthY); ctx.lineTo(startX, taskbarSurfaceY(startX)); for (let x = lo; x <= hi; x += 8 * view.scale) ctx.lineTo(x, taskbarSurfaceY(x)); ctx.lineTo(hi, taskbarSurfaceY(hi)); ctx.stroke() }
+      beamPath(6 * view.scale, 'rgba(255,58,110,0.9)')   // 외곽
+      beamPath(2.4 * view.scale, 'rgba(255,243,196,0.95)')   // 밝은 코어
       ctx.restore()
     }
   }
