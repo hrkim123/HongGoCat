@@ -4106,7 +4106,7 @@
     { const cap = (battle && battle.state.cfg.manaCap) || 30, per = cap / 10; battleHud.querySelectorAll('.bhsegs div').forEach((s, i) => s.style.background = i < Math.floor(mana / per) ? '#4aa3ff' : 'rgba(255,255,255,.14)') }   // 세그먼트 10칸 = 마나캡/10 (맥스 30 → 칸당 3)
     const v = battleHud.querySelector('.bhval'); if (v) v.textContent = `${mana.toFixed(1)}/${battle.state.cfg.manaCap}` + (buff > 0 ? ` ⚡+${buff.toFixed(1)}` : '')
     const mu = battleHud.querySelector('.bhmanaup')   // ⚡ 마나 강화 라벨(레벨/다음 비용/현재 속도)
-    if (mu && battle.manaUpInfo) { const info = battle.manaUpInfo(0); mu.innerHTML = info.maxed ? `⚡ 마나 강화 <b>MAX</b> <span style="opacity:.7">${info.rate.toFixed(1)}/s</span>` : `⚡ 마나 강화 Lv.${info.level} <span style="color:#ffd86b;font-weight:600">💧${info.nextCost}</span> <span style="opacity:.7">→${(({0:0.8,1:1.1,2:1.4,3:1.8,4:2.4})[info.level] || 0)}/s</span>`; mu.style.opacity = (info.maxed || mana >= info.nextCost) ? '1' : '0.5' }
+    if (mu && battle.manaUpInfo) { const info = battle.manaUpInfo(0); mu.innerHTML = info.maxed ? `⚡ 마나 강화 <b>MAX</b> <span style="opacity:.7">${info.rate.toFixed(1)}/s</span>` : `⚡ 마나 강화 Lv.${info.level} <span style="color:#ffd86b;font-weight:600">💧${info.nextCost}</span> <span style="opacity:.7">→${(info.nextRate || 0).toFixed(1)}/s</span>`; mu.style.opacity = (info.maxed || mana >= info.nextCost) ? '1' : '0.5' }
     const nowH = performance.now()
     battleHud.querySelectorAll('.bhunits [data-id]').forEach((b) => {
       const id = b.dataset.id, u = window.BattleData.UNITS[id]

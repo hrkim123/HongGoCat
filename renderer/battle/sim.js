@@ -108,7 +108,7 @@
       const step = MANA_LEVELS[lv]; if (st.mana[side] < step.cost) return false
       st.mana[side] -= step.cost; st.manaLevel[side] = lv + 1; st.manaRate[side] = step.rate; return true
     }
-    function manaUpInfo(side) { const lv = st.manaLevel[side], maxed = lv >= MANA_LEVELS.length; return { level: lv, maxed, nextCost: maxed ? null : MANA_LEVELS[lv].cost, rate: st.manaRate[side] } }
+    function manaUpInfo(side) { const lv = st.manaLevel[side], maxed = lv >= MANA_LEVELS.length; return { level: lv, maxed, nextCost: maxed ? null : MANA_LEVELS[lv].cost, nextRate: maxed ? null : MANA_LEVELS[lv].rate, rate: st.manaRate[side] } }
     function applyDamage(target, dmg, killerSide) {
       if (target.shMax != null) target.shHitAt = st.t   // 피격 → 재충전 타이머 리셋(교전 중 재생 방지)
       // 자동 쉴드: 남아있으면 먼저 흡수
