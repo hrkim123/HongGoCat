@@ -3684,7 +3684,7 @@
     return top + (A.BUBBLE_H + A.DESK_Y) * s
   }
   // 대공 가능 = 원거리(proj/aoe) 공격 유닛. 근접(melee)·자폭(suicide)·힐·무공격은 공중 못 때림([[battle-melee-no-air]]).
-  function battleCanHitAir(u) { const t = u && u.atk && u.atk.type; return t === 'proj' || t === 'aoe' }
+  function battleCanHitAir(u) { const t = u && u.atk && u.atk.type; return t === 'proj' || t === 'aoe' || t === 'suicide' }   // 자폭도 공중 타격 가능(폭발 광역)
   // ── 소환체 디자인별 충돌박스 (스프라이트 로컬 기준: 발밑=0, 위로 h, 좌우 반폭 w). 실제 렌더 스케일을 곱해 사용.
   // 개미 이족 스프라이트는 발~머리(더듬이 포함) ≈ 42, 반폭 ≈ 15. 무기별로 조금씩 다름. 메카/인간은 자체 아트라 화면단위 별도 지정.
   const UNIT_HB_LOCAL = {
@@ -4899,7 +4899,7 @@
       if (udef && udef.summon) { if (!a.prodAt) a.prodAt = now + (udef.summon.every || 5) * 1000; else if (now >= a.prodAt) { a.prodAt = now + (udef.summon.every || 5) * 1000; summonProduce(a, udef.summon.unit) } }
       // 타겟: 적 소환체(원격 ant/gatling/메카/인간) 우선, 없으면 가장 가까운 적 캐릭터.
       // ★ 메카개미·메카인간·인간도 반드시 후보에 포함(예전엔 ant/gatling만 봐서 상대가 메카/인간만 내면 캐릭터로 폴백하던 버그).
-      const isMeleeAtk = (atkType === 'melee' || atkType === 'suicide')
+      const isMeleeAtk = (atkType === 'melee')   // 순수 근접만 공중 불가(자폭은 공중도 타격 → 배회 X)
       const cands = []
       { const e = nearestEnemyAnt(a.x); if (e) cands.push({ x: e.s.x, y: e.s.y, kind: 'rant', pid: e.pid, id: e.s.id, fly: false }) }
       { const e = nearestEnemyGatling(a.x); if (e) cands.push({ x: e.x, y: e.y, kind: 'gat', pid: e.pid, fly: false }) }

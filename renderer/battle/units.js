@@ -119,13 +119,13 @@
   // ── 무기 (cat:'weapon') — 가챠로 획득. 오버레이(재미용)에서도 사용. battle:true = 배틀 덱 가능.
   // 획득은 가챠로 전환(카운트 구매 폐지). starter는 기본 지급. rarity는 docs/battle-mode.md 표.
   const WEAPONS = {
-    missile:   { name: '미사일', cat: 'weapon', rarity: 'common',   starter: true, battle: true, mana: 0.5, merge: true, battleCd: 0.6 }, // 합체 유지(쿨 짧게)
-    shield:    { name: '쉴드',   cat: 'weapon', rarity: 'common', battle: true, mana: 5, battleCd: 12 },   // 배틀: 기지 방어 돔(HP30·10초, 깨지면 근처 적 넉백). 10초 지속 → 재시전 쿨 12
-    net:       { name: '그물',   cat: 'weapon', rarity: 'uncommon', battle: true, mana: 6, battleCd: 6 },   // 배틀: 적 소환체를 최대 5코스트까지 포획, 쌔게 던지면 사망
-    gatling:   { name: '게틀링건', cat: 'weapon', rarity: 'uncommon', battle: true, mana: 7, place: 'base-fixed', aim: 'cursor', battleCd: 12 },   // 구조물 배치 → 연속 배치 방지
-    lightning: { name: '낙뢰',   cat: 'weapon', rarity: 'rare', battleCd: 4 },
+    missile:   { name: '미사일', cat: 'weapon', rarity: 'common',   starter: true, battle: true, mana: 0.5, merge: true }, // 쿨 없음(합체 플레이)
+    shield:    { name: '쉴드',   cat: 'weapon', rarity: 'common', battle: true, mana: 5, battleCd: 10 },   // 배틀: 기지 방어 돔(HP30·10초). 쿨 10초
+    net:       { name: '그물',   cat: 'weapon', rarity: 'uncommon', battle: true, mana: 6 },   // 쿨 없음
+    gatling:   { name: '게틀링건', cat: 'weapon', rarity: 'uncommon', battle: true, mana: 7, place: 'base-fixed', aim: 'cursor', battleCd: 10 },   // 구조물 배치. 쿨 10초
+    lightning: { name: '낙뢰',   cat: 'weapon', rarity: 'rare' },   // 쿨 없음
     blackhole: { name: '블랙홀', cat: 'weapon', rarity: 'legend', battle: true }, // 배틀: 1게임 1회(자체 제한)
-    bomber:    { name: '폭격',   cat: 'weapon', rarity: 'legend', battle: true, mana: 9, battleCd: 8 },   // 배틀: 커서 X부터 오른쪽 30% 범위 5발 순차 투하, 착탄=땅파임+양측 데미지·넉백+5초 불장판(DoT)
+    bomber:    { name: '폭격',   cat: 'weapon', rarity: 'legend', battle: true, mana: 9, battleCd: 20 },   // 배틀: 5발 순차 투하 + 5초 불장판. 쿨 20초
     // (인간은 유닛으로 이동, 아도겐은 인간의 기본 기능으로 편입 — 무기 목록에서 제외)
   }
 

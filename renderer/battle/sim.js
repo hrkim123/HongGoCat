@@ -68,7 +68,7 @@
     // 대상이 공중인가(유닛=stats.flying, 고스트=데이터). 근접/자폭은 공중을 타격/타겟 불가(기본 규칙: 근접은 대공 X).
     function isFlying(e) { return !!(e && (e.flying || (e.stats && e.stats.flying) || (D.UNITS[e.type] && D.UNITS[e.type].flying))) }
     function isMeleeType(u) { const t = u.stats && u.stats.atk && u.stats.atk.type; return t === 'melee' || t === 'suicide' }
-    function canHit(u, e) { return !(isMeleeType(u) && isFlying(e)) }   // 근접→공중 불가
+    function canHit(u, e) { const t = u.stats && u.stats.atk && u.stats.atk.type; return !(t === 'melee' && isFlying(e)) }   // 순수 근접만 공중 불가(자폭은 공중도 타격 가능)
     function nearestEnemy(u) {
       let best = null, bd = Infinity, ghost = false
       for (const e of st.units) { if (e.side === u.side || e.hp <= 0 || !canHit(u, e)) continue; const d = Math.abs(e.L - u.L); if (d < bd) { bd = d; best = e; ghost = false } }
@@ -172,8 +172,8 @@
           const inTgt = tgt && td <= range, inBase = distBase <= Math.max(range, cfg.baseRange)
           if (inTgt || inBase) {
             const aoe = u.stats.atk.aoeR || 0.05, dmg = u.stats.atk.dmg || 1
-            for (const e of st.units) { if (e.side !== u.side && e.hp > 0 && !isFlying(e) && Math.abs(e.L - u.L) <= aoe) applyDamage(e, dmg, u.side) }   // 자폭(근접계)은 공중 미타격
-            for (const g of st.ghosts) { if (g.hp > 0 && !isFlying(g) && Math.abs(g.L - u.L) <= aoe) st.events.push({ type: 'ghosthit', uid: g.uid, dmg }) }   // 멀티: 고스트 광역 피격 릴레이 (자폭=근접계라 공중 미타격 — 솔로와 일치)
+            for (const e of st.units) { if (e.side !== u.side && e.hp > 0 && Math.abs(e.L - u.L) <= aoe) applyDamage(e, dmg, u.side) }   // 자폭은 공중 포함 광역 타격
+            for (const g of st.ghosts) { if (g.hp > 0 && Math.abs(g.L - u.L) <= aoe) st.events.push({ type: 'ghosthit', uid: g.uid, dmg }) }   // 멀티: 고스트 광역 피격 릴레이(공중 포함)
             if (inBase && !inTgt) { const es = u.side === 0 ? 1 : 0; damageBase(es, dmg) }
             st.events.push({ type: 'boom', uid: u.uid, L: u.L, side: u.side, aoeR: aoe })
             st.events.push({ type: 'die', uid: u.uid, side: u.side, L: u.L, unit: u.type })
