@@ -4060,10 +4060,10 @@
     const rb = document.createElement('div'); rb.style.cssText = 'flex:1;text-align:center;padding:8px 2px;border-radius:9px;background:rgba(180,140,90,.14);border:1px solid rgba(180,140,90,.4);color:#e6d3b8;font-size:12px;cursor:pointer;user-select:none'; rb.innerHTML = '🧱 작업표시줄 복구 <span style="color:#ffd86b;font-weight:600">💧1</span>'
     rb.onclick = () => { if (battle && battle.state.mana[0] >= 1) { battle.state.mana[0] -= 1; resetTaskbarDig(false); if (battleMulti && connected() && net) net.send(JSON.stringify({ t: 'bdigreset', to: battleMulti.oppId })); updateBattleHud() } else showToast('마나 부족 (1 필요)') }
     fw.appendChild(rb)
-    // ⚡ 마나 강화(냥코 일꾼레벨): 마나 지불 → 이번 판 충전속도↑
-    const mu = document.createElement('div'); mu.className = 'bhmanaup'; mu.style.cssText = 'flex:1;text-align:center;padding:8px 2px;border-radius:9px;background:rgba(255,210,90,.14);border:1px solid rgba(255,210,90,.4);color:#ffe08a;font-size:11px;cursor:pointer;user-select:none'
+    // ⚡ 마나 강화(냥코 일꾼레벨): 마나 지불 → 이번 판 충전속도↑. 전용 전폭 블록(단계 게이지)
+    const mu = document.createElement('div'); mu.className = 'bhmanaup'; mu.style.cssText = 'margin-top:6px;padding:7px 10px;border-radius:9px;background:rgba(255,210,90,.12);border:1px solid rgba(255,210,90,.4);color:#ffe08a;font-size:11px;cursor:pointer;user-select:none'
     mu.onclick = () => { if (battle && battle.upgradeMana(0)) { updateBattleHud() } else showToast('마나 부족 또는 최대 레벨') }
-    fw.appendChild(mu)
+    fw.after(mu)   // 기능 행(복구/DEV) 아래 전폭으로
     if (isDev) {   // 🛠 개발자 전용: 마나 풀충전(테스트용) — dev 모드에서만 노출
       const mb = document.createElement('div'); mb.style.cssText = 'flex:1;text-align:center;padding:8px 2px;border-radius:9px;background:rgba(74,163,255,.16);border:1px solid rgba(74,163,255,.45);color:#bfe3ff;font-size:12px;cursor:pointer;user-select:none'; mb.innerHTML = '🛠 마나 채우기 <span style="color:#8fd3ff;font-weight:600">DEV</span>'
       mb.onclick = () => { if (battle) { battle.state.mana[0] = battle.state.cfg.manaCap; updateBattleHud(); showToast('🛠 마나 풀충전') } }
@@ -4105,8 +4105,16 @@
     const mana = battle.state.mana[0], buff = battle.state.manaBuff ? (battle.state.manaBuff[0] || 0) : 0
     { const cap = (battle && battle.state.cfg.manaCap) || 30, per = cap / 10; battleHud.querySelectorAll('.bhsegs div').forEach((s, i) => s.style.background = i < Math.floor(mana / per) ? '#4aa3ff' : 'rgba(255,255,255,.14)') }   // 세그먼트 10칸 = 마나캡/10 (맥스 30 → 칸당 3)
     const v = battleHud.querySelector('.bhval'); if (v) v.textContent = `${mana.toFixed(1)}/${battle.state.cfg.manaCap}` + (buff > 0 ? ` ⚡+${buff.toFixed(1)}` : '')
-    const mu = battleHud.querySelector('.bhmanaup')   // ⚡ 마나 강화 라벨(레벨/다음 비용/현재 속도)
-    if (mu && battle.manaUpInfo) { const info = battle.manaUpInfo(0); mu.innerHTML = info.maxed ? `⚡ 마나 강화 <b>MAX</b> <span style="opacity:.7">${info.rate.toFixed(1)}/s</span>` : `⚡ 마나 강화 Lv.${info.level} <span style="color:#ffd86b;font-weight:600">💧${info.nextCost}</span> <span style="opacity:.7">→${(info.nextRate || 0).toFixed(1)}/s</span>`; mu.style.opacity = (info.maxed || mana >= info.nextCost) ? '1' : '0.5' }
+    const mu = battleHud.querySelector('.bhmanaup')   // ⚡ 마나 강화: 단계 게이지 + 현재 속도 + 다음 비용/효과
+    if (mu && battle.manaUpInfo) {
+      const info = battle.manaUpInfo(0), total = 10
+      let segs = ''
+      for (let i = 0; i < total; i++) segs += `<div style="flex:1;height:7px;border-radius:2px;background:${i < info.level ? '#ffcf3a' : 'rgba(255,255,255,.14)'}"></div>`
+      const head = `⚡ 마나 강화 <b>Lv.${info.level}/${total}</b> · 현재 <b style="color:#fff">${info.rate.toFixed(1)}</b>/s`
+      const nextLine = info.maxed ? `<span style="color:#8ff0c8;font-weight:700">MAX</span>` : `다음 <b style="color:#ffd86b">💧${info.nextCost}</b> → <b style="color:#fff">${(info.nextRate || 0).toFixed(1)}</b>/s`
+      mu.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;font-size:10.5px"><span>${head}</span><span>${nextLine}</span></div><div style="display:flex;gap:2px">${segs}</div>`
+      mu.style.opacity = (info.maxed || mana >= info.nextCost) ? '1' : '0.55'
+    }
     const nowH = performance.now()
     battleHud.querySelectorAll('.bhunits [data-id]').forEach((b) => {
       const id = b.dataset.id, u = window.BattleData.UNITS[id]
