@@ -3625,6 +3625,7 @@
   // 기지 터렛(포탑): 각 진영 책상 위, 상대 방향. 내 진영에 근접한 적에게 자동 포물선 포탄(메카 포탄 궤도 재사용, 디자인/폭발은 별도).
   let battleTurretCd = [0, 0], battleTurretAim = [0, 0], battleTurretFire = [0, 0], battleTurretTgtL = [null, null], battleTurretShotAng = [0, 0]
   const TURRET_RANGE = 0.18, TURRET_CD = 2400, TURRET_DMG = 8, TURRET_AOE = 0.05   // 사거리 축소(0.34→0.18) · 저데미지 범위공격(14→8, 반경 0.05 레인)
+  const BATTLE_SHIELD_HP = 30, BATTLE_SHIELD_SEC = 10   // 쉴드 무기 = 기지 방어 돔(HP30·10초). 깨지면 근처 적 맵 중앙 넉백
   const TURRET_INSET = 62   // 포탑을 기지(고양이) 옆 책상 빈 공간(안쪽)으로 들이는 거리(px, view.scale 곱)
   function turretBaseX(side) { const bx = battleLaneX(side === 0 ? 0 : 1); return bx + (side === 0 ? 1 : -1) * TURRET_INSET * view.scale }   // 고양이 옆(상대 쪽)
   let battleSavedCarve, battleSavedBarDmg = 0
@@ -4068,6 +4069,12 @@
       else if (e.type === 'knockback') { const kx = battleLaneX(e.L), ky = antGroundY(kx); addEffect(kx, ky - 12 * view.scale, 1); for (let k = 0; k < 4; k++) spawnSpark(kx + (Math.random() - 0.5) * 24 * view.scale, ky - Math.random() * 20 * view.scale) }   // 넉백: 먼지/충격
       else if (e.type === 'ghosthit') { if (battleMulti && connected()) net.send(JSON.stringify({ t: 'bghit', to: battleMulti.oppId, uid: e.uid, dmg: e.dmg, slow: e.slow || 0, slowDur: e.slowDur || 0, kb: e.kb ? 1 : 0 })) }   // 멀티: 상대 유닛 피격 릴레이(근접/광역, 넉백 플래그)
       else if (e.type === 'basehit') { if (battleMulti && e.side === 1 && connected()) net.send(JSON.stringify({ t: 'bbhit', to: battleMulti.oppId, dmg: e.dmg })) }   // 멀티: 상대 기지 피격 릴레이(근접)
+      else if (e.type === 'baseshieldbreak') {   // 방어 돔 파괴 → 파열 연출(넉백은 sim이 로컬 유닛에 적용)
+        const bx = battleLaneX(e.side), by = battleDeskY()
+        addEffect(bx, by - 34 * view.scale, 4); for (let k = 0; k < 18; k++) spawnSpark(bx + (Math.random() - 0.5) * 150 * view.scale, by - Math.random() * 60 * view.scale)
+        if (e.side === 0) showToast('🛡 방어 돔 파괴 — 근처 적 넉백!')
+        if (battleMulti && e.side === 0 && connected()) for (const g of battleGhosts) { if (g.hp > 0 && g.L < 0.5) net.send(JSON.stringify({ t: 'bghit', to: battleMulti.oppId, uid: g.uid, dmg: 0, slow: 0, slowDur: 0, kb: 1 })) }   // 멀티: 근처 고스트 넉백 릴레이(베스트에포트)
+      }
     }
     // 멀티: 내 유닛 목록 + 기지HP 방송(스로틀 100ms)
     if (battleMulti && connected() && battlePhase === 'playing' && now - bunitsLastSend > 100) {
@@ -4099,6 +4106,14 @@
     ctx.fillStyle = col                  // ▼ 아래를 가리키는 삼각형(유닛 지목)
     ctx.beginPath(); ctx.moveTo(x - w, topY - h); ctx.lineTo(x + w, topY - h); ctx.lineTo(x, topY); ctx.closePath(); ctx.fill()
     ctx.restore()
+  }
+  // 기지 방어 돔(쉴드 무기) — 캐릭터 책상을 덮는 육각 반구. HP 비율로 손상 연출(drawHexDome 재사용).
+  function drawBaseShieldDome(side, now) {
+    if (!battle) return
+    const hp = battle.state.baseShield[side], until = battle.state.baseShieldUntil[side]
+    if (!(hp > 0 && until > battle.state.t)) return
+    const x = battleLaneX(side), cy = battleDeskY()
+    drawHexDome(x, cy, 108 * view.scale, Math.max(0, hp / BATTLE_SHIELD_HP), now, true)
   }
   function drawBattleUnits(now) {
     if (!battle || !window.BattleSprites) return
@@ -4189,6 +4204,7 @@
     drawBattleProj(now)   // 투사체(총알·포탄·에너지·수류탄 등)
     // 기지 HP 바 (양 끝 고양이 위)
     drawBattleBaseHp(battleLaneX(0), 0); drawBattleBaseHp(battleLaneX(1), 1)
+    drawBaseShieldDome(0, now); drawBaseShieldDome(1, now)   // 기지 방어 돔(쉴드 무기)
     drawBattleFX(now)   // 카운트다운 / 승패 연출(화면 중앙)
   }
   function lerpAngle(a, b, t) { let d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return a + d * t }
@@ -4395,7 +4411,7 @@
     // 오버레이 무기 그대로 — 미사일: 캐릭터에서 발사 → 커서 추적 → 합체 → 10합체 핵 → 상대 핵과 만나면 리틀보이
     if (id === 'missile') fireHoming()
     else if (id === 'gatling') deployBattleGatling()   // 배틀: 진영 앞 고정 배치 + 자동 조준 + 구조물화
-    else if (id === 'shield') activateShield()
+    else if (id === 'shield') { if (battle) { battle.activateBaseShield(0, BATTLE_SHIELD_HP, BATTLE_SHIELD_SEC); showToast(`🛡 기지 방어 돔 (${BATTLE_SHIELD_SEC}초·HP${BATTLE_SHIELD_HP})`) } }   // 배틀: 커서 방패 대신 기지 반구 돔
     else if (id === 'net') toggleNetAim()
     else if (id === 'blackhole') activateBlackhole()
     else if (id === 'lightning') fireBolt(cursor.x, cursor.y, 3)   // 배틀에선 즉발(충전 키업 없음)

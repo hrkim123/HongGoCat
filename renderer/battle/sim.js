@@ -29,6 +29,7 @@
       manaRate: [cfg.manaRegen, cfg.manaRegen], manaLevel: [0, 0],   // 마나 강화 레벨/충전속도(판별)
       baseHp: [cfg.baseHp, cfg.baseHp],
       baseHpMax: cfg.baseHp,
+      baseShield: [0, 0], baseShieldUntil: [0, 0],   // 기지 방어 돔(쉴드 무기): HP·만료시각. 활성 중엔 기지 데미지 흡수, 깨지면 넉백 이벤트
       units: [],
       ghosts: [],             // 멀티: 상대(고스트) 유닛 [{uid,type,L,hp}] — 내 유닛의 타겟/이동 기준(데미지는 릴레이)
       winner: null,           // 0 | 1 | null
@@ -169,7 +170,7 @@
             const aoe = u.stats.atk.aoeR || 0.05, dmg = u.stats.atk.dmg || 1
             for (const e of st.units) { if (e.side !== u.side && e.hp > 0 && !isFlying(e) && Math.abs(e.L - u.L) <= aoe) applyDamage(e, dmg, u.side) }   // 자폭(근접계)은 공중 미타격
             for (const g of st.ghosts) { if (g.hp > 0 && Math.abs(g.L - u.L) <= aoe) st.events.push({ type: 'ghosthit', uid: g.uid, dmg }) }   // 멀티: 고스트 광역 피격 릴레이
-            if (inBase && !inTgt) { const es = u.side === 0 ? 1 : 0; st.baseHp[es] = Math.max(0, st.baseHp[es] - dmg); st.events.push({ type: 'basehit', side: es, dmg }) }
+            if (inBase && !inTgt) { const es = u.side === 0 ? 1 : 0; damageBase(es, dmg) }
             st.events.push({ type: 'boom', uid: u.uid, L: u.L, side: u.side, aoeR: aoe })
             st.events.push({ type: 'die', uid: u.uid, side: u.side, L: u.L, unit: u.type })
             u.hp = 0; continue
@@ -193,7 +194,7 @@
                     st.events.push({ type: 'hit', by: u.uid, target: tgt.uid, dmg, slamL: u.L, slamR })
                   } else if (tgtGhost) st.events.push({ type: 'ghosthit', uid: tgt.uid, dmg, kb: kbHit })
                   else { applyDamage(tgt, dmg, u.side); if (kbHit) applyKb(tgt, true); if (stun) tgt.frozenUntil = Math.max(tgt.frozenUntil || 0, st.t + stun); st.events.push({ type: 'hit', by: u.uid, target: tgt.uid, dmg }) }
-                } else { const es = u.side === 0 ? 1 : 0; st.baseHp[es] = Math.max(0, st.baseHp[es] - dmg); st.events.push({ type: 'basehit', side: es, dmg }) }
+                } else { const es = u.side === 0 ? 1 : 0; damageBase(es, dmg) }
               } else {   // 원거리: 실제 투사체 발사(컨트롤러가 처리). ghost=true면 명중 시 릴레이.
                 st.events.push({ type: 'fire', by: u.uid, side: u.side, fromL: u.L, dir: u.dir, dmg, atkType, aoeR: u.stats.atk.aoeR || 0, slow: u.stats.atk.slow || 0, slowDur: u.stats.atk.slowDur || 0, targetUid: inTgt ? tgt.uid : null, toL: inTgt ? tgt.L : (u.side === 0 ? 1 : 0), ghost: !!(inTgt && tgtGhost) })
               }
@@ -262,7 +263,26 @@
         }
       }
     }
-    function hitBase(side, dmg) { st.baseHp[side] = Math.max(0, st.baseHp[side] - dmg) }   // 승패는 step에서 판정
+    // 기지 데미지 단일 경로: 방어 돔(쉴드) 활성 중이면 흡수, 깨지면 넉백. 아니면 baseHp 감소.
+    function damageBase(side, dmg) {
+      if (st.baseShield[side] > 0 && st.baseShieldUntil[side] > st.t) {
+        st.baseShield[side] -= dmg
+        if (st.baseShield[side] <= 0) { st.baseShield[side] = 0; st.baseShieldUntil[side] = 0; st.events.push({ type: 'baseshieldbreak', side }); baseShieldBreakKnockback(side) }
+        return   // 쉴드가 흡수 → 기지 HP 무피해
+      }
+      st.baseHp[side] = Math.max(0, st.baseHp[side] - dmg); st.events.push({ type: 'basehit', side, dmg })
+    }
+    // 돔이 깨질 때: 그 진영 절반(내 쪽)에 들어온 적 소환체를 맵 중앙(L 0.5)까지 크게 넉백 + CC.
+    function baseShieldBreakKnockback(side) {
+      for (const e of st.units) {
+        if (e.side === side || e.hp <= 0) continue
+        const onOurHalf = side === 0 ? e.L < 0.5 : e.L > 0.5
+        if (!onOurHalf) continue
+        e.L = 0.5; applyKb(e, true)
+      }
+    }
+    function activateBaseShield(side, hp, durSec) { st.baseShield[side] = hp; st.baseShieldUntil[side] = st.t + (durSec || 10) }
+    function hitBase(side, dmg) { damageBase(side, dmg) }   // 외부(캐논·릴레이)도 동일 경로(쉴드 반영)
     function unitByUid(uid) { return st.units.find((x) => x.uid === uid) }
     // 정지 구조물(게틀링 등): HP만 갖고 이동0·공격0. 적이 타겟·공격하고 파괴 가능(bunits로 방송돼 멀티도 동일). 발사는 컨트롤러가 처리.
     function addStructure(cfg) {
@@ -274,7 +294,7 @@
       return u.uid
     }
 
-    return { state: st, spawn, step, makeAI, drainEvents, hitUnit, hitBase, unitByUid, setGhosts, upgradeMana, manaUpInfo, addStructure }
+    return { state: st, spawn, step, makeAI, drainEvents, hitUnit, hitBase, unitByUid, setGhosts, upgradeMana, manaUpInfo, addStructure, activateBaseShield }
   }
 
   window.BattleSim = { newBattle }
