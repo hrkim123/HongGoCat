@@ -501,6 +501,12 @@
   // Compares the last-seen version (localStorage) to the current app version; lists every changelog
   // entry between them (first run just shows the current version). Add newest versions at the TOP.
   const CHANGELOG = {
+    '1.0.10': [
+      '멀티 배틀: 소환체가 상대를 못 맞히고 땅으로 쏘던 치명적 버그 수정 — 이제 서로 제대로 교전해요',
+      '카미카제(자폭)가 멀티에서 공중 유닛을 때리던 불일치 수정(솔로와 동일)',
+      '상대 소환체 움직임 더 부드럽게(위치 갱신 2배 + 보간 개선)',
+      '덱 HUD가 좌측 구석 대신 내 진영(내 캐릭터) 위에 뜨도록 변경',
+    ],
     '1.0.9': [
       '자동 업데이트 안정화 — "업데이트 눌러도 조용히 안 되던" 문제 수정(항상 전체 파일 다운로드, 실패 시 안내)',
     ],
