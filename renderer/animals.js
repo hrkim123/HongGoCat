@@ -469,6 +469,9 @@
     ctx.fillStyle = 'rgba(255,255,255,0.28)'; ctx.fillRect(0, deskY, CELL_W, 3)
     ctx.fillStyle = 'rgba(0,0,0,0.10)'; ctx.fillRect(0, deskY + 3, CELL_W, 2)
 
+    // mouseX는 발(paws)에서도 참조 → 항상 선언. 배틀 기지(hideDeskItems)에선 키보드·마우스·파손 "그리기"만 생략(그 자리에 체력 게이지).
+    const mouseX = cx + 74, mj = pM * 2
+    if (!state.hideDeskItems) {
     // keyboard (slightly larger)
     const kbX = cx - 52, kbW = 104, kbY = deskY + 4, kbH = 20
     rr(ctx, kbX, kbY, kbW, kbH, 5); ink(ctx, '#4a4e5a', 2)
@@ -479,7 +482,6 @@
     for (let r = 0; r < rows; r++) for (let k = 0; k < cols; k++) { rr(ctx, kbX + pad + k * (kw + gap), kbY + pad + r * (kh + gap), kw, kh, 1.6); ctx.fill() }
 
     // mouse
-    const mouseX = cx + 74, mj = pM * 2
     ctx.beginPath(); ctx.ellipse(mouseX + mj, deskY + 26, 10, 14, 0, 0, Math.PI * 2); ink(ctx, '#eceef4', 2)
     ctx.strokeStyle = '#c2c5d0'; ctx.lineWidth = 1.1
     ctx.beginPath(); ctx.moveTo(mouseX + mj, deskY + 15); ctx.lineTo(mouseX + mj, deskY + 22); ctx.stroke()
@@ -559,6 +561,7 @@
       }
       ctx.restore()
     }
+    }   // /hideDeskItems (배틀 기지: 키보드·마우스·파손 숨김)
 
     // paws
     const restUp = deskY - 10, kbHit = deskY + 10, mouseHit = deskY + 17
@@ -578,7 +581,7 @@
     }
 
     // nameplate — a small dark plate on the front strip of the desk (readable, off the keyboard)
-    if (state.name) {
+    if (state.name && !state.hideDeskItems) {   // 배틀 기지에선 체력 게이지와 겹치므로 이름표 숨김
       ctx.font = '700 17px "Segoe UI", "Malgun Gothic", sans-serif'
       const tw = ctx.measureText(state.name).width
       const ph = 22, pw = Math.min(168, Math.max(44, tw + 22))

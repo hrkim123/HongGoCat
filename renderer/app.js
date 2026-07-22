@@ -4453,42 +4453,35 @@
   }
   function drawBattleBaseHp(x, side) {
     const sc = Math.max(1, view.scale)
-    const w = 150 * sc, h = 17 * sc, r = h / 2
-    const y = antGroundY(x) - 172 * sc            // 고양이 머리 위로 충분히 올려 겹침 방지
     const max = battle.state.baseHpMax
     const hp = (battleMulti && side === 1) ? battleGhostBase : battle.state.baseHp[side]   // 멀티: 상대 기지 HP는 상대 방송값(권한)
     const f = Math.max(0, hp / max)
     const mine = side === 0
-    const x0 = x - w / 2
-    ctx.save()
-    ctx.font = `bold ${12 * sc}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'
-    // 라벨 배너
-    const label = mine ? '🐱 내 기지' : '😾 상대 기지'
-    ctx.fillStyle = 'rgba(0,0,0,.55)'
-    const lw = ctx.measureText(label).width + 14 * sc
-    roundRect(x - lw / 2, y - 20 * sc, lw, 16 * sc, 5 * sc); ctx.fill()
-    ctx.fillStyle = mine ? '#8ff0c8' : '#ffb499'; ctx.fillText(label, x, y - 8 * sc)
-    // 바 트랙 + 그림자
-    ctx.shadowColor = 'rgba(0,0,0,.5)'; ctx.shadowBlur = 6 * sc; ctx.shadowOffsetY = 2 * sc
-    ctx.fillStyle = 'rgba(14,16,22,.9)'; roundRect(x0, y, w, h, r); ctx.fill()
-    ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0
-    // HP 채움(그라디언트)
+    // ★ 책상 바(키보드/마우스 자리) 위에 게이지 배치 — 머리 위 X(채팅과 겹침 방지)
+    const barTop = battleDeskY(), barH = 54 * view.scale
+    const w = Math.min(138 * view.scale, (CELL_W - 14) * view.scale), h = 20 * view.scale, r = 6 * view.scale
+    const x0 = x - w / 2, y = barTop + (barH - h) / 2
+    const low = f > 0 && f < 0.25
+    const blink = low ? 0.55 + 0.45 * Math.abs(Math.sin(performance.now() / 180)) : 1
+    ctx.save(); ctx.globalAlpha = blink
+    // 트랙
+    ctx.fillStyle = 'rgba(14,16,22,.92)'; roundRect(x0, y, w, h, r); ctx.fill()
+    // HP 채움(진영 색: 내편 초록 / 상대 주황–빨강)
     if (f > 0) {
       const g = ctx.createLinearGradient(x0, y, x0, y + h)
       if (mine) { g.addColorStop(0, '#38e39a'); g.addColorStop(1, '#149e6b') } else { g.addColorStop(0, '#ff8a5c'); g.addColorStop(1, '#d8481f') }
       ctx.save(); roundRect(x0, y, w, h, r); ctx.clip()
       ctx.fillStyle = g; ctx.fillRect(x0, y, w * f, h)
-      ctx.fillStyle = 'rgba(255,255,255,.25)'; ctx.fillRect(x0, y, w * f, h * 0.4)   // 상단 하이라이트
+      ctx.fillStyle = 'rgba(255,255,255,.24)'; ctx.fillRect(x0, y, w * f, h * 0.4)
       ctx.restore()
     }
-    // 눈금(4등분)
-    ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = 1
-    for (let k = 1; k < 4; k++) { const gx = x0 + (w * k) / 4; ctx.beginPath(); ctx.moveTo(gx, y + 2 * sc); ctx.lineTo(gx, y + h - 2 * sc); ctx.stroke() }
-    // 테두리
-    ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 1.5 * sc; roundRect(x0, y, w, h, r); ctx.stroke()
-    // 수치
-    ctx.fillStyle = '#fff'; ctx.font = `bold ${11 * sc}px system-ui`; ctx.textBaseline = 'middle'
-    ctx.fillText(`${Math.ceil(hp)} / ${max}`, x, y + h / 2 + 0.5 * sc)
+    // 테두리(진영 색)
+    ctx.strokeStyle = mine ? 'rgba(140,255,200,.6)' : 'rgba(255,150,120,.6)'; ctx.lineWidth = 1.5 * sc; roundRect(x0, y, w, h, r); ctx.stroke()
+    // 가운데 숫자(검은 외곽선으로 항상 잘 보이게)
+    const txt = `${Math.ceil(hp)} / ${max}`
+    ctx.font = `800 ${12 * sc}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+    ctx.lineWidth = 3 * sc; ctx.strokeStyle = 'rgba(0,0,0,.65)'; ctx.strokeText(txt, x, y + h / 2 + 0.5 * sc)
+    ctx.fillStyle = '#fff'; ctx.fillText(txt, x, y + h / 2 + 0.5 * sc)
     ctx.restore()
   }
   function roundRect(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath() }
@@ -5045,22 +5038,25 @@
       { const psw = platformSweep(px0, py0, p.x, p.y); if (psw) { damagePlatform(psw.pl, p.dmg || 1); addEffect(psw.hx, psw.hy, 1); spawnSpark(psw.hx, psw.hy); summonProj.splice(i, 1); continue } }
       let done = false
       // 적 소환체(원격 ant) 충돌
-      for (const [pid, rec] of remoteAnts) { if (now - rec.ts > 800) continue; for (const e of rec.items.values()) { if (e.dead) continue; const sp = remoteAntScreenPos(pid, e); if (!sp) continue; if (Math.hypot(sp.x - p.x, sp.y - p.y) < (p.aoe || 16 * view.scale)) { done = true; break } } if (done) break }
+      for (const [pid, rec] of remoteAnts) { if (now - rec.ts > 800) continue; for (const e of rec.items.values()) { if (e.dead) continue; const sp = remoteAntScreenPos(pid, e); if (!sp) continue; if (Math.hypot(sp.x - p.x, sp.y - p.y) < 14 * view.scale) { done = true; break } } if (done) break }   // ★ 접촉 트리거(작게) — aoe는 폭발 데미지 전용(예전엔 트리거에 aoe 써서 즉발→투사체 안 보임)
       if (done) {
         if (p.aoe) { for (const [pid2, rec2] of remoteAnts) { for (const e2 of rec2.items.values()) { if (e2.dead) continue; const s2 = remoteAntScreenPos(pid2, e2); if (s2 && Math.hypot(s2.x - p.x, s2.y - p.y) <= p.aoe && connected()) net.send(JSON.stringify({ t: 'ant-hit', target: pid2, ant: e2.id, dmg: p.dmg })) } } addEffect(p.x, p.y, 2) }
         else { for (const [pid, rec] of remoteAnts) { let hit = false; for (const e of rec.items.values()) { if (e.dead) continue; const sp = remoteAntScreenPos(pid, e); if (sp && Math.hypot(sp.x - p.x, sp.y - p.y) < 16 * view.scale) { if (connected()) net.send(JSON.stringify({ t: 'ant-hit', target: pid, ant: e.id, dmg: p.dmg })); hit = true; break } } if (hit) break } spawnSpark(p.x, p.y) }
         summonProj.splice(i, 1); continue
       }
       // 적 소환체(원격 메카/인간) 충돌 — HP 있는 유닛
-      { const rr = (p.aoe || 18 * view.scale), Hc = canvas.clientHeight
+      { const rr = 18 * view.scale, Hc = canvas.clientHeight   // 접촉 트리거(작게)
         for (const [pid, m] of remoteMechas) { if (Math.hypot(m.nx * W - p.x, (m.ny * Hc - 20 * view.scale) - p.y) < rr) { if (connected()) net.send(JSON.stringify({ t: 'mecha-hit', target: pid, dmg: p.dmg })); done = true; break } }
         if (!done) for (const [pid, h] of remoteHumans) { if (Math.hypot(h.nx * W - p.x, (h.ny * Hc - 20 * view.scale) - p.y) < rr) { if (connected()) net.send(JSON.stringify({ t: 'human-hit', target: pid, dmg: p.dmg, hx: +(p.x / W).toFixed(4), hy: +(p.y / Hc).toFixed(4) })); done = true; break } }
       }
       if (done) { p.aoe ? addEffect(p.x, p.y, 2) : spawnSpark(p.x, p.y); summonProj.splice(i, 1); continue }
       // 적 캐릭터(고양이) 충돌 — 체력 없음(피격 번쩍만)
-      for (let ci = 0; ci < catPos.length; ci++) { const cat = allRef[ci], c = catPos[ci]; if (!cat || !c || cat.id === 'me') continue; if (Math.hypot(c.x - p.x, (c.y - 20 * view.scale) - p.y) < (p.aoe || 46 * view.scale)) { applyCatHit(cat, p.dmg, now); done = true; break } }
+      for (let ci = 0; ci < catPos.length; ci++) { const cat = allRef[ci], c = catPos[ci]; if (!cat || !c || cat.id === 'me') continue; if (Math.hypot(c.x - p.x, (c.y - 20 * view.scale) - p.y) < 46 * view.scale) { applyCatHit(cat, p.dmg, now); done = true; break } }
       if (done) { p.aoe ? addEffect(p.x, p.y, 2) : spawnSpark(p.x, p.y); summonProj.splice(i, 1); continue }
-      if (inTaskbar(p.x, p.y)) { addEffect(p.x, p.y, 1); summonProj.splice(i, 1); continue }
+      if (inTaskbar(p.x, p.y)) {   // 착지 — 수류탄(aoe)은 착탄 지점에서 광역 폭발
+        if (p.aoe && connected()) for (const [pid, rec] of remoteAnts) for (const e of rec.items.values()) { if (e.dead) continue; const sp = remoteAntScreenPos(pid, e); if (sp && Math.hypot(sp.x - p.x, sp.y - p.y) <= p.aoe) net.send(JSON.stringify({ t: 'ant-hit', target: pid, ant: e.id, dmg: p.dmg })) }
+        addEffect(p.x, p.y, p.aoe ? 2 : 1); summonProj.splice(i, 1); continue
+      }
       if (now - p.born > p.life || p.x < -30 || p.x > W + 30 || p.y > canvas.clientHeight + 40) summonProj.splice(i, 1)
     }
   }
@@ -5995,6 +5991,7 @@
       if (p.id !== 'me') ctx.globalAlpha = peerAlpha(p.id)   // 👁 dim THIS opponent on my screen
       ctx.translate(origins[i].x, origins[i].y)
       ctx.scale(scale, scale)
+      p.hideDeskItems = battleActive   // 배틀 중 내 기지: 책상 키보드·마우스·이름표 숨김(그 자리에 체력 게이지)
       window.AnimalArt.draw(ctx, p.animal, p, now)
       ctx.restore()
       if (p.id !== 'me' && p.taps != null) { ctx.save(); ctx.globalAlpha = peerAlpha(p.id); drawPeerCount(origins[i], p.taps); ctx.restore() }   // peer's counter (dims with 👁)
@@ -6003,6 +6000,7 @@
     if (battleActive && battleOpp) {   // 상대 고양이(우측 끝) — 솔로는 AI 더미
       const by = Math.max(0, usableBottom() - (CELL_H * scale + BAR_SPACE))
       const bx = Math.min(cW - CELL_W * scale - 4, battleLaneX(1) - CELL_W / 2 * scale)
+      battleOpp.hideDeskItems = true   // 상대 기지도 키보드·마우스·이름표 숨김
       ctx.save(); ctx.translate(bx, by); ctx.scale(scale, scale); window.AnimalArt.draw(ctx, 'cat', battleOpp, now); ctx.restore()
     }
 
