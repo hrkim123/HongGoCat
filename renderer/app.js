@@ -1408,7 +1408,7 @@
     else if (id === 'lightning') lightningPress()   // (release handled via fire-slot key-up)
     else if (id === 'net') toggleNetAim()
     else if (id === 'bomber') deployBomber()   // 💣 폭격: 커서 X부터 오른쪽 순차 투하
-    else if (window.BattleSprites && window.BattleSprites.has(id)) summonSpriteUnit(id)   // 신규 소환체(라이플병 등) — 커서에 소환(체력·충돌 ants 시스템 재사용)
+    else if (id === 'broodTitan' || (window.BattleSprites && window.BattleSprites.has(id))) summonSpriteUnit(id)   // 신규 소환체(라이플병·타이탄 등) — 커서에 소환(체력·충돌 ants 재사용). 타이탄은 스프라이트 없이 커스텀 렌더
     // future: else if (id === 'rock') fireRock() ...
   }
 
