@@ -91,8 +91,8 @@
       speed: 0.16, atk: { type: 'proj', dmg: 6, range: 0.16, cd: 1.0 }, flying: true, art: 'drone', size: 1.0, // 공중 견제(6dps, 사거리 0.22→0.16)
     },
     freezer: {
-      name: '얼음 개미', cat: 'unit', rarity: 'rare', cost: 3, hp: 28,
-      speed: 0.11, atk: { type: 'proj', dmg: 4, range: 0.16, cd: 1.4, slow: 0.5, slowDur: 2 }, art: 'freezer', size: 1.0, // 저뎀+50% 감속 유틸(사거리 0.22→0.16)
+      name: '얼음 개미', cat: 'unit', rarity: 'rare', cost: 3, hp: 40,
+      speed: 0.11, atk: { type: 'aoe', dmg: 6, range: 0.16, cd: 1.5, aoeR: 0.05, slow: 0.55, slowDur: 2.2 }, art: 'freezer', size: 1.0, // 군집 컨트롤러: 광역 서리(범위 전원 55% 감속) — 뭉친 물량을 통째로 늦추고 빙결(3스택)
     },
     worker: {
       name: '망치 개미', cat: 'unit', rarity: 'uncommon', cost: 3, hp: 62,
@@ -115,13 +115,36 @@
       art: 'boss', size: 2.0,
     },
     broodTitan: {
-      name: '브루드 타이탄', cat: 'unit', rarity: 'legend', cost: 25, hp: 300,
+      name: '브루드 타이탄', cat: 'unit', rarity: 'legend', cost: 30, hp: 300,
       speed: 0.04, kb: 0,   // 걸어다니는 성벽: 고 HP·초저속·넉백 면역(강제만). (사기 밸런스 → 600→300)
       // 커스텀 이중 공격(sim에서 titan 타입 처리): 근접=스톰프(짓밟기 광역+넉백), 원거리=땅 긁는 레이저(공중 제외)
       // 레이저는 대공 가능(공중 유닛 사격) · 스톰프는 지상 근접
       atk: { type: 'titan', stompDmg: 34, stompR: 0.055, stompCd: 1.5, laserDmg: 11, laserR: 0.22, laserCd: 6.0, laserAir: true },
       summon: { unit: 'kamikaze', every: 5.5 },   // 알주머니: 폭탄개미(카미카제) 출산 — 전진 자폭 물량. 제한 없음 · 간격 5.5초
       art: 'broodTitan', size: 3.9,   // 코스트값 하는 거대 크기(2.6→3.9, ×1.5)
+    },
+    // ── 공중 축 확장 (대공 픽률 근거) ──
+    bomberMoth: {
+      name: '폭격 나방', cat: 'unit', rarity: 'rare', cost: 6, hp: 70,
+      speed: 0.09, atk: { type: 'aoe', dmg: 14, range: 0.11, cd: 1.7, aoeR: 0.05, strafe: true }, kb: 1,
+      flying: true, art: 'bomberMoth', size: 1.5, // strafe: 멈추지 않고 기지로 전진하며 지나가는 길에 폭탄 투하(지상 유닛+기지). 근접이 못 건드림 → 대공으로만 저지(안티-거북이 공성)
+    },
+    skySwarm: {
+      name: '나방 떼', cat: 'unit', rarity: 'uncommon', cost: 5, hp: 24,
+      speed: 0.17, atk: { type: 'proj', dmg: 4, range: 0.10, cd: 0.9 }, kb: 0,
+      flying: true, swarm: 3, art: 'skySwarm', size: 0.85, // 1회 소환에 저HP 공중 3마리. 광역 대공 강제(공중 물량)
+    },
+    // ── 지상 스웜 ──
+    spiderling: {
+      name: '새끼거미 떼', cat: 'unit', rarity: 'uncommon', cost: 3, hp: 16,
+      speed: 0.28, atk: { type: 'melee', dmg: 3, range: 0.02, cd: 0.6 }, kb: 0,
+      swarm: 4, art: 'spiderling', size: 0.85, // 1회 소환에 저HP 지상 4마리, 고속. 물량 라인 유지. 광역에 약(카운터 존재)
+    },
+    // ── 대공 전문(요격 미사일) ──
+    flakAnt: {
+      name: '대공포 개미', cat: 'unit', rarity: 'rare', cost: 4, hp: 46,
+      speed: 0.11, atk: { type: 'antiair', dmg: 6, range: 0.17, cd: 1.8, salvo: 3, airOnly: true }, kb: 1,
+      art: 'flakAnt', size: 1.1, // 공대공 전용(지상·기지 공격 불가) — 유도 요격 미사일 살보. 공중엔 확실한 카운터, 지상엔 무력(보호 필요)
     },
   }
 
@@ -132,9 +155,9 @@
     shield:    { name: '쉴드',   cat: 'weapon', rarity: 'common', battle: true, mana: 5, battleCd: 10 },   // 배틀: 기지 방어 돔(HP30·10초). 쿨 10초
     net:       { name: '그물',   cat: 'weapon', rarity: 'uncommon', battle: true, mana: 6 },   // 쿨 없음
     gatling:   { name: '게틀링건', cat: 'weapon', rarity: 'uncommon', battle: true, mana: 7, place: 'base-fixed', aim: 'cursor', battleCd: 10 },   // 구조물 배치. 쿨 10초
-    lightning: { name: '낙뢰',   cat: 'weapon', rarity: 'rare' },   // 쿨 없음
-    blackhole: { name: '블랙홀', cat: 'weapon', rarity: 'legend', battle: true }, // 배틀: 1게임 1회(자체 제한)
-    bomber:    { name: '폭격',   cat: 'weapon', rarity: 'legend', battle: true, mana: 9, battleCd: 20 },   // 배틀: 5발 순차 투하 + 5초 불장판. 쿨 20초
+    lightning: { name: '낙뢰',   cat: 'weapon', rarity: 'rare', battle: true, mana: 5, battleCd: 4 },   // 배틀: 즉발 컬럼 낙뢰(지상+공중 관통 AoE + 스턴). 마나 5·쿨 4초
+    blackhole: { name: '블랙홀', cat: 'weapon', rarity: 'legend', battle: true, mana: 20 }, // 배틀: 마나 20, 1게임 1회(자체 제한). 캐릭터 제외 모든 유닛 흡입
+    bomber:    { name: '폭격',   cat: 'weapon', rarity: 'legend', battle: true, mana: 9, battleCd: 60 },   // 배틀: 5발 순차 투하 + 5초 불장판. 쿨 60초(배틀서 워낙 강해 상향)
     // (인간은 유닛으로 이동, 아도겐은 인간의 기본 기능으로 편입 — 무기 목록에서 제외)
   }
 

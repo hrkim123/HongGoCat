@@ -40,12 +40,16 @@
     kamikaze:   { kind: 'unit', hpPer: 0.08, dmgPer: 0.12, gimmick: { at: 5, gk: 'aoe14', text: '자폭 범위·위력↑(×1.4)' } },
     medic:      { kind: 'unit', hpPer: 0.08, healPer: 0.14, gimmick: { at: 5, gk: 'healAoe', text: '범위 힐(주변 아군 동시)' } },
     drone:      { kind: 'unit', hpPer: 0.08, dmgPer: 0.10, gimmick: { at: 5, gk: 'burst2', text: '2연발' } },
-    freezer:    { kind: 'unit', hpPer: 0.08, slowPer: 0.06, gimmick: { at: 5, gk: 'slow75', text: '강력 둔화(50→75%)' } },
+    freezer:    { kind: 'unit', hpPer: 0.08, slowPer: 0.06, gimmick: { at: 5, gk: 'slow75', text: '강력 광역 둔화(55→75%)' } },
     worker:     { kind: 'unit', hpPer: 0.10, aoePer: 0.06, gimmick: { at: 5, gk: 'stun', text: '슬램 명중 시 0.4초 스턴' } },
     commander:  { kind: 'unit', hpPer: 0.08, dmgPer: 0.08, gimmick: { at: 5, gk: 'auraUp', text: '오라 강화(+20→+35%)·범위↑' } },
     sniper:     { kind: 'unit', dmgPer: 0.12, gimmick: { at: 5, gk: 'range40', text: '초장거리 +40%' } },
     boss:       { kind: 'unit', hpPer: 0.10, gimmick: { at: 5, gk: 'summon3', text: '소환 간격 5→3초' } },
     broodTitan: { kind: 'unit', hpPer: 0.10, dmgPer: 0.09, gimmick: { at: 5, gk: 'deathMound', text: '죽을 때 잔해 벽 생성(라인 저지)' } },
+    bomberMoth: { kind: 'unit', hpPer: 0.09, dmgPer: 0.10, gimmick: { at: 5, gk: 'aoe15', text: '폭탄 폭발 범위 대폭↑(×1.5)' } },
+    skySwarm:   { kind: 'unit', hpPer: 0.08, dmgPer: 0.08, gimmick: { at: 5, gk: 'swarm1', text: '무리 +1마리(3→4)' } },
+    spiderling: { kind: 'unit', hpPer: 0.08, dmgPer: 0.10, gimmick: { at: 5, gk: 'swarm1', text: '무리 +1마리(4→5)' } },
+    flakAnt:    { kind: 'unit', hpPer: 0.08, dmgPer: 0.10, gimmick: { at: 5, gk: 'airStun', text: '공중 명중 시 낙하 스턴(격추)' } },
     // ── 무기 ────────────────────────────────────────────────────────────────
     missile:    { kind: 'weapon', dmgPer: 0.10, gimmick: { at: 5, text: '합체 임계 완화(핵 쉬움)' }, note: 'Lv3·5 동시발사 +1' },
     gatling:    { kind: 'weapon', dmgPer: 0.08, ratePer: 0.05, gimmick: { at: 5, text: '관통 +1' } },
@@ -95,6 +99,8 @@
     if (base.aura) out.aura = Object.assign({}, base.aura)
     // 생산(여왕)
     if (base.summon) out.summon = Object.assign({}, base.summon)
+    // 스웜(다물량 소환 유닛): 기본 마릿수. Lv5 swarm1이면 +1
+    if (base.swarm) out.swarm = base.swarm
 
     // ── Lv5 기믹 ──
     const gk = (sp.gimmick && lv >= sp.gimmick.at) ? sp.gimmick.gk : null
@@ -116,6 +122,8 @@
     else if (gk === 'auraUp' && out.aura) { out.aura.atk = 0.35; out.aura.speed = 0.35; out.aura.range = +(out.aura.range * 1.3).toFixed(4) }
     else if (gk === 'summon3' && out.summon) out.summon.every = 3
     else if (gk === 'deathMound') out.deathMound = true   // 타이탄: 죽을 때 잔해 벽
+    else if (gk === 'swarm1') out.swarm = (out.swarm || base.swarm || 1) + 1   // 스웜: 무리 +1마리
+    else if (gk === 'airStun') a.airStun = true   // 대공포: 공중 명중 시 낙하 스턴
     return out
   }
 

@@ -11,12 +11,11 @@
   const DEFAULTS = { baseHp: 300, manaCap: 30, manaRegen: 0.3, baseRange: 0.03, speedScale: 1 }   // 기지 HP 300, 맥스 마나 30(고코스트 결전 유닛 대응), 기본 충전 0.3/s
   const KB_DUR = 0.30, KB_BACK = 0.09, KB_CD = 0.7   // 넉백: 0.30초간 살짝 뒤로(냥코풍 짧은 홉) + 재넉백 최소 간격 0.7s(락 방지)
   // 마나 강화(냥코 일꾼레벨): 마나 지불→이번 판 충전속도↑(판 끝나면 초기화). 기본 0.5/s, 강화 체감 소폭 상향.
-  // 마나 강화 10단계. rate = 그 단계의 초당 마나(누적 아님). 노업(0단계)=0.3.
-  // ⚖ "마나 풀업=무조건 승리" 지배메타 완화: 상위 단계 비용을 급증시키고 최종 상한을 낮춤(2.2, 이전 3.1).
-  //   (총 132, 이전 60) → 상위 강화는 마나를 캡 근처까지 은행처럼 모아야 해서(=군대 없음) 러시에 노출되는 "탐욕 처벌 창"이 생긴다.
+  // 마나 강화 5단계. rate = 그 단계의 초당 마나(누적 아님). 노업(0단계)=0.3.
+  // ⚖ "마나 풀업=무조건 승리" 완화: 상위 단계 비용 급증(총 70)·최종 상한 1.8(3.1→2.2→1.8, 컴백 1.5보단 위로 유지해 경제 투자 가치 보존).
+  //   상위 강화는 마나를 캡(30) 근처까지 은행처럼 모아야 해서(=군대 없음) 러시에 노출되는 "탐욕 처벌 창"이 생긴다.
   const MANA_LEVELS = [
-    { cost: 3, rate: 0.5 }, { cost: 4, rate: 0.65 }, { cost: 6, rate: 0.8 }, { cost: 8, rate: 0.95 }, { cost: 11, rate: 1.1 },
-    { cost: 14, rate: 1.25 }, { cost: 17, rate: 1.45 }, { cost: 20, rate: 1.65 }, { cost: 23, rate: 1.9 }, { cost: 26, rate: 2.2 },
+    { cost: 4, rate: 0.5 }, { cost: 8, rate: 0.75 }, { cost: 13, rate: 1.05 }, { cost: 19, rate: 1.4 }, { cost: 26, rate: 1.8 },
   ]
 
   function baseStatsFor(type) {   // 업그레이드 미반영 원본 스탯(생산형이 뽑는 소환체용 — 플레이어 강화 영향 X)
@@ -69,9 +68,10 @@
       u.kbList = []; for (let k = kb; k >= 1; k--) u.kbList.push(hp * k / (kb + 1))
       st.units.push(u)
       st.events.push({ type: 'spawn', uid: u.uid, side, unit: type })
-      // Lv5 기믹 물량(개미): 같은 코스트로 추가 1기(무료). 약간 뒤(같은 진영 방향)에 소환.
-      if (s.spawnCount > 1 && !(opts && opts._extra)) {
-        for (let k = 1; k < s.spawnCount; k++) spawn(side, type, { free: true, _extra: true, atL: clamp(startL - u.dir * 0.02 * k, 0, 1) })
+      // 다물량 소환: swarm(스웜 유닛 기본 다수) 또는 spawnCount(개미 Lv5 기믹) 중 큰 값만큼 동시 소환.
+      const multi = (opts && opts._extra) ? 1 : Math.max(s.spawnCount || 1, s.swarm || 1)
+      if (multi > 1) {
+        for (let k = 1; k < multi; k++) spawn(side, type, { free: true, _extra: true, base: !!(opts && opts.base), atL: clamp(startL - u.dir * 0.02 * k, 0, 1) })
       }
       return true
     }
@@ -126,7 +126,7 @@
       const step = MANA_LEVELS[lv]; if (st.mana[side] < step.cost) return false
       st.mana[side] -= step.cost; st.manaLevel[side] = lv + 1; st.manaRate[side] = step.rate; return true
     }
-    function manaUpInfo(side) { const lv = st.manaLevel[side], maxed = lv >= MANA_LEVELS.length; return { level: lv, maxed, nextCost: maxed ? null : MANA_LEVELS[lv].cost, nextRate: maxed ? null : MANA_LEVELS[lv].rate, rate: st.manaRate[side] } }
+    function manaUpInfo(side) { const lv = st.manaLevel[side], maxed = lv >= MANA_LEVELS.length; return { level: lv, max: MANA_LEVELS.length, maxed, nextCost: maxed ? null : MANA_LEVELS[lv].cost, nextRate: maxed ? null : MANA_LEVELS[lv].rate, rate: st.manaRate[side] } }
     function applyDamage(target, dmg, killerSide) {
       if (target.shMax != null) target.shHitAt = st.t   // 피격 → 재충전 타이머 리셋(교전 중 재생 방지)
       // 자동 쉴드: 남아있으면 먼저 흡수
@@ -244,6 +244,18 @@
               st.events.push({ type: 'titanlaser', side: u.side, fromL: u.L, toL })   // 레이저 연출(+연쇄 폭발)
             }
           }
+        } else if (atkType === 'antiair') {   // 대공포: 공중 적만 공격(지상·기지 완전 불가). 사거리 내 비행 적에 유도 요격 미사일 살보.
+          let ft = null, ftGhost = false, bd = Infinity
+          for (const e of st.units) { if (e.side === u.side || e.hp <= 0 || !isFlying(e)) continue; const d = Math.abs(e.L - u.L); if (d <= range && d < bd) { bd = d; ft = e; ftGhost = false } }
+          for (const g of st.ghosts) { if (g.hp <= 0 || !isFlying(g)) continue; const d = Math.abs(g.L - u.L); if (d <= range && d < bd) { bd = d; ft = g; ftGhost = true } }
+          if (ft) {
+            acting = true; u.cdLeft -= dt
+            if (u.cdLeft <= 0) {
+              u.cdLeft = u.stats.atk.cd || 1.8
+              const dmg = Math.round((u.stats.atk.dmg || 6) * (1 + (u._auraAtk || 0)))
+              st.events.push({ type: 'fire', by: u.uid, side: u.side, fromL: u.L, dir: u.dir, dmg, atkType: 'antiair', salvo: u.stats.atk.salvo || 3, airStun: !!u.stats.atk.airStun, targetUid: ft.uid, toL: ft.L, ghost: ftGhost })
+            }
+          }
         } else if (hasAtk) {
           const isMelee = atkType === 'melee'
           const inTgt = tgt && td <= range
@@ -290,7 +302,8 @@
         const blocked = tgt && td <= Math.max(range, 0.02)
         const slowMul = (u.slowUntil && u.slowUntil > st.t) ? (u.slowMul || 1) : 1
         const spdMul = (1 + (u._auraSpd || 0)) * slowMul
-        let allowMove = !acting && !blocked
+        const strafe = !!(u.stats.atk && u.stats.atk.strafe)   // 이동식 폭격기(폭격 나방): 멈추지 않고 기지로 전진하며 사격
+        let allowMove = strafe || (!acting && !blocked)
         if (allowMove && baseDef && baseDef.support) {   // 서포트: 앞선 전투 아군을 추월하지 않고 뒤에서 대기·전진
           const frontL = nearestCombatAllyAhead(u)
           if (frontL != null) { const gap = 0.05, limit = u.side === 0 ? frontL - gap : frontL + gap; if (u.side === 0 ? u.L >= limit : u.L <= limit) allowMove = false }
@@ -336,7 +349,7 @@
         if (!(u.freezeImmuneUntil && u.freezeImmuneUntil > st.t)) {
           if (u.slowStackAt == null || st.t - u.slowStackAt > (slowDur || 2) + 0.5) u.slowStacks = 0   // 누적 창 밖이면 리셋
           u.slowStacks = (u.slowStacks || 0) + 1; u.slowStackAt = st.t
-          if (u.slowStacks >= 5) { u.frozenUntil = st.t + 2; u.slowStacks = 0; u.freezeImmuneUntil = st.t + 2 + 10; st.events.push({ type: 'freeze', uid: u.uid, L: u.L, side: u.side }) }
+          if (u.slowStacks >= 3) { u.frozenUntil = st.t + 2; u.slowStacks = 0; u.freezeImmuneUntil = st.t + 2 + 10; st.events.push({ type: 'freeze', uid: u.uid, L: u.L, side: u.side }) }   // 5→3: 광역 서리로 군집에 스택 빨리 쌓여 실제로 빙결
         }
       }
     }

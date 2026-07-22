@@ -427,7 +427,6 @@
       const slotHtml = (id, kind) => id
         ? `<div class="bg-slot filled ${kind === 'w' ? 'wslot' : ''}" title="${(D.UNITS[id] || D.WEAPONS[id]).name}">${iconFor(id, 34)}<button class="rm" data-rm="${id}">✕</button></div>`
         : `<div class="bg-slot ${kind === 'w' ? 'wslot' : ''}"></div>`
-      const front = unitSlots.slice(0, 5), back = unitSlots.slice(5, 10)
       const catBtns = [['unit', '🐜 소환체'], ['weapon', '⚔ 무기']]
         .map(([k, n]) => `<button class="bg-fbtn ${fCat === k ? 'on' : ''}" data-fc="${k}">${n}</button>`).join('')
       const rarBtns = [['all', '전체'], ['common', '일반'], ['uncommon', '고급'], ['rare', '희귀'], ['legend', '전설']]
@@ -449,10 +448,8 @@
 
       body.innerHTML = `
         <div class="bg-deck"><h4>배틀 덱 — 소환체 ${deck.units.length}/${lim.units} · 무기 ${deck.weapons.length}/${lim.weapons}</h4>
-          <div class="bg-dsub">🐜 소환체 · 앞줄(활성)</div>
-          <div class="bg-slots" style="margin-bottom:5px">${front.map((id) => slotHtml(id, 'u')).join('')}</div>
-          <div class="bg-dsub">🐜 소환체 · 뒷줄(벤치 — 배틀 중 스왑)</div>
-          <div class="bg-slots" style="margin-bottom:8px">${back.map((id) => slotHtml(id, 'u')).join('')}</div>
+          <div class="bg-dsub">🐜 소환체 (${lim.units}칸 — 배틀 중 이 6장을 바로 소환)</div>
+          <div class="bg-slots" style="margin-bottom:8px">${unitSlots.map((id) => slotHtml(id, 'u')).join('')}</div>
           <div class="bg-wbox"><div class="bg-dsub" style="color:#9fd3ff">⚔ 무기</div>
           <div class="bg-slots">${wpnSlots.map((id) => slotHtml(id, 'w')).join('')}</div></div>
         </div>

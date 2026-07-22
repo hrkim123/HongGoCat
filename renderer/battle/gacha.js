@@ -9,7 +9,7 @@
   if (!window.BattleData) { console.error('[battle/gacha] BattleData(units.js) 먼저 로드 필요'); return }
   const D = window.BattleData
   const K = { gems: 'hgbattle.gems', mat: 'hgbattle.mat', owned: 'hgbattle.owned', lvl: 'hgbattle.lvl', deck: 'hgbattle.deck' }
-  const DECK_UNITS = 10, DECK_WEAPONS = 2   // 소환체 최대 10(배틀 HUD: 앞 5 활성 + 뒤 5 벤치 스왑)
+  const DECK_UNITS = 6, DECK_WEAPONS = 2   // 소환체 최대 6(벤치·스왑 없음, HUD에 6장 전부 노출). 10→6: 잘라내기 강제 → 덱 정체성
   const DECK_MIN_UNITS = 3, DECK_MIN_WEAPONS = 1   // 배틀 참여 최소 조건
 
   function loadNum(k) { const n = parseInt(localStorage.getItem(k) || '0', 10); return Number.isFinite(n) ? n : 0 }
@@ -22,7 +22,7 @@
   let deck = loadDeck()          // { units:[ids], weapons:[ids] }
 
   function loadDeck() {
-    try { const d = JSON.parse(localStorage.getItem(K.deck) || 'null'); if (d && Array.isArray(d.units) && Array.isArray(d.weapons)) return d } catch {}
+    try { const d = JSON.parse(localStorage.getItem(K.deck) || 'null'); if (d && Array.isArray(d.units) && Array.isArray(d.weapons)) return { units: d.units.slice(0, DECK_UNITS), weapons: d.weapons.slice(0, DECK_WEAPONS) } } catch {}   // 예전 10칸 덱은 새 한도로 잘라 로드
     return { units: [], weapons: [] }
   }
 

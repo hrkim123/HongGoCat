@@ -93,9 +93,13 @@
   }
   function drawDrone(c, o) {   // 말벌 드론(공중) — 다리 X. 둥근 몸통 + 파닥이는 작은 날개 + 침. 이동 시 빠르게 파닥.
     const ph = o.t || 0, cy = -12 + Math.sin(ph * 3) * 1.5   // 몸통 중심(상하 부유)
-    const fq = o.state === 'idle' ? 10 : 30, flap = Math.abs(Math.sin(ph * fq))   // 이동/공격 시 빠른 파닥
-    c.save(); c.globalAlpha = 0.55; c.fillStyle = '#dff4ff'   // 날개(반투명, 파닥)
-    for (const sgn of [-1, 1]) { c.save(); c.translate(sgn * 3, cy - 6); c.rotate(sgn * (0.35 + flap * 0.75)); ell(c, sgn * 6, 0, 9, 3.2, 0); c.restore() }
+    const fq = o.state === 'idle' ? 16 : 36, beat = Math.sin(ph * fq)   // 위·아래 양방향 파닥(자연스럽게)
+    c.save(); c.strokeStyle = '#bfe6ff'; c.lineWidth = 0.6
+    for (const [off, a] of [[0.07, 0.32], [-0.07, 0.62]]) {   // 뒤(흐림)·앞(밝음) 두 겹 = 빠른 날갯짓 잔상
+      c.globalAlpha = a; c.fillStyle = '#dff4ff'
+      c.save(); c.translate(2, cy - 5); c.rotate(0.2 + beat * 0.75 + off)
+      c.beginPath(); c.ellipse(-7, 0, 9.5, 3.3, 0, 0, TAU); c.fill(); c.stroke(); c.restore()
+    }
     c.restore()
     c.fillStyle = '#2a2114'; c.beginPath(); c.moveTo(-12, cy + 2); c.lineTo(-18, cy + 4); c.lineTo(-12, cy - 1); c.closePath(); c.fill()   // 침(꼬리)
     c.fillStyle = '#e0a72a'; ell(c, -6, cy + 1, 9, 7, 0)   // 둥근 복부
@@ -161,6 +165,89 @@
     c.fillStyle = '#e24b6a'; circ(c, 6, -41, 1.1)
     c.restore()
   }
+  function drawBomberMoth(c, o) {   // 폭격 나방(공중) — 넓은 나방 날개 + 아래 매단 폭탄. 지상/기지 폭격기. 드론(말벌)과 실루엣 구분.
+    const ph = o.t || 0, cy = -14 + Math.sin(ph * 2.4) * 1.8
+    const atk = o.state === 'attack'
+    const wingUp = 0.5 + Math.sin(ph * (o.state === 'idle' ? 5 : 12)) * 0.5
+    function wing(sgn, bright) {
+      c.save(); c.translate(2, cy); c.rotate(sgn * (0.5 + wingUp * 0.6))
+      c.globalAlpha = bright ? 0.92 : 0.6
+      c.fillStyle = '#b3a4d0'; c.strokeStyle = '#6e5f96'; c.lineWidth = 1.4
+      c.beginPath(); c.moveTo(0, 0); c.quadraticCurveTo(-22, sgn * 4, -26, sgn * 17); c.quadraticCurveTo(-11, sgn * 16, 0, 0); c.closePath(); c.fill(); c.stroke()
+      c.fillStyle = '#3a2f52'; circ(c, -16, sgn * 11, 3.2); c.fillStyle = '#e6d9ff'; circ(c, -16, sgn * 11, 1.3)
+      c.restore()
+    }
+    wing(-1, false); wing(1, false)   // 뒤 날개(흐리게)
+    c.globalAlpha = 1
+    c.fillStyle = '#6a577e'; ell(c, -6, cy, 8, 5)   // 복부(솜털)
+    c.strokeStyle = '#47385c'; c.lineWidth = 0.9; for (const dx of [-9, -6, -3]) { c.beginPath(); c.moveTo(dx, cy - 4); c.lineTo(dx, cy + 4); c.stroke() }
+    c.fillStyle = '#7a6790'; ell(c, 2, cy, 5, 5)    // 흉부
+    c.fillStyle = '#5a4a6e'; circ(c, 8, cy - 1, 3.5)   // 머리
+    c.fillStyle = '#fff'; circ(c, 9.6, cy - 1.4, 1.2); c.fillStyle = '#111'; circ(c, 10.1, cy - 1.4, 0.6)
+    c.strokeStyle = '#3a2f52'; c.lineWidth = 1; for (const k of [0, 1]) { c.beginPath(); c.moveTo(9, cy - 4); c.quadraticCurveTo(13, cy - 11, 12 + k * 3, cy - 14); c.stroke() }   // 깃털 더듬이
+    wing(-1, true); wing(1, true)   // 앞 날개(밝게)
+    c.globalAlpha = 1
+    c.strokeStyle = '#47385c'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(-3, cy + 4); c.lineTo(-3, cy + 8); c.stroke()
+    c.fillStyle = '#2a2b32'; circ(c, -3, cy + 11, 4.6)   // 폭탄
+    c.fillStyle = '#f5c21a'; c.beginPath(); c.moveTo(-7, cy + 13); c.lineTo(-9.5, cy + 16); c.lineTo(-5, cy + 14); c.closePath(); c.fill()   // 꼬리날개
+    const spark = Math.floor(ph * 12) % 2 === 0
+    c.fillStyle = spark ? '#ffe08a' : '#ff7d3a'; circ(c, -3, cy + 6, 1.4)   // 도화선 스파크
+    if (atk && (o.flash || Math.floor(ph * 16) % 3 === 0)) { c.fillStyle = '#ffd27a'; circ(c, -3, cy + 13, 3) }
+  }
+  function drawSkySwarm(c, o) {   // 나방 떼(공중) — 작은 나방 1마리(스웜=여러 마리 소환). 빠른 파닥.
+    const ph = o.t || 0, cy = -11 + Math.sin(ph * 3) * 1.4
+    const flap = Math.abs(Math.sin(ph * 22))
+    c.globalAlpha = 0.82; c.fillStyle = '#d6def0'; c.strokeStyle = '#9aa6c0'; c.lineWidth = 0.8
+    for (const sgn of [-1, 1]) { c.save(); c.translate(1, cy); c.rotate(sgn * (0.4 + flap * 0.7)); c.beginPath(); c.moveTo(0, 0); c.quadraticCurveTo(-9, sgn * 2, -12, sgn * 8); c.quadraticCurveTo(-4, sgn * 7, 0, 0); c.closePath(); c.fill(); c.stroke(); c.restore() }
+    c.globalAlpha = 1
+    c.fillStyle = '#8b93a8'; ell(c, -3, cy, 4.5, 3)   // 몸통
+    c.fillStyle = '#5e6678'; circ(c, 3, cy - 0.5, 2.4)   // 머리
+    c.fillStyle = '#fff'; circ(c, 4.2, cy - 1, 0.9); c.fillStyle = '#111'; circ(c, 4.5, cy - 1, 0.45)
+    c.strokeStyle = '#5e6678'; c.lineWidth = 0.7; c.beginPath(); c.moveTo(4, cy - 3); c.lineTo(6, cy - 6); c.stroke()
+    if (o.state === 'attack' && (o.flash || Math.floor(ph * 18) % 3 === 0)) { c.fillStyle = '#cfe0ff'; circ(c, 6, cy - 0.5, 1.5) }
+  }
+  function drawSpiderling(c, o) {   // 새끼거미(지상 스웜 1마리) — 둥근 청록 몸 + 8다리 + 큰 눈. 개미와 실루엣 확실히 구분.
+    const ph = o.t || 0, walk = o.state === 'walk'
+    const body = '#2ea88a', bodyD = '#0d3b31'
+    const bob = walk ? Math.abs(Math.sin(ph * 15)) * 1.6 : Math.sin(ph * 2) * 0.5   // 종종걸음 바운스
+    const cy = -8 - bob
+    c.strokeStyle = bodyD; c.lineWidth = 1.6; c.lineCap = 'round'
+    for (const s2 of [-1, 1]) for (let li = 0; li < 4; li++) {   // 4다리 × 좌우, 다리별 위상차 스키터
+      const lift = walk ? Math.max(0, Math.sin(ph * 15 + li * 1.5 + (s2 > 0 ? Math.PI : 0))) : 0
+      const kneeX = s2 * (5 + li * 2), kneeY = cy - 2 + li * 1.4
+      const footX = s2 * (9 + li * 3) - s2 * lift * 3, footY = -lift * 3.5   // 들어올려 앞으로 딛음
+      c.beginPath(); c.moveTo(0, cy + 1); c.lineTo(kneeX, kneeY); c.lineTo(footX, footY); c.stroke()
+    }
+    c.fillStyle = body; ell(c, -4, cy, 7, 6)   // 배
+    c.globalAlpha = 0.6; c.fillStyle = '#8ef0d0'; ell(c, -5, cy + 2, 4, 3); c.globalAlpha = 1
+    c.fillStyle = '#33b795'; circ(c, 5, cy - 1, 4.5)   // 머리(cephalothorax)
+    c.fillStyle = '#fff'; circ(c, 7, cy - 3, 1.9); c.fillStyle = '#12312a'; circ(c, 7.5, cy - 3, 0.95)
+    c.fillStyle = '#fff'; circ(c, 5.6, cy + 1, 1.3); c.fillStyle = '#12312a'; circ(c, 6, cy + 1, 0.65)
+    c.fillStyle = '#12312a'; circ(c, 3, cy - 3, 0.7); circ(c, 2.4, cy + 1.5, 0.6)   // 작은 눈
+    c.strokeStyle = bodyD; c.lineWidth = 1.1; c.beginPath(); c.moveTo(8, cy + 2); c.lineTo(10, cy + 5); c.stroke()   // 송곳니
+  }
+  function drawFlakAnt(c, o) {   // 대공포 개미 — 4족(6다리) 크롤러 개미 + 등에 다련장 미사일포(MLRS). 위로만 사격.
+    const ph = o.t || 0, walk = o.state === 'walk', atk = o.state === 'attack'
+    const body = '#6f7d93', bodyD = '#3f4756'
+    const bob = walk ? Math.abs(Math.sin(ph * 10)) * 1.2 : 0, cy = -10 - bob
+    // 다리 3쌍(크롤러) — 위상차 걸음
+    c.strokeStyle = bodyD; c.lineWidth = 2.4; c.lineCap = 'round'
+    const legX = [-9, -2, 5]
+    for (let i = 0; i < 3; i++) { const sw = walk ? Math.sin(ph * 10 + i * 2.1) * 3.2 : 0
+      c.beginPath(); c.moveTo(legX[i], cy + 4); c.lineTo(legX[i] - 5 + sw, 0); c.stroke() }
+    // 몸통: 복부 + 흉부 + 머리
+    c.fillStyle = body; ell(c, -9, cy, 10, 7); ell(c, 0, cy, 6.5, 6)
+    c.fillStyle = '#8996ac'; circ(c, 9, cy - 1, 4.6)   // 머리
+    c.strokeStyle = bodyD; c.lineWidth = 1; c.beginPath(); c.moveTo(11, cy - 4); c.lineTo(16, cy - 9); c.moveTo(12, cy - 2); c.lineTo(17, cy - 6); c.stroke()   // 더듬이
+    c.fillStyle = '#fff'; circ(c, 11, cy - 1, 1.5); c.fillStyle = '#12212e'; circ(c, 11.7, cy - 1, 0.75)   // 눈
+    // 다련장 미사일포(등 위 박스 + 발사관 6개, 위-앞으로 기울임)
+    c.save(); c.translate(-6, cy - 7); c.rotate(-0.42)
+    c.fillStyle = '#4a5568'; c.strokeStyle = '#20242c'; c.lineWidth = 1.5; rpath(c, -9, -9, 18, 13, 2.5); c.fill(); c.stroke()   // 발사관 박스
+    c.fillStyle = '#20242c'; for (let r = 0; r < 2; r++) for (let t = 0; t < 3; t++) circ(c, -5.5 + t * 5.5, -5.5 + r * 6, 2)   // 발사관 6공
+    c.fillStyle = '#f5c21a'; c.fillRect(-9, 4, 18, 2.6); c.fillStyle = '#20242c'; for (let k = 0; k < 4; k++) c.fillRect(-7 + k * 4.6, 4, 1.6, 2.6)   // 경고 줄무늬
+    if (atk && (o.flash || Math.floor(ph * 20) % 3 === 0)) { c.fillStyle = '#ffe08a'; for (let t = 0; t < 3; t++) { star(c, -5.5 + t * 5.5, -11, 2.6) } }   // 발사관 섬광
+    c.restore()
+  }
   // 기본 개미(사족 크롤러) — 'ant' 고유 디자인 + 미구현 _default 폴백. (각 유닛 디자인은 서로 달라도 됨)
   function drawAntBasic(c, o) {
     const ph = o.t || 0, sw = o.state === 'walk' ? Math.sin(ph * 8) * 3 : 0
@@ -177,6 +264,8 @@
     scout: drawScout, kamikaze: drawKamikaze, medic: drawMedic,
     drone: drawDrone, freezer: drawFreezer, worker: drawWorker,
     commander: drawCommander, sniper: drawSniper, boss: drawBoss,
+    bomberMoth: drawBomberMoth, skySwarm: drawSkySwarm,
+    spiderling: drawSpiderling, flakAnt: drawFlakAnt,
     ant: drawAntBasic,
     _default: drawAntBasic,
   }

@@ -179,6 +179,8 @@ wss.on('connection', (ws, req) => {
       broadcast(joinedRoom, { t: 'btitanlaser', id, to: msg.to, fx: msg.fx, tx: msg.tx }, id) // 타이탄 레이저 연출
     } else if (msg.t === 'bnetgrab') {
       broadcast(joinedRoom, { t: 'bnetgrab', id, to: msg.to, uid: msg.uid }, id)              // 그물 포획(상대 유닛 정지+숨김)
+    } else if (msg.t === 'bflak') {
+      broadcast(joinedRoom, { t: 'bflak', id, to: msg.to, uid: msg.uid, fx: msg.fx, salvo: msg.salvo }, id)  // 대공포 요격 미사일 연출
     } else if (msg.t === 'sproj') {
       broadcast(joinedRoom, { t: 'sproj', id, nx: msg.nx, ny: msg.ny, vx: msg.vx, vy: msg.vy, k: msg.k, ay: msg.ay, life: msg.life }, id)   // 오버레이 소환체 투사체 연출
     } else if (msg.t === 'chat' && typeof msg.text === 'string') {
