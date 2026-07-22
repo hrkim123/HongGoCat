@@ -4308,27 +4308,38 @@
     ctx.restore()
   }
   // 💠 타이탄 레이저: 포구→땅 빔 + 땅 긁힘 띠(파임 따라감). 연쇄 폭발은 addEffect로 별도.
-  // 레이저 연출+자글자글 파임 공용(owner 이벤트·수신 릴레이 양쪽에서 호출 → 동일). fromX=타이탄 중심, toX=사거리 끝.
+  // 레이저 = 접점이 시작→끝까지 쭉 긁는 스윕. 진행하며 그 자리에 얕게 파이고 폭발이 바로 따라옴.
+  // owner 이벤트·수신 릴레이 양쪽이 같은 fromX/toX·타이밍으로 재생 → 연출·파임 동일.
+  const TITAN_SWEEP_MS = 240
   function titanLaserFx(fromX, toX) {
-    titanLasers.push({ fromX, toX, born: performance.now() })
-    const dir = toX >= fromX ? 1 : -1, startX = fromX + dir * 30 * view.scale   // 자신 조금 앞부터
-    const lo = Math.min(startX, toX), hi = Math.max(startX, toX)
-    for (let bx = lo + 12 * view.scale; bx < hi; bx += Math.max(34 * view.scale, (hi - lo) / 6)) addEffect(bx, taskbarSurfaceY(bx), 1)   // 연쇄 폭발
-    for (let bx = lo; bx <= hi; bx += 13 * view.scale) carveTaskbar(bx, 0.3, false)   // 자글자글 얕은 파임(폭탄식 뭉텅이 X). 양 클라 동일 x 로컬 적용
+    const dir = toX >= fromX ? 1 : -1
+    titanLasers.push({ fromX, toX, dir, startX: fromX + dir * 30 * view.scale, born: performance.now(), dugTo: null, boomAt: null })   // 파임/폭발은 스윕 진행하며 점진 발생
   }
   function drawTitanLasers(now) {
     for (let i = titanLasers.length - 1; i >= 0; i--) {
       const t = titanLasers[i], el = now - t.born
-      if (el > 420) { titanLasers.splice(i, 1); continue }
-      const a = Math.max(0, 1 - el / 420)
-      const dir = t.toX >= t.fromX ? 1 : -1
-      const mouthX = t.fromX + dir * 40 * view.scale, mouthY = taskbarSurfaceY(t.fromX) - 66 * view.scale   // 입(상부 앞)
-      const startX = t.fromX + dir * 30 * view.scale                                                        // 조금 앞 착지
-      const lo = Math.min(startX, t.toX), hi = Math.max(startX, t.toX)
-      ctx.save(); ctx.globalAlpha = a; ctx.lineCap = 'round'
-      const beamPath = (w, col) => { ctx.strokeStyle = col; ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(mouthX, mouthY); ctx.lineTo(startX, taskbarSurfaceY(startX)); for (let x = lo; x <= hi; x += 8 * view.scale) ctx.lineTo(x, taskbarSurfaceY(x)); ctx.lineTo(hi, taskbarSurfaceY(hi)); ctx.stroke() }
-      beamPath(6 * view.scale, 'rgba(255,58,110,0.9)')   // 외곽
-      beamPath(2.4 * view.scale, 'rgba(255,243,196,0.95)')   // 밝은 코어
+      if (el > TITAN_SWEEP_MS + 220) { titanLasers.splice(i, 1); continue }
+      const dir = t.dir, prog = Math.min(1, el / TITAN_SWEEP_MS)
+      const mouthX = t.fromX + dir * 40 * view.scale, mouthY = taskbarSurfaceY(t.fromX) - 66 * view.scale
+      const front = t.startX + (t.toX - t.startX) * prog   // 현재 긁는 접점
+      // 진행하며 얕은 파임 + 바로 뒤 폭발(접점이 지나간 자리)
+      const step = 16 * view.scale
+      if (t.dugTo == null) { t.dugTo = t.startX; t.boomAt = t.startX }
+      while (dir > 0 ? t.dugTo <= front : t.dugTo >= front) { carveTaskbar(t.dugTo, 0.09, false); t.dugTo += dir * step }   // 얕게(이전 0.3의 ~30%)
+      const bstep = 38 * view.scale
+      while (dir > 0 ? t.boomAt <= front : t.boomAt >= front) { addEffect(t.boomAt, taskbarSurfaceY(t.boomAt), 1); t.boomAt += dir * bstep }   // 바로 따라오는 폭발
+      // 빔 그리기: 입 → 현재 접점(front). 지나간 구간은 옅은 그을림 자국.
+      const fade = el > TITAN_SWEEP_MS ? Math.max(0, 1 - (el - TITAN_SWEEP_MS) / 220) : 1
+      ctx.save(); ctx.lineCap = 'round'
+      // 지나간 스크레이프 자국(startX→front)
+      ctx.globalAlpha = 0.5 * fade; ctx.strokeStyle = 'rgba(255,90,40,0.8)'; ctx.lineWidth = 5 * view.scale
+      ctx.beginPath(); const lo = Math.min(t.startX, front), hi = Math.max(t.startX, front); for (let x = lo; x <= hi; x += 8 * view.scale) { const yy = taskbarSurfaceY(x); x === lo ? ctx.moveTo(x, yy) : ctx.lineTo(x, yy) } ctx.stroke()
+      // 활성 빔: 입 → 접점
+      ctx.globalAlpha = fade
+      ctx.strokeStyle = 'rgba(255,58,110,0.92)'; ctx.lineWidth = 6 * view.scale; ctx.beginPath(); ctx.moveTo(mouthX, mouthY); ctx.lineTo(front, taskbarSurfaceY(front)); ctx.stroke()
+      ctx.strokeStyle = 'rgba(255,243,196,0.95)'; ctx.lineWidth = 2.4 * view.scale; ctx.beginPath(); ctx.moveTo(mouthX, mouthY); ctx.lineTo(front, taskbarSurfaceY(front)); ctx.stroke()
+      // 접점 섬광
+      ctx.globalAlpha = fade; ctx.fillStyle = 'rgba(255,243,196,0.9)'; ctx.beginPath(); ctx.arc(front, taskbarSurfaceY(front), 6 * view.scale, 0, 7); ctx.fill()
       ctx.restore()
     }
   }
