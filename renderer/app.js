@@ -501,6 +501,14 @@
   // Compares the last-seen version (localStorage) to the current app version; lists every changelog
   // entry between them (first run just shows the current version). Add newest versions at the TOP.
   const CHANGELOG = {
+    '1.2.0': [
+      '💠 신규 전설 소환체 브루드 타이탄(25코스트) — 거대 요새: 근접 스톰프 + 땅 긁는 레이저 + 개미 생산, 죽을 때 잔해 벽(Lv5)',
+      '마나 최대 30 + 마나 강화 10단계 세분화(HUD에 단계 게이지 표시)',
+      '기지 체력 300으로 상향 · 상대 유닛도 체력바 표시',
+      '여왕개미 솔져 최대 5마리 유지(죽으면 재소환)',
+      '멀티 배틀 동기화 대폭 강화 — 포탑·폭격·방어막·베이스캐논·투사체·지형이 상대 화면에도 동일하게',
+      '배틀 진입 시 남던 하단바 제거 · 소환체 발이 바닥에 붙게 · 밸런스 조정(포탑 데미지↑, 캐논 충전 느리게 등)',
+    ],
     '1.1.0': [
       '배틀 지형 공유 — 한 명이 땅을 파거나 복구하면 양쪽 화면 모두 반영돼요',
       '마나 재조정 — 기본 충전 0.3/s, 마나 강화 0.6·0.9·1.3·1.7·2.2',
