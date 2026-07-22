@@ -3918,7 +3918,7 @@
     const h = document.createElement('div'); h.className = 'no-drag'
     h.style.cssText = 'position:fixed;z-index:2147483000;background:linear-gradient(180deg,#141821,#0d0f14);border:1px solid #333a47;border-radius:14px;padding:8px 11px 11px;width:344px;font-family:system-ui,"맑은 고딕",sans-serif;box-shadow:0 10px 34px rgba(0,0,0,.55)'
     const pos = JSON.parse(localStorage.getItem('battle.hudpos') || 'null')
-    h.style.left = (pos ? pos.x : 12) + 'px'; h.style.top = (pos ? pos.y : Math.max(20, canvas.clientHeight - 300)) + 'px'
+    if (pos) { h.style.left = pos.x + 'px'; h.style.top = pos.y + 'px' }   // 저장된(드래그한) 위치 우선. 없으면 append 후 내 진영 위로 자동 배치.
     const lbl = (t) => `<div style="font-size:10px;color:#7f8797;letter-spacing:.4px;margin:9px 0 4px">${t}</div>`
     h.innerHTML =
       `<div class="bhgrip" style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#9aa0ab;cursor:move;user-select:none;margin-bottom:7px"><span>⚔ 배틀 · ⠿ 이동</span><span class="bhx" style="color:#e57373;cursor:pointer">✕ 나가기</span></div>` +
@@ -4030,6 +4030,17 @@
       grip.addEventListener('pointermove', mv); grip.addEventListener('pointerup', up); e.preventDefault()
     })
     document.body.appendChild(h); battleHud = h
+    if (!pos) positionHudAtBase(h)   // 저장된 위치 없으면 내 진영(내 캐릭터) 위에 기본 배치 — 좌측 구석 X
+  }
+  // HUD를 내 기지(내 캐릭터) 바로 위·가로 중앙에 배치(캐릭터를 가리지 않게). 저장된 드래그 위치가 없을 때만.
+  function positionHudAtBase(h) {
+    const W = canvas.clientWidth, H = canvas.clientHeight, hw = h.offsetWidth || 344, hh = h.offsetHeight || 300
+    const baseX = (battleActive && battle) ? battleLaneX(0) : W / 2   // battleLaneX(0) = 내 진영 캐릭터 중심(flip 반영)
+    const catTop = Math.max(0, usableBottom() - (CELL_H * view.scale + 34))   // 내 캐릭터(책상) 상단
+    let left = baseX - hw / 2, top = catTop - hh - 14   // 캐릭터 위쪽(안 가리게)
+    left = Math.max(6, Math.min(left, W - hw - 6))
+    top = Math.max(12, Math.min(top, H - hh - 6))
+    h.style.left = left + 'px'; h.style.top = top + 'px'
   }
   function updateBattleHud() {
     if (battleCannonEl && battleCannon) {   // 캐논 원형 링 게이지 버튼
@@ -4507,14 +4518,21 @@
     if (inTaskbar(p.x, p.y)) { carveTaskbar(p.x, dig || 1.0, false); return true }
     return false
   }
+  // 발사 타겟 해석: ★ 멀티 고스트는 uid가 내 유닛과 겹칠 수 있으니 반드시 battleGhosts에서 찾는다(unitByUid는 내 유닛만 봄).
+  // 못 찾으면 ev.toL(타겟의 마지막 레인 위치)로 폴백. 공중 타겟은 조준 Y를 높인다(땅으로 쏘던 버그 방지).
+  function battleResolveTarget(ev) {
+    if (ev.ghost) { const g = battleGhosts.find((x) => x.uid === ev.targetUid && x.hp > 0); if (g) return { L: (g._dispL != null ? g._dispL : g.L), flying: !!(window.BattleData.UNITS[g.type] || {}).flying, found: true } }
+    else if (ev.targetUid != null) { const u = battle.unitByUid(ev.targetUid); if (u) return { L: u.L, flying: !!(window.BattleData.UNITS[u.type] || {}).flying, found: true } }
+    return { L: ev.toL, flying: false, found: false }
+  }
   // 배틀 유닛(메카/인간)의 공격 = 기존 오버레이 발사 함수를 그대로 호출(전역 잠시 스왑 후 복구).
   // 스폰된 투사체에 배틀 side·데미지 태그를 달아 상대만 맞게 한다.
   function battleFireOverlay(ev, which) {
     const laneX = battleLaneX(ev.fromL)
     const foe = ev.side === 0 ? 1 : 0, dmg = ev.dmg || 8
-    const tu = ev.targetUid != null ? battle.unitByUid(ev.targetUid) : null
-    const tx = tu ? battleLaneX(tu.L) : battleLaneX(ev.toL)
-    const ty = tu ? (antGroundY(tx) - 22 * view.scale) : (antGroundY(tx) - 40 * view.scale)
+    const tg = battleResolveTarget(ev)
+    const tx = battleLaneX(tg.L)
+    const ty = tg.flying ? (battleUnitFeetY(tx, true) - 8 * view.scale) : (antGroundY(tx) - (tg.found ? 22 : 40) * view.scale)   // 공중=상승 높이 조준
     const cxs = cursor.x, cys = cursor.y; cursor.x = tx; cursor.y = ty   // 타겟(상대 소환체/기지) 조준
     const now = performance.now()
     if (which === 'shell') {   // 메카개미 = 기존 포물선 대포(fireMechaShell). 궤도를 타겟에 착탄하도록 조정.
@@ -4568,10 +4586,9 @@
     const mz = PROJ_MUZZLE[type] || PROJ_MUZZLE._default
     const laneX = battleLaneX(ev.fromL), feetY = battleUnitFeetY(laneX, def.flying)
     const fx = laneX + face * mz.x * s, fy = feetY - mz.y * s   // 실제 총구 위치에서 발사
-    const tu = ev.targetUid != null ? battle.unitByUid(ev.targetUid) : null
-    const tdef = tu ? (window.BattleData.UNITS[tu.type] || {}) : null
-    const tx = tu ? battleLaneX(tu.L) : battleLaneX(ev.toL)
-    const ty = tu ? (battleUnitFeetY(tx, tdef.flying) - 20 * view.scale) : (antGroundY(tx) - 60 * view.scale)   // 적 몸통/기지 높이 조준
+    const tg = battleResolveTarget(ev)   // ★ 고스트는 battleGhosts에서(uid 충돌 방지), 공중 타겟은 상승 높이 조준
+    const tx = battleLaneX(tg.L)
+    const ty = tg.found ? (battleUnitFeetY(tx, tg.flying) - 20 * view.scale) : (antGroundY(tx) - 60 * view.scale)   // 적 몸통/기지 높이 조준
     const spd = PROJ_SPD[kind] * view.scale
     const atkL = (byU && byU.stats && byU.stats.atk) || def.atk || {}   // 레벨 반영 스탯(연발 Lv5 기믹 등)
     const burst = (kind === 'bullet' && atkL.burst > 1) ? atkL.burst : 1   // 라이플 3연발·Lv5 4연발 등
