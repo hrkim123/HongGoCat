@@ -9,8 +9,8 @@
   if (!window.BattleData) { console.error('[battle/gacha] BattleData(units.js) 먼저 로드 필요'); return }
   const D = window.BattleData
   const K = { gems: 'hgbattle.gems', mat: 'hgbattle.mat', owned: 'hgbattle.owned', lvl: 'hgbattle.lvl', deck: 'hgbattle.deck' }
-  const DECK_UNITS = 6, DECK_WEAPONS = 2   // 소환체 최대 6(벤치·스왑 없음, HUD에 6장 전부 노출). 10→6: 잘라내기 강제 → 덱 정체성
-  const DECK_MIN_UNITS = 3, DECK_MIN_WEAPONS = 1   // 배틀 참여 최소 조건
+  const DECK_SET_SIZE = 5, DECK_SETS = 2, DECK_UNITS = DECK_SET_SIZE * DECK_SETS, DECK_WEAPONS = 2   // 소환체 세트 2개(각 5칸)=최대 10. 배틀 HUD는 한 세트씩 노출하고 스왑으로 세트 통째 교체(세트 내부 배치 불변)
+  const DECK_MIN_UNITS = 3, DECK_MIN_WEAPONS = 1   // 배틀 참여 최소 조건(A+B 합)
 
   function loadNum(k) { const n = parseInt(localStorage.getItem(k) || '0', 10); return Number.isFinite(n) ? n : 0 }
   function loadObj(k) { try { const o = JSON.parse(localStorage.getItem(k) || '{}'); return o && typeof o === 'object' ? o : {} } catch { return {} } }
@@ -22,8 +22,14 @@
   let deck = loadDeck()          // { units:[ids], weapons:[ids] }
 
   function loadDeck() {
-    try { const d = JSON.parse(localStorage.getItem(K.deck) || 'null'); if (d && Array.isArray(d.units) && Array.isArray(d.weapons)) return { units: d.units.slice(0, DECK_UNITS), weapons: d.weapons.slice(0, DECK_WEAPONS) } } catch {}   // 예전 10칸 덱은 새 한도로 잘라 로드
-    return { units: [], weapons: [] }
+    try {
+      const d = JSON.parse(localStorage.getItem(K.deck) || 'null')
+      if (d && Array.isArray(d.weapons)) {
+        if (Array.isArray(d.unitsA) || Array.isArray(d.unitsB)) return { unitsA: (d.unitsA || []).slice(0, DECK_SET_SIZE), unitsB: (d.unitsB || []).slice(0, DECK_SET_SIZE), weapons: d.weapons.slice(0, DECK_WEAPONS) }   // 신 포맷(세트 2개)
+        if (Array.isArray(d.units)) return { unitsA: d.units.slice(0, DECK_SET_SIZE), unitsB: d.units.slice(DECK_SET_SIZE, DECK_UNITS), weapons: d.weapons.slice(0, DECK_WEAPONS) }   // 구 포맷(단일 리스트) → 앞 5=A세트·다음 5=B세트로 이관
+      }
+    } catch {}
+    return { unitsA: [], unitsB: [], weapons: [] }
   }
 
   // 기본지급(starter)은 처음부터 보유로 seed
@@ -34,7 +40,7 @@
   const DEFAULT_UNITS = ['ant', 'rifleman', 'grenadier', 'scout', 'shielder']
   const DEFAULT_WEAPONS = ['missile']
   ;[...DEFAULT_UNITS, ...DEFAULT_WEAPONS].forEach((id) => { if (!owned[id]) owned[id] = true; if (!levels[id]) levels[id] = 1 })
-  if (!deck.units.length && !deck.weapons.length) { deck = { units: DEFAULT_UNITS.slice(), weapons: DEFAULT_WEAPONS.slice() }; localStorage.setItem(K.deck, JSON.stringify(deck)) }
+  if (!deck.unitsA.length && !deck.unitsB.length && !deck.weapons.length) { deck = { unitsA: DEFAULT_UNITS.slice(0, DECK_SET_SIZE), unitsB: [], weapons: DEFAULT_WEAPONS.slice() }; localStorage.setItem(K.deck, JSON.stringify(deck)) }
   saveOwned()
 
   function saveGems() { localStorage.setItem(K.gems, String(gems)) }
@@ -55,19 +61,27 @@
 
   // ── 덱 (배틀용): 소환체 5 + 무기 2 ──
   function saveDeck() { localStorage.setItem(K.deck, JSON.stringify(deck)) }
-  function getDeck() { return { units: deck.units.slice(), weapons: deck.weapons.slice() } }
-  function deckLimits() { return { units: DECK_UNITS, weapons: DECK_WEAPONS, minUnits: DECK_MIN_UNITS, minWeapons: DECK_MIN_WEAPONS } }
-  function deckReady() { return deck.units.length >= DECK_MIN_UNITS && deck.weapons.length >= DECK_MIN_WEAPONS }
-  function inDeck(id) { return deck.units.includes(id) || deck.weapons.includes(id) }
-  function toggleDeck(id) {
-    const e = D.UNITS[id] ? { cat: 'unit' } : (D.WEAPONS[id] ? { cat: 'weapon' } : null)
-    if (!e || !owned[id]) return { ok: false, reason: 'not-owned' }
-    const arr = e.cat === 'unit' ? deck.units : deck.weapons
-    const cap = e.cat === 'unit' ? DECK_UNITS : DECK_WEAPONS
-    const i = arr.indexOf(id)
-    if (i >= 0) { arr.splice(i, 1); saveDeck(); return { ok: true, on: false } }
-    if (arr.length >= cap) return { ok: false, reason: 'full' }
-    arr.push(id); saveDeck(); return { ok: true, on: true }
+  // units = A.concat(B) 평탄 리스트(구 소비자 호환용, 읽기 전용 복사본). 세트가 필요하면 unitsA/unitsB 사용.
+  function getDeck() { return { unitsA: deck.unitsA.slice(), unitsB: deck.unitsB.slice(), units: deck.unitsA.concat(deck.unitsB), weapons: deck.weapons.slice() } }
+  function deckLimits() { return { units: DECK_UNITS, setSize: DECK_SET_SIZE, sets: DECK_SETS, weapons: DECK_WEAPONS, minUnits: DECK_MIN_UNITS, minWeapons: DECK_MIN_WEAPONS } }
+  function deckReady() { return (deck.unitsA.length + deck.unitsB.length) >= DECK_MIN_UNITS && deck.weapons.length >= DECK_MIN_WEAPONS }
+  function inDeck(id) { return deck.unitsA.includes(id) || deck.unitsB.includes(id) || deck.weapons.includes(id) }
+  // 유닛은 세트(A/B) 단위로 편성. 이미 덱(어느 세트/무기든)에 있으면 제거, 없으면 지정 세트(기본 A)에 추가. 중복 유닛은 불가(72차 보류 규칙 유지).
+  function toggleDeck(id, set) {
+    const isUnit = !!D.UNITS[id], isWeapon = !!D.WEAPONS[id]
+    if (!(isUnit || isWeapon) || !owned[id]) return { ok: false, reason: 'not-owned' }
+    if (isWeapon) {
+      const arr = deck.weapons, i = arr.indexOf(id)
+      if (i >= 0) { arr.splice(i, 1); saveDeck(); return { ok: true, on: false } }
+      if (arr.length >= DECK_WEAPONS) return { ok: false, reason: 'full' }
+      arr.push(id); saveDeck(); return { ok: true, on: true }
+    }
+    const inA = deck.unitsA.indexOf(id), inB = deck.unitsB.indexOf(id)
+    if (inA >= 0) { deck.unitsA.splice(inA, 1); saveDeck(); return { ok: true, on: false } }
+    if (inB >= 0) { deck.unitsB.splice(inB, 1); saveDeck(); return { ok: true, on: false } }
+    const target = set === 'B' ? deck.unitsB : deck.unitsA
+    if (target.length >= DECK_SET_SIZE) return { ok: false, reason: 'full' }
+    target.push(id); saveDeck(); return { ok: true, on: true }
   }
 
   // 카운트 amount 로 만들 수 있는 젬 수(차감/적립은 호출측). 남는 카운트는 버리지 않도록 정수 젬만 반환.
@@ -116,7 +130,7 @@
 
   // 개발용 리셋(테스트 편의). 실제 앱의 1회 초기화 마이그레이션과는 별개.
   function _devReset() {
-    gems = 0; materials = 0; owned = {}; levels = {}; deck = { units: [], weapons: [] }
+    gems = 0; materials = 0; owned = {}; levels = {}; deck = { unitsA: [], unitsB: [], weapons: [] }
     ;[...D.unitList(), ...D.weaponList()].forEach((e) => { if (e.starter) { owned[e.id] = true; levels[e.id] = 1 } })
     saveGems(); saveMat(); saveOwned(); saveDeck()
   }

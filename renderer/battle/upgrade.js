@@ -30,7 +30,7 @@
   const SPEC = {
     // ── 소환체 ──────────────────────────────────────────────────────────────
     ant:        { kind: 'unit', hpPer: 0.12, dmgPer: 0.08, gimmick: { at: 5, gk: 'spawn2',  text: '소환 시 2기(물량)' } },
-    scout:      { kind: 'unit', hpPer: 0.10, dmgPer: 0.10, spdPer: 0.06, gimmick: { at: 5, gk: 'kbHit', text: '공격 시 강제 넉백(교란)' } },
+    scout:      { kind: 'unit', hpPer: 0.10, dmgPer: 0.10, spdPer: 0.06, gimmick: { at: 5, gk: 'siegeUp', text: '기지 공성 강화(2.5→3.5배)' } },
     rifleman:   { kind: 'unit', dmgPer: 0.10, gimmick: { at: 5, gk: 'burst4', text: '4연발(3→4)' } },
     grenadier:  { kind: 'unit', dmgPer: 0.10, gimmick: { at: 5, gk: 'aoe15', text: '폭발 범위 대폭↑(×1.5)' } },
     shielder:   { kind: 'unit', hpPer: 0.06, shieldPer: 5, gimmick: { at: 5, gk: 'shcd', text: '쉴드 재충전 4→2초' } },
@@ -84,7 +84,7 @@
       name: base.name, cat: base.cat, rarity: base.rarity, cost: base.cost,
       art: base.art, size: base.size, flying: !!base.flying,
       support: !!base.support, suicide: !!base.suicide,
-      kb: base.kb, manaBuff: base.manaBuff,
+      kb: base.kb, manaBuff: base.manaBuff, siegeMul: base.siegeMul,
       atk: base.atk ? Object.assign({}, base.atk) : { type: 'none' },
     }
     const a = out.atk
@@ -106,6 +106,7 @@
     const gk = (sp.gimmick && lv >= sp.gimmick.at) ? sp.gimmick.gk : null
     out.gimmick = (sp.gimmick && lv >= sp.gimmick.at) ? sp.gimmick.text : null
     if (gk === 'spawn2') out.spawnCount = 2
+    else if (gk === 'siegeUp') out.siegeMul = +((out.siegeMul || 1.7) + 1.0).toFixed(2)   // 기지 공성 배율 +1.0(정찰개미 2.5→3.5)
     else if (gk === 'kbHit') a.kbHit = true
     else if (gk === 'burst4') a.burst = 4
     else if (gk === 'burst2') a.burst = 2

@@ -8,14 +8,14 @@
   const D = window.BattleData
   const U = window.BattleUpgrade
 
-  const DEFAULTS = { baseHp: 300, manaCap: 30, manaRegen: 0.3, baseRange: 0.03, speedScale: 1 }   // 기지 HP 300, 맥스 마나 30(고코스트 결전 유닛 대응), 기본 충전 0.3/s
+  const DEFAULTS = { baseHp: 200, manaCap: 30, manaRegen: 0.5, baseRange: 0.03, speedScale: 1 }   // 기지 HP 200(300→200, 더 빠른 결판), 맥스 마나 30(고코스트 결전 유닛 대응), 기본 충전 0.5/s(러시 바닥 확보: 강화 없이도 개미 2초·라이플 4초 → 초반 압박 성립)
   const KB_DUR = 0.30, KB_BACK = 0.09, KB_CD = 0.7   // 넉백: 0.30초간 살짝 뒤로(냥코풍 짧은 홉) + 재넉백 최소 간격 0.7s(락 방지)
   // 마나 강화(냥코 일꾼레벨): 마나 지불→이번 판 충전속도↑(판 끝나면 초기화). 기본 0.5/s, 강화 체감 소폭 상향.
-  // 마나 강화 5단계. rate = 그 단계의 초당 마나(누적 아님). 노업(0단계)=0.3.
-  // ⚖ "마나 풀업=무조건 승리" 완화: 상위 단계 비용 급증(총 70)·최종 상한 1.8(3.1→2.2→1.8, 컴백 1.5보단 위로 유지해 경제 투자 가치 보존).
+  // 마나 강화 5단계. rate = 그 단계의 초당 마나(누적 아님). 노업(0단계)=0.5.
+  // ⚖ 러시↔저축 양립: 기본 0.5로 러시가 강화 없이도 성립 / 강화는 비용을 키워(총 85) "군대 없이 은행하는 노출 창"을 확실히 만들고, 상한 2.3으로 완전 투자 보상↑(컴백 1.2보다 위라 경제 투자 가치 보존).
   //   상위 강화는 마나를 캡(30) 근처까지 은행처럼 모아야 해서(=군대 없음) 러시에 노출되는 "탐욕 처벌 창"이 생긴다.
   const MANA_LEVELS = [
-    { cost: 4, rate: 0.5 }, { cost: 8, rate: 0.75 }, { cost: 13, rate: 1.05 }, { cost: 19, rate: 1.4 }, { cost: 26, rate: 1.8 },
+    { cost: 5, rate: 0.8 }, { cost: 10, rate: 1.15 }, { cost: 16, rate: 1.5 }, { cost: 23, rate: 1.9 }, { cost: 31, rate: 2.3 },
   ]
 
   function baseStatsFor(type) {   // 업그레이드 미반영 원본 스탯(생산형이 뽑는 소환체용 — 플레이어 강화 영향 X)
@@ -98,7 +98,9 @@
     function baseSiegeMul(u) {
       const b = D.UNITS[u.type]; if (!b) return 1
       const t = u.stats && u.stats.atk && u.stats.atk.type
-      return ((b.cost || 1) <= 3 && (t === 'melee' || t === 'suicide')) ? 1.7 : 1
+      if (t !== 'melee' && t !== 'suicide') return 1   // 근접·자폭만 기지 공성 보너스
+      const custom = (u.stats && u.stats.siegeMul) || b.siegeMul   // 유닛별 공성 특화(정찰개미 등) 우선
+      return custom || ((b.cost || 1) <= 3 ? 1.7 : 1)
     }
     // 서포트 유닛 앞쪽(적 방향)에 있는 "가장 가까운 전투 아군"의 L. 없으면 null → 서포트는 그 뒤에서 대기·전진.
     function nearestCombatAllyAhead(u) {

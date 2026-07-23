@@ -501,6 +501,15 @@
   // Compares the last-seen version (localStorage) to the current app version; lists every changelog
   // entry between them (first run just shows the current version). Add newest versions at the TOP.
   const CHANGELOG = {
+    '1.2.6': [
+      '🎴 배틀 덱 — 소환체 세트 2개(각 5칸=최대 10) + 🔄 세트 스왑(배틀 중 한 세트 소환, 스왑으로 세트 통째 교체)',
+      '💠 브루드 타이탄 개편 — 메카 개미 생산(13초)·마나 25 (오버레이에선 메카개미 자동 생산 없음)',
+      '🐜 정찰 개미 = 기지 침투 러셔 — 초고속 + 기지 공성 특화(무방비 기지 빠르게 공략, 방어선엔 무력)',
+      '🎖 지휘 개미 원거리화 — 후방에서 사격하며 +20% 오라 유지(앞으로 나가 죽던 것 개선)',
+      '⚖ 마나 재조정 — 기본 회복 0.5/s·강화 0.8~2.3(러시와 저축 둘 다 성립) · 기지 체력 200',
+      '🎯 기지 포탑 공중 유닛 조준 + 사거리 확대(기지 때리는 원거리 유닛 반격) · 대공포 유도 수정',
+      '🧹 배틀 진입 시 오버레이 소환체(내것/상대것) 전부 정리 — 깨끗한 배틀 환경',
+    ],
     '1.2.5': [
       '🎯 기지 포탑이 공중 유닛을 못 맞히던 문제 수정 — 이제 드론·나방·메카 인간폼 등 공중 유닛을 정조준 요격',
       '🚀 대공포 개미 미사일이 상대 진영 공중 유닛을 안 쫓던 문제 수정(진영 무관 반대편 공중 유닛 유도)',
@@ -3758,14 +3767,14 @@
   const BATTLE_NET_COST_CAP = 5         // 그물 1회 포획 최대 소환체 코스트 합
   let unitReadyAt = {}   // 유닛별 재출격 쿨다운(냥코풍): 소환 후 일정 시간 재소환 불가
   let weaponCdUntil = {}   // 무기별 쿨다운(마나와 별개): battleCd 초. 저코스트 무기 연타 방지
-  let battleUnitOrder = []   // 배틀-로컬 소환체 순서(덱 6장 전부 활성 — 벤치·스왑 없음)
+  let battleDeckA = [], battleDeckB = [], battleDeckSwapped = false   // 배틀-로컬 소환체 세트 2개(각 5). 앞 세트만 소환 가능, 스왑으로 세트 통째 교체(세트 내부 배치 불변)
   function redeployCd(id) { const u = window.BattleData.UNITS[id]; return 1500 + (u ? (u.cost || 1) : 1) * 900 }   // 코스트 비례(ms): 개미 2.4s ~ 여왕 10.5s
   // 베이스 캐논(냥코): 시간에 따라 충전, 만충 시 발사 → 내 진영→상대 진영 연쇄 폭발(전원 데미지+넉백). 덱 HUD와 별도 UI.
   let battleCannon = { charge: 0 }, cannonSweep = null, battleCannonEl = null
   const CANNON_FULL_SEC = 90, CANNON_SWEEP_SEC = 0.85, CANNON_DMG = 20, CANNON_BASE_DMG = 8   // 충전 40→90초(1분30초 — 너무 자주 쓰던 것 추가 완화)
   // 기지 터렛(포탑): 각 진영 책상 위, 상대 방향. 내 진영에 근접한 적에게 자동 포물선 포탄(메카 포탄 궤도 재사용, 디자인/폭발은 별도).
   let battleTurretCd = [0, 0], battleTurretAim = [0, 0], battleTurretFire = [0, 0], battleTurretTgtL = [null, null], battleTurretShotAng = [0, 0], battleTurretTgtFly = [false, false]
-  const TURRET_RANGE = 0.18, TURRET_CD = 2400, TURRET_DMG = 14, TURRET_AOE = 0.05   // 사거리 0.18 · 범위공격 데미지 8→14 상향(반경 0.05 레인)
+  const TURRET_RANGE = 0.24, TURRET_CD = 2400, TURRET_DMG = 14, TURRET_AOE = 0.05   // 사거리 0.18→0.24: 기지를 때리는 원거리 유닛(인간 Lv5 0.221·메카인간폼 0.20·메카개미 0.19)을 포탑이 반드시 반격할 수 있게. 스나이퍼(0.34~)만 의도적으로 포탑을 아웃레인지 · 범위공격 데미지 14(반경 0.05 레인)
   const BATTLE_SHIELD_HP = 30, BATTLE_SHIELD_SEC = 10   // 쉴드 무기 = 기지 방어 돔(HP30·10초). 깨지면 근처 적 맵 중앙 넉백
   const TURRET_INSET = 62   // 포탑을 기지(고양이) 옆 책상 빈 공간(안쪽)으로 들이는 거리(px, view.scale 곱)
   function turretBaseX(side) { const bx = battleLaneX(side === 0 ? 0 : 1); return bx + (side === 0 ? 1 : -1) * TURRET_INSET * view.scale }   // 고양이 옆(상대 쪽)
@@ -3826,11 +3835,13 @@
   }
   function _enterBattle() {   // 솔로/멀티 공통 진입 셋업
     clearMySummons()   // 배틀 진입 = 깨끗한 상태: 오버레이 소환체·무기·터렛·메카/인간·투사체·블랙홀 전부 제거
+    for (const m of [remoteMissiles, remoteShields, remoteAnts, remoteBlackholes, remoteGatlings, remoteGBullets, remoteHumans, remoteHbullets, remoteNets, remoteMechas, remoteMShells]) m.clear()   // ★ 상대(피어) 오버레이 소환체·투사체도 전부 제거 — 배틀은 내것/남것 모두 없는 깨끗한 환경에서 시작
+    remoteSummonShots.length = 0
     littleBoys.length = 0; debris.length = 0; bloodStains.length = 0   // 낙하 폭탄·잔해도 정리
     battle = window.BattleSim.newBattle({ speedScale: 0.38 })   // 냥코풍 느린 행군(전략성). 0.44 → 0.38
     battleAtkAt = {}; battleShieldFlash = {}; battleHealFx = []; battleFalls = []; battleDead = []; bproj.length = 0
     battleGhosts = []; battleGhostBase = battle.state.baseHpMax; bunitsLastSend = 0; unitReadyAt = {}; weaponCdUntil = {}; remoteBattleShots.length = 0; battleGhostShield = { hp: 0, until: 0 }; remoteCannonSweep = null; titanLasers.length = 0; battleIntc.length = 0
-    { const dk = (window.BattleGacha && window.BattleGacha.getDeck) ? window.BattleGacha.getDeck() : { units: [] }; battleUnitOrder = (dk.units || []).slice(0, 6) }   // 배틀-로컬 덱(6칸)
+    { const dk = (window.BattleGacha && window.BattleGacha.getDeck) ? window.BattleGacha.getDeck() : {}; battleDeckA = (dk.unitsA || []).slice(0, 5); battleDeckB = (dk.unitsB || []).slice(0, 5); battleDeckSwapped = false }   // 배틀-로컬 덱 세트 2개(각 5칸)
     battleCannon = { charge: 0 }; cannonSweep = null; battleTurretCd = [0, 0]; battleTurretAim = [0, 0]; battleTurretFire = [0, 0]; battleTurretTgtL = [null, null]; buildCannonUI()
     battleResultAt = 0; battleLastT = performance.now(); battleActive = true
     battlePhase = 'countdown'; battlePhaseAt = performance.now(); battleConfetti = []   // 3·2·1·START 후 시작
@@ -4068,17 +4079,21 @@
     h.innerHTML =
       `<div class="bhgrip" style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#9aa0ab;cursor:move;user-select:none;margin-bottom:7px"><span style="color:#8fc3ff;font-weight:700">🔵 내 진영 <span style="color:#7f8797;font-weight:400">· ⠿ 이동</span></span><span class="bhx" style="color:#e57373;cursor:pointer">✕ 나가기</span></div>` +
       `<div style="display:flex;gap:4px;align-items:center"><span style="font-size:10px;color:#aeb4c0;width:26px">마나</span><div class="bhsegs" style="display:flex;gap:2px;flex:1"></div><span class="bhval" style="font-size:11px;color:#cfd4de;white-space:nowrap;width:70px;text-align:right"></span></div>` +
-      lbl('🐜 소환체 (클릭 소환 · 재출격 쿨다운)') + `<div class="bhunits" style="display:flex;gap:5px"></div>` +
+      lbl('🐜 소환체 (앞 세트 클릭 소환 · 뒷 세트 눌러 세트 교체)') + `<div class="bhunits" style="display:flex;gap:5px"></div><div class="bhbench" style="display:flex;gap:5px;margin-top:5px;min-height:1px"></div>` +
       lbl('⚔ 무기 (단축키로 발사 · 마나 소모)') + `<div class="bhweaps" style="display:flex;gap:5px"></div>` +
       lbl('🛠 기능') + `<div class="bhfns" style="display:flex;gap:5px"></div>`
     const segs = h.querySelector('.bhsegs'); for (let i = 0; i < 10; i++) { const s = document.createElement('div'); s.style.cssText = 'flex:1;height:8px;border-radius:2px;background:rgba(255,255,255,.14)'; segs.appendChild(s) }
     const mkCard = (bg, bd) => { const b = document.createElement('div'); b.style.cssText = `flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:1px;padding:5px 2px;border-radius:9px;background:${bg};border:1px solid ${bd};cursor:pointer;user-select:none`; return b }
-    const uw = h.querySelector('.bhunits')
-    if (!battleUnitOrder.length) battleUnitOrder = (deck.units || []).slice(0, 6)
-    // 덱 6장을 한 줄에 전부 활성 소환 카드로(벤치·스왑 없음 — 6칸 커밋).
-    function renderDeckRows(uwEl) {
-      uwEl.innerHTML = ''
-      battleUnitOrder.forEach((id) => {
+    const uw = h.querySelector('.bhunits'), bw = h.querySelector('.bhbench')
+    if (!battleDeckA.length && !battleDeckB.length) { battleDeckA = (deck.unitsA || []).slice(0, 5); battleDeckB = (deck.unitsB || []).slice(0, 5) }
+    const frontSet = () => (battleDeckSwapped ? battleDeckB : battleDeckA)   // 앞(활성) 세트 = 소환 가능
+    const backSet = () => (battleDeckSwapped ? battleDeckA : battleDeckB)    // 뒷 세트 = 스왑 대기(세트 통째 교체, 내부 배치 불변)
+    function doSwap() { if (!backSet().length) { showToast('교체할 뒷 세트가 없어요'); return } battleDeckSwapped = !battleDeckSwapped; renderDeckRows(); updateBattleHud() }
+    // 앞 세트 = 활성 소환 카드 / 뒷 세트 = 실루엣(눌러 세트 통째 교체).
+    function renderDeckRows() {
+      uw.innerHTML = ''; bw.innerHTML = ''
+      const front = frontSet(), back = backSet()
+      front.forEach((id) => {
         const u = window.BattleData.UNITS[id]; if (!u) return
         const b = mkCard('rgba(255,255,255,.06)', 'rgba(255,255,255,.14)'); b.dataset.id = id; b.title = u.name + (battleCanHitAir(u) ? ' · 대공 가능' : ' · 지상 전용(공중 못 때림)'); b.style.position = 'relative'
         const aa = battleCanHitAir(u)
@@ -4091,11 +4106,23 @@
           if (now < (unitReadyAt[id] || 0)) { showToast(`${u.name} 재출격 대기 ${((unitReadyAt[id] - now) / 1000).toFixed(1)}초`); return }
           if (battle && battle.spawn(0, id)) { unitReadyAt[id] = now + redeployCd(id); updateBattleHud() }
         }
-        uwEl.appendChild(b)
+        uw.appendChild(b)
       })
+      if (!front.length) uw.innerHTML = '<span style="font-size:11px;color:#7f8797">이 세트에 소환체 없음</span>'
+      // 뒷 세트(스왑): 세트가 있을 때만. 앞에 🔄 교체 버튼 + 실루엣들, 어디를 눌러도 세트 통째 교체.
+      if (back.length) {
+        const sw = mkCard('rgba(74,163,255,.14)', 'rgba(74,163,255,.4)'); sw.style.flex = '0 0 auto'; sw.style.minWidth = '38px'; sw.title = '세트 교체'
+        sw.innerHTML = `<div style="pointer-events:none;font-size:15px">🔄</div><div style="pointer-events:none;color:#8fd3ff;font-size:9px">교체</div>`
+        sw.onclick = doSwap; bw.appendChild(sw)
+        back.forEach((id) => {
+          const u = window.BattleData.UNITS[id]; if (!u) return
+          const c = mkCard('rgba(255,255,255,.04)', 'rgba(255,255,255,.1)'); c.title = `${u.name} — 눌러서 세트 교체`
+          c.innerHTML = `<div style="filter:grayscale(1);opacity:.5;pointer-events:none;transform:scale(.78)">${window.BattleArt ? window.BattleArt.icon(id, 30) : ''}</div>`
+          c.onclick = doSwap; bw.appendChild(c)
+        })
+      }
     }
-    renderDeckRows(uw)
-    if (!battleUnitOrder.length) uw.innerHTML = '<span style="font-size:11px;color:#7f8797">덱에 소환체 없음</span>'
+    renderDeckRows()
     const ww = h.querySelector('.bhweaps')
     deck.weapons.forEach((id, wi) => {
       const w = window.BattleData.WEAPONS[id]; if (!w) return
@@ -5219,7 +5246,7 @@
       const rangePx = Math.max(22 * view.scale, (uatk.range || 0.02) * W * 0.6)
       const odmg = Math.max(1, Math.round((uatk.dmg || uatk.stompDmg || 1) / 6))   // 오버레이 축약 HP 스케일에 맞춘 데미지(타이탄=스톰프 데미지)
       // 여왕 등 생산 유닛: 적 유무와 무관하게 주기적으로 아군 소환체 생산
-      if (udef && udef.summon) { if (!a.prodAt) a.prodAt = now + (udef.summon.every || 5) * 1000; else if (now >= a.prodAt) { a.prodAt = now + (udef.summon.every || 5) * 1000; summonProduce(a, udef.summon.unit) } }
+      if (udef && udef.summon && udef.summon.unit !== 'mechaAnt') { if (!a.prodAt) a.prodAt = now + (udef.summon.every || 5) * 1000; else if (now >= a.prodAt) { a.prodAt = now + (udef.summon.every || 5) * 1000; summonProduce(a, udef.summon.unit) } }   // 오버레이에선 메카개미 자동 생산 제외(메카개미는 오버레이에서 수동 조작 유닛 — 타이탄의 메카개미 생산은 배틀 전용)
       // 타겟: 적 소환체(원격 ant/gatling/메카/인간) 우선, 없으면 가장 가까운 적 캐릭터.
       // ★ 메카개미·메카인간·인간도 반드시 후보에 포함(예전엔 ant/gatling만 봐서 상대가 메카/인간만 내면 캐릭터로 폴백하던 버그).
       const isMeleeAtk = (atkType === 'melee' || atkType === 'titan')   // 순수 근접·타이탄(스톰프)은 지상만(공중 못 침)
@@ -6358,20 +6385,20 @@
     drawShields(now)
     stepProjectiles(now)
     drawShieldShards(now)
-    ctx.save(); drawRemoteMissiles(now); ctx.restore()   // (per-peer 👁 dim set inside each drawRemote*; save/restore contains it)
+    if (!battleActive) { ctx.save(); drawRemoteMissiles(now); ctx.restore() }   // (per-peer 👁 dim set inside each drawRemote*; save/restore contains it) — 배틀 중엔 상대 오버레이 미사일 렌더 금지
     drawDebris(now)
     stepAnts(now)
     stepSummonProj(now); drawSummonProj(now)   // 오버레이 소환체 투사체(원거리/광역 전투)
-    stepDrawRemoteSummonShots(now)             // 상대 소환체 투사체 연출(MP)
+    if (!battleActive) stepDrawRemoteSummonShots(now)             // 상대 소환체 투사체 연출(MP) — 배틀 중 금지
     stepFireZones(now); drawFireZones(now)     // 💣 폭격 불장판(DoT) — 바닥
     stepBombs(now); drawBomberPlane(now); drawBombs(now)   // ✈️ 폭격기 + 💣 낙하 폭탄
-    ctx.save(); drawRemoteAnts(now); ctx.restore()
+    if (!battleActive) { ctx.save(); drawRemoteAnts(now); ctx.restore() }   // 배틀 중엔 상대 오버레이 개미 렌더 금지
     stepFieldUnits(now); drawFieldUnits(now)   // 신규 소환체(오버레이)
     if (battleActive && battle) { stepBattle(now); drawBattleUnits(now) }   // 배틀 모드(오버레이 통합)
     drawGatlings()
     stepGatling(now)
     drawGatSmoke(now)
-    ctx.save(); drawRemoteGBullets(now); ctx.restore()
+    if (!battleActive) { ctx.save(); drawRemoteGBullets(now); ctx.restore() }   // 배틀 중 금지
     stepHbullets(now)
     stepNet(now)          // net physics + catching (positions a netted human before it draws)
     stepHuman(now)
@@ -6381,12 +6408,14 @@
     stepEnergyShots(now)
     stepInterceptors(now)
     stepLittleBoys(now)
-    ctx.save(); drawRemoteHumans(now); ctx.restore()
-    ctx.save(); drawRemoteMechas(now); ctx.restore()
-    ctx.save(); drawRemoteMShells(now); ctx.restore()
-    ctx.save(); drawRemoteHbullets(now); ctx.restore()
+    if (!battleActive) {   // 배틀 중엔 상대(피어) 오버레이 인간/메카/포탄/총알/그물 전부 렌더 금지 — 깨끗한 배틀 환경
+      ctx.save(); drawRemoteHumans(now); ctx.restore()
+      ctx.save(); drawRemoteMechas(now); ctx.restore()
+      ctx.save(); drawRemoteMShells(now); ctx.restore()
+      ctx.save(); drawRemoteHbullets(now); ctx.restore()
+    }
     drawNetAll(now)       // aim UI + my net pouch (on top of entities)
-    ctx.save(); drawRemoteNets(now); ctx.restore()
+    if (!battleActive) { ctx.save(); drawRemoteNets(now); ctx.restore() }
     stepLightning(now)
     drawBhDust(now)
     drawSafeDomes(now)    // 🕊️ invincible peace-mode honeycomb dome (me + safe peers)

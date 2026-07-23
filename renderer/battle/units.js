@@ -75,8 +75,9 @@
     },
     // ── 신규 소환체 (밸런스 v2) ──
     scout: {
-      name: '정찰 개미', cat: 'unit', rarity: 'common', cost: 1, hp: 32,
-      speed: 0.30, atk: { type: 'melee', dmg: 3, range: 0.02, cd: 0.7 }, kb: 1, art: 'scout', size: 0.9, // 고속 러셔(HP↑·넉백↓)
+      name: '정찰 개미', cat: 'unit', rarity: 'common', cost: 1, hp: 36,
+      speed: 0.34, atk: { type: 'melee', dmg: 4, range: 0.02, cd: 0.5 }, kb: 0, siegeMul: 2.5, art: 'scout', size: 0.9,
+      // 기지 침투 러셔: 초고속 + 기지 공성 특화(일반 근접 1.7배 대비 2.5배)로 무방비 기지를 빠르게 공략. 대신 저HP·저뎀이라 방어선엔 무력(라인전 X, 순수 러시). 개미=만능 라인 / 정찰=순수 러시로 차별.
     },
     kamikaze: {
       name: '폭탄 개미', cat: 'unit', rarity: 'uncommon', cost: 3, hp: 42,
@@ -101,7 +102,7 @@
     },
     commander: {
       name: '지휘 개미', cat: 'unit', rarity: 'rare', cost: 6, hp: 95,
-      speed: 0.10, atk: { type: 'melee', dmg: 6, range: 0.03, cd: 1.0 }, kb: 1, aura: { range: 0.12, atk: 0.2, speed: 0.2 }, art: 'commander', size: 1.4, // 주변 아군 +20% 오라(구현 예정)
+      speed: 0.10, atk: { type: 'proj', dmg: 5, range: 0.16, cd: 1.2 }, kb: 1, aura: { range: 0.18, atk: 0.2, speed: 0.2 }, art: 'commander', size: 1.4, // 원거리 지휘관: 후방에서 약한 사격(4dps)하며 +20% 오라. 근접이라 앞으로 나가 죽던 것 → 원거리로 뒤에서 버프 유지(오라 범위 0.18로 넓혀 전선까지 커버)
     },
     sniper: {
       name: '저격 개미', cat: 'unit', rarity: 'rare', cost: 5, hp: 18,
@@ -115,12 +116,12 @@
       art: 'boss', size: 2.0,
     },
     broodTitan: {
-      name: '브루드 타이탄', cat: 'unit', rarity: 'legend', cost: 30, hp: 300,
+      name: '브루드 타이탄', cat: 'unit', rarity: 'legend', cost: 25, hp: 300,
       speed: 0.04, kb: 0,   // 걸어다니는 성벽: 고 HP·초저속·넉백 면역(강제만). (사기 밸런스 → 600→300)
       // 커스텀 이중 공격(sim에서 titan 타입 처리): 근접=스톰프(짓밟기 광역+넉백), 원거리=땅 긁는 레이저(공중 제외)
       // 레이저는 대공 가능(공중 유닛 사격) · 스톰프는 지상 근접
       atk: { type: 'titan', stompDmg: 34, stompR: 0.055, stompCd: 1.5, laserDmg: 11, laserR: 0.22, laserCd: 6.0, laserAir: true },
-      summon: { unit: 'kamikaze', every: 5.5 },   // 알주머니: 폭탄개미(카미카제) 출산 — 전진 자폭 물량. 제한 없음 · 간격 5.5초
+      summon: { unit: 'mechaAnt', every: 13 },   // 병기 공장: 13초마다 메카 개미(base 스탯) 생산. 오버레이에선 메카개미가 수동 조작이라 이 생산 비활성(app.js)
       art: 'broodTitan', size: 3.9,   // 코스트값 하는 거대 크기(2.6→3.9, ×1.5)
     },
     // ── 공중 축 확장 (대공 픽률 근거) ──

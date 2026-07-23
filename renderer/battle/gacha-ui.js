@@ -337,6 +337,9 @@
     .bg-slot{width:52px;height:52px;border-radius:9px;border:1px dashed #3a4150;background:#191d25;display:flex;align-items:center;justify-content:center;position:relative}
     .bg-slot.filled{border-style:solid}
     .bg-slot .rm{position:absolute;top:-6px;right:-6px;width:16px;height:16px;border-radius:50%;background:#c0392b;color:#fff;font-size:11px;border:none;cursor:pointer;line-height:1}
+    .bg-setrow{border:1px solid #2b2f39;border-radius:9px;padding:7px;margin-bottom:7px;cursor:pointer;background:#141821}
+    .bg-setrow.active{border-color:#4aa3ff;background:rgba(74,163,255,.10)}
+    .bg-setlbl{font-size:11px;color:#aeb4c0;margin-bottom:5px;font-weight:600}
     .bg-filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
     .bg-fbtn{cursor:pointer;border:1px solid #2b2f39;background:#1c2029;color:#cfd4de;border-radius:999px;padding:4px 11px;font-size:12px}
     .bg-fbtn.on{background:#2f6bd8;border-color:#3f7ce8;color:#fff}
@@ -408,6 +411,7 @@
     const body = document.createElement('div'); card.appendChild(body)
 
     let fCat = 'unit', fRar = 'all'   // 기본: 소환체 카테고리, 전체 희귀도
+    let activeSet = 'A'   // 유닛 추가 대상 세트(A/B). 클릭한 유닛이 이 세트의 빈칸에 들어감. 배틀 중엔 세트 통째 스왑.
     const lim = G.deckLimits()
     const RORDER = ['legend', 'rare', 'uncommon', 'common']
 
@@ -422,11 +426,15 @@
 
     function render() {
       const deck = G.getDeck()
-      const unitSlots = Array.from({ length: lim.units }, (_, i) => deck.units[i] || null)
+      const setSlots = (arr) => Array.from({ length: lim.setSize }, (_, i) => arr[i] || null)
+      const slotsA = setSlots(deck.unitsA), slotsB = setSlots(deck.unitsB)
       const wpnSlots = Array.from({ length: lim.weapons }, (_, i) => deck.weapons[i] || null)
       const slotHtml = (id, kind) => id
         ? `<div class="bg-slot filled ${kind === 'w' ? 'wslot' : ''}" title="${(D.UNITS[id] || D.WEAPONS[id]).name}">${iconFor(id, 34)}<button class="rm" data-rm="${id}">✕</button></div>`
         : `<div class="bg-slot ${kind === 'w' ? 'wslot' : ''}"></div>`
+      const setRow = (which, slots) => `<div class="bg-setrow ${activeSet === which ? 'active' : ''}" data-set="${which}">
+          <div class="bg-setlbl">세트 ${which} <span style="opacity:.6">${slots.filter(Boolean).length}/${lim.setSize}</span>${activeSet === which ? ' <span style="color:#4aa3ff">◀ 편성중</span>' : ''}</div>
+          <div class="bg-slots">${slots.map((id) => slotHtml(id, 'u')).join('')}</div></div>`
       const catBtns = [['unit', '🐜 소환체'], ['weapon', '⚔ 무기']]
         .map(([k, n]) => `<button class="bg-fbtn ${fCat === k ? 'on' : ''}" data-fc="${k}">${n}</button>`).join('')
       const rarBtns = [['all', '전체'], ['common', '일반'], ['uncommon', '고급'], ['rare', '희귀'], ['legend', '전설']]
@@ -446,10 +454,12 @@
         listHtml = gi.length ? `<div class="bg-grid">${gi.map(cellHtml).join('')}</div>` : '<div class="bg-sub">해당 희귀도 없음</div>'
       }
 
+      const totUnits = deck.unitsA.length + deck.unitsB.length
       body.innerHTML = `
-        <div class="bg-deck"><h4>배틀 덱 — 소환체 ${deck.units.length}/${lim.units} · 무기 ${deck.weapons.length}/${lim.weapons}</h4>
-          <div class="bg-dsub">🐜 소환체 (${lim.units}칸 — 배틀 중 이 6장을 바로 소환)</div>
-          <div class="bg-slots" style="margin-bottom:8px">${unitSlots.map((id) => slotHtml(id, 'u')).join('')}</div>
+        <div class="bg-deck"><h4>배틀 덱 — 소환체 ${totUnits}/${lim.units} · 무기 ${deck.weapons.length}/${lim.weapons}</h4>
+          <div class="bg-dsub">🐜 소환체 — 세트 2개(각 ${lim.setSize}칸). 배틀 중엔 <b>한 세트</b>만 소환 가능, 스왑으로 세트 통째 교체. 세트를 눌러 편성 대상 선택.</div>
+          ${setRow('A', slotsA)}
+          ${setRow('B', slotsB)}
           <div class="bg-wbox"><div class="bg-dsub" style="color:#9fd3ff">⚔ 무기</div>
           <div class="bg-slots">${wpnSlots.map((id) => slotHtml(id, 'w')).join('')}</div></div>
         </div>
@@ -459,11 +469,12 @@
 
       body.querySelectorAll('[data-fc]').forEach((b) => b.onclick = () => { fCat = b.dataset.fc; render() })
       body.querySelectorAll('[data-fr]').forEach((b) => b.onclick = () => { fRar = b.dataset.fr; render() })
+      body.querySelectorAll('[data-set]').forEach((r) => r.onclick = () => { activeSet = r.dataset.set; render() })
       body.querySelectorAll('[data-rm]').forEach((b) => b.onclick = (ev) => { ev.stopPropagation(); G.toggleDeck(b.dataset.rm); render() })
       body.querySelectorAll('[data-help]').forEach((b) => b.onclick = (ev) => { ev.stopPropagation(); openInfo(b.dataset.help) })
       body.querySelectorAll('.bg-cell[data-id]').forEach((c) => c.onclick = () => {
         const id = c.dataset.id; if (!G.isOwned(id)) return
-        const r = G.toggleDeck(id); if (!r.ok && r.reason === 'full') flashMsg(card, '덱이 가득 찼어요')
+        const r = G.toggleDeck(id, activeSet); if (!r.ok && r.reason === 'full') flashMsg(card, `세트 ${activeSet}가 가득 찼어요 (${lim.setSize}칸)`)
         render()
       })
     }
