@@ -123,10 +123,19 @@
   function statLine(e) {
     if (e.cat === 'weapon') return e.mana != null ? `무기 · 마나 ${e.mana}` : '무기 · 오버레이'
     const a = e.atk || {}
-    const atk = a.type === 'melee' ? `근접 ${a.dmg}` : a.type === 'proj' ? `원거리 ${a.dmg}${a.burst ? ' ×' + a.burst + '연발' : ''}`
-      : a.type === 'aoe' ? `광역 ${a.dmg}` : a.type === 'none' ? '공격 없음' : ''
-    const air = (a.type === 'proj' || a.type === 'aoe') ? ' · ✈대공' : (a.type === 'melee' || a.type === 'suicide') ? ' · ⛰지상전용' : ''
-    return `코스트 ${e.cost} · HP ${e.hp} · ${atk}${e.flying ? ' · 공중' : ''}${air}`
+    let atk = ''
+    if (a.type === 'melee') atk = `근접 데미지 ${a.dmg}`
+    else if (a.type === 'proj') atk = `원거리 데미지 ${a.dmg}${a.burst ? '×' + a.burst + '연발' : ''}`
+    else if (a.type === 'aoe') atk = `광역 데미지 ${a.dmg}${a.aoeMax ? `(최대 ${a.aoeMax}마리)` : ''}`
+    else if (a.type === 'suicide') atk = `자폭 데미지 ${a.dmg}`
+    else if (a.type === 'antiair') atk = `대공 데미지 ${a.dmg}${a.salvo ? '×' + a.salvo + '발' : ''}`
+    else if (a.type === 'heal') atk = `회복 ${a.heal}`
+    else if (a.type === 'titan') atk = `스톰프 ${a.stompDmg} · 레이저 ${a.laserDmg}`
+    else atk = '직접 공격 없음'
+    const canAir = !a.groundOnly && (a.type === 'proj' || a.type === 'aoe' || a.type === 'suicide' || (a.type === 'titan' && a.laserAir))
+    const air = a.type === 'antiair' ? ' · 🎯대공전용' : canAir ? ' · ✈대공가능' : (a.type === 'none' || a.type === 'heal') ? '' : ' · ⛰지상전용'
+    const cd = (a.cd && (a.type === 'melee' || a.type === 'proj' || a.type === 'aoe' || a.type === 'antiair')) ? ` · 쿨 ${a.cd}s` : ''
+    return `코스트 ${e.cost} · HP ${e.hp} · ${atk}${cd}${e.flying ? ' · 공중유닛' : ''}${air}`
   }
   function openInfo(id) {
     const e = (D.UNITS[id] ? { id, ...D.UNITS[id] } : { id, ...D.WEAPONS[id] })

@@ -150,6 +150,8 @@ wss.on('connection', (ws, req) => {
       broadcast(joinedRoom, { t: 'battle-req', id, to: msg.to, bet: msg.bet || null }, id)   // 신청(+베팅)
     } else if (msg.t === 'battle-acc') {
       broadcast(joinedRoom, { t: 'battle-acc', id, to: msg.to }, id)                          // 수락
+    } else if (msg.t === 'bmothfall') {
+      broadcast(joinedRoom, { t: 'bmothfall', id, to: msg.to, fx: msg.fx || 0, vdir: msg.vdir || 1, dmg: msg.dmg || 50, split: msg.split || 0 }, id)   // 폭격 나방 격추 낙하 연출
     } else if (msg.t === 'battle-go') {
       broadcast(joinedRoom, { t: 'battle-go', id, to: msg.to, bet: msg.bet || null }, id)     // 신청자 확답(핸드셰이크) → 수락자 side1 시작
     } else if (msg.t === 'battle-cancel') {

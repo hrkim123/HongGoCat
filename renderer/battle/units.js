@@ -41,13 +41,13 @@
     },
     rifleman: {
       name: '라이플 솔저', cat: 'unit', rarity: 'common', cost: 2, hp: 24,
-      speed: 0.13, atk: { type: 'proj', dmg: 4, range: 0.16, cd: 1.3, burst: 3, projSpeed: 1.4 },
-      art: 'ant-soldier', size: 1.0, // 3연발×4 = cd1.3당 12 (≈9.2dps). 기본 원거리(사거리 축소 0.22→0.16)
+      speed: 0.104, atk: { type: 'proj', dmg: 4, range: 0.16, cd: 1.3, burst: 3, projSpeed: 1.4, groundOnly: true },
+      art: 'ant-soldier', size: 1.0, // 3연발×4 = cd1.3당 12 (≈9.2dps). 기본 원거리(사거리 0.16, 공중 공격 불가). 속도 0.13→0.104(지상 원거리 −20%)
     },
     grenadier: {
       name: '수류탄 솔저', cat: 'unit', rarity: 'common', cost: 3, hp: 28,
-      speed: 0.11, atk: { type: 'aoe', dmg: 6, range: 0.15, cd: 1.8, aoeR: 0.09, arc: true },
-      art: 'ant-soldier', size: 1.0, // 범위 딜러: 넓은 착탄 범위(0.06→0.09) 대신 단발 데미지 낮춤(9→6)
+      speed: 0.088, atk: { type: 'aoe', dmg: 6, range: 0.15, cd: 1.8, aoeR: 0.09, arc: true },
+      art: 'ant-soldier', size: 1.0, // 범위 딜러: 넓은 착탄 범위(0.06→0.09) 대신 단발 데미지 낮춤(9→6). 속도 0.11→0.088(지상 원거리 −20%)
     },
     shielder: {
       name: '쉴더', cat: 'unit', rarity: 'uncommon', cost: 2, hp: 80,
@@ -57,7 +57,7 @@
     },
     mechaAnt: {
       name: '메카 개미', cat: 'unit', rarity: 'rare', cost: 7, hp: 85,
-      speed: 0.09, atk: { type: 'proj', dmg: 12, range: 0.19, cd: 1.1 }, kb: 1, // 대포 연사 완화(0.5→1.1) = ≈10.9dps. 실효HP 100 (사거리 0.26→0.19)
+      speed: 0.072, atk: { type: 'proj', dmg: 12, range: 0.19, cd: 1.1 }, kb: 1, // 대포 연사 완화(0.5→1.1) = ≈10.9dps. 실효HP 100 (사거리 0.26→0.19). 속도 0.09→0.072(지상 원거리 −20%)
       battleShield: { absorb: 15, cooldown: 5 },
       art: 'mecha', size: 1.6, // 기존 메카 아트·포물선 대포 재사용
     },
@@ -70,7 +70,7 @@
     },
     human: {
       name: '인간', cat: 'unit', rarity: 'rare', cost: 4, hp: 48,
-      speed: 0.12, atk: { type: 'proj', dmg: 10, range: 0.17, cd: 1.0 }, // 10dps 브루저(아도겐, 사거리 0.24→0.17)
+      speed: 0.096, atk: { type: 'proj', dmg: 10, range: 0.17, cd: 1.0 }, // 10dps 브루저(아도겐, 사거리 0.24→0.17). 속도 0.12→0.096(지상 원거리 −20%)
       art: 'human', size: 1.3,
     },
     // ── 신규 소환체 (밸런스 v2) ──
@@ -81,7 +81,7 @@
     },
     kamikaze: {
       name: '폭탄 개미', cat: 'unit', rarity: 'uncommon', cost: 3, hp: 42,
-      speed: 0.24, atk: { type: 'suicide', dmg: 28, aoeR: 0.05, range: 0.03, cd: 0.1 }, suicide: true, kb: 1, art: 'kamikaze', size: 1.1, // 1회성 자폭(근접계=공중 미타격·HP↑·넉백↓)
+      speed: 0.24, atk: { type: 'suicide', dmg: 28, aoeR: 0.05, range: 0.03, cd: 0.1, groundOnly: true }, suicide: true, kb: 1, art: 'kamikaze', size: 1.1, // 1회성 자폭. 공중 공격 불가(groundOnly) — 지상 유닛/기지만 타격
     },
     medic: {
       name: '의무 개미', cat: 'unit', rarity: 'uncommon', cost: 3, hp: 26,
@@ -93,7 +93,7 @@
     },
     freezer: {
       name: '얼음 개미', cat: 'unit', rarity: 'rare', cost: 3, hp: 40,
-      speed: 0.11, atk: { type: 'aoe', dmg: 6, range: 0.16, cd: 1.5, aoeR: 0.05, slow: 0.55, slowDur: 2.2 }, art: 'freezer', size: 1.0, // 군집 컨트롤러: 광역 서리(범위 전원 55% 감속) — 뭉친 물량을 통째로 늦추고 빙결(3스택)
+      speed: 0.088, atk: { type: 'aoe', dmg: 6, range: 0.16, cd: 1.5, aoeR: 0.05, slow: 0.55, slowDur: 2.2, aoeMax: 3 }, art: 'freezer', size: 1.0, // 군집 컨트롤러: 광역 서리(한 번에 최대 3마리 감속·55%) — 뭉친 물량 저지·빙결(3스택). 속도 0.11→0.088(지상 원거리 −20%)
     },
     worker: {
       name: '망치 개미', cat: 'unit', rarity: 'uncommon', cost: 3, hp: 62,
@@ -102,11 +102,11 @@
     },
     commander: {
       name: '지휘 개미', cat: 'unit', rarity: 'rare', cost: 6, hp: 95,
-      speed: 0.10, atk: { type: 'proj', dmg: 5, range: 0.16, cd: 1.2 }, kb: 1, aura: { range: 0.18, atk: 0.2, speed: 0.2 }, art: 'commander', size: 1.4, // 원거리 지휘관: 후방에서 약한 사격(4dps)하며 +20% 오라. 근접이라 앞으로 나가 죽던 것 → 원거리로 뒤에서 버프 유지(오라 범위 0.18로 넓혀 전선까지 커버)
+      speed: 0.08, atk: { type: 'proj', dmg: 5, range: 0.16, cd: 1.2 }, kb: 1, aura: { range: 0.18, atk: 0.2, speed: 0.2 }, art: 'commander', size: 1.4, // 원거리 지휘관: 후방에서 약한 사격(4dps)하며 +20% 오라. 속도 0.10→0.08(지상 원거리 −20%)
     },
     sniper: {
       name: '저격 개미', cat: 'unit', rarity: 'rare', cost: 5, hp: 18,
-      speed: 0.08, atk: { type: 'proj', dmg: 22, range: 0.34, cd: 2.6 }, art: 'sniper', size: 1.0, // 초장거리 유리대포(8.5dps, 사거리 0.42→0.34 · 여전히 최장)
+      speed: 0.064, atk: { type: 'proj', dmg: 22, range: 0.34, cd: 2.6, groundOnly: true }, art: 'sniper', size: 1.0, // 초장거리 유리대포(8.5dps, 사거리 0.34 · 최장, 공중 공격 불가). 속도 0.08→0.064(지상 원거리 −20%)
     },
     boss: {
       name: '여왕 개미', cat: 'unit', rarity: 'legend', cost: 12, hp: 200,
@@ -126,25 +126,25 @@
     },
     // ── 공중 축 확장 (대공 픽률 근거) ──
     bomberMoth: {
-      name: '폭격 나방', cat: 'unit', rarity: 'rare', cost: 6, hp: 70,
-      speed: 0.09, atk: { type: 'aoe', dmg: 14, range: 0.11, cd: 1.7, aoeR: 0.05, strafe: true }, kb: 1,
-      flying: true, art: 'bomberMoth', size: 1.5, // strafe: 멈추지 않고 기지로 전진하며 지나가는 길에 폭탄 투하(지상 유닛+기지). 근접이 못 건드림 → 대공으로만 저지(안티-거북이 공성)
+      name: '폭격 나방', cat: 'unit', rarity: 'rare', cost: 5, hp: 70,
+      speed: 0.135, atk: { type: 'suicide', dmg: 50, aoeR: 0.06, range: 0.03, cd: 0.1, strafe: true, baseOnly: true }, suicide: true, kb: 1,
+      flying: true, art: 'bomberMoth', size: 1.5, // 공중 자폭 폭격기: 무작정 전진(strafe=유닛 통과)해 기지 도착 시 자폭(기지+범위 유닛 50). 격추되면 전진 방향으로 낙하→작업표시줄 착탄 폭발(범위 적 유닛 50). 근접 못 건드림 → 대공으로만 요격. 속도 0.09→0.135(×1.5)
     },
     skySwarm: {
-      name: '나방 떼', cat: 'unit', rarity: 'uncommon', cost: 5, hp: 24,
+      name: '나방 떼', cat: 'unit', rarity: 'uncommon', cost: 4, hp: 24,
       speed: 0.17, atk: { type: 'proj', dmg: 4, range: 0.10, cd: 0.9 }, kb: 0,
       flying: true, swarm: 3, art: 'skySwarm', size: 0.85, // 1회 소환에 저HP 공중 3마리. 광역 대공 강제(공중 물량)
     },
     // ── 지상 스웜 ──
     spiderling: {
-      name: '새끼거미 떼', cat: 'unit', rarity: 'uncommon', cost: 3, hp: 16,
+      name: '새끼거미 떼', cat: 'unit', rarity: 'uncommon', cost: 2, hp: 16,
       speed: 0.28, atk: { type: 'melee', dmg: 3, range: 0.02, cd: 0.6 }, kb: 0,
       swarm: 4, art: 'spiderling', size: 0.85, // 1회 소환에 저HP 지상 4마리, 고속. 물량 라인 유지. 광역에 약(카운터 존재)
     },
     // ── 대공 전문(요격 미사일) ──
     flakAnt: {
       name: '대공포 개미', cat: 'unit', rarity: 'rare', cost: 4, hp: 70,
-      speed: 0.11, atk: { type: 'antiair', dmg: 8, range: 0.20, cd: 1.2, salvo: 4, airOnly: true }, kb: 1,
+      speed: 0.088, atk: { type: 'antiair', dmg: 8, range: 0.20, cd: 1.2, salvo: 4, airOnly: true }, kb: 1,
       art: 'flakAnt', size: 1.1, // 공대공 전용(지상·기지 공격 불가) — 유도 요격 미사일 살보. 사거리 0.17→0.20(메카 인간폼 0.20과 동급, 마주 요격 가능). 공중엔 확실한 카운터, 지상엔 무력(보호 필요)
     },
   }

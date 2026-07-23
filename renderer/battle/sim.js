@@ -79,7 +79,7 @@
     // 대상이 공중인가(유닛=stats.flying, 고스트=데이터). 근접/자폭은 공중을 타격/타겟 불가(기본 규칙: 근접은 대공 X).
     function isFlying(e) { return !!(e && (e.flying || (e.stats && e.stats.flying) || (D.UNITS[e.type] && D.UNITS[e.type].flying))) }
     function isMeleeType(u) { const t = u.stats && u.stats.atk && u.stats.atk.type; return t === 'melee' || t === 'suicide' }
-    function canHit(u, e) { const t = u.stats && u.stats.atk && u.stats.atk.type; return !(t === 'melee' && isFlying(e)) }   // 순수 근접만 공중 불가(자폭은 공중도 타격 가능)
+    function canHit(u, e) { const a = u.stats && u.stats.atk, t = a && a.type; return !((t === 'melee' || (a && a.groundOnly)) && isFlying(e)) }   // 근접 + groundOnly 유닛(자폭개미·저격·라이플)은 공중 타겟/타격 불가
     function nearestEnemy(u) {
       let best = null, bd = Infinity, ghost = false
       for (const e of st.units) { if (e.side === u.side || e.hp <= 0 || !canHit(u, e)) continue; const d = Math.abs(e.L - u.L); if (d < bd) { bd = d; best = e; ghost = false } }
@@ -145,7 +145,9 @@
         if (bumped) applyKb(target, false)   // 임계 넉백도 공통 처리(공격 쿨 리셋 포함)
       }
       if (target.hp <= 0) {
-        target.hp = 0; st.events.push({ type: 'die', uid: target.uid, side: target.side, L: target.L, unit: target.type })
+        target.hp = 0
+        if (target.type === 'bomberMoth' && !target._detonated) { target._detonated = true; st.events.push({ type: 'mothfall', side: target.side, L: target.L, dir: target.dir, dmg: Math.round((target.stats && target.stats.atk && target.stats.atk.dmg) || 50), split: !!(target.stats && target.stats.mothSplit) }) }   // 폭격 나방 격추 → 전진 방향 낙하 폭탄(컨트롤러가 낙하·착탄 폭발 처리)
+        else st.events.push({ type: 'die', uid: target.uid, side: target.side, L: target.L, unit: target.type })
         // 브루드 타이탄 Lv5: 죽을 때 잔해 벽(HP 구조물) 생성 → 몇 초간 라인 저지(소프트 블록). 구조물은 bunits로 상대에게도 방송됨.
         if (target.type === 'broodTitan' && target.stats && target.stats.deathMound) {
           const mUid = addStructure({ side: target.side, type: 'moundwall', hp: 140, L: target.L })
@@ -208,16 +210,17 @@
               } else { ally.hp = Math.min(ally.maxHp, ally.hp + heal); st.events.push({ type: 'heal', by: u.uid, target: ally.uid, medL: u.L, healL: ally.L, side: u.side }) }
             }
           }
-        } else if (atkType === 'suicide') {   // 카미카제: 적/기지 접촉 시 자폭(광역) + 자신 사망
-          const inTgt = tgt && td <= range, inBase = distBase <= Math.max(range, cfg.baseRange)
+        } else if (atkType === 'suicide') {   // 자폭: 적/기지 접촉 시 폭발+사망. baseOnly(폭격 나방)=유닛엔 안 터지고 기지 도착 시에만
+          const baseOnly = !!u.stats.atk.baseOnly
+          const inTgt = !baseOnly && tgt && td <= range, inBase = distBase <= Math.max(range, cfg.baseRange)
           if (inTgt || inBase) {
-            const aoe = u.stats.atk.aoeR || 0.05, dmg = u.stats.atk.dmg || 1
-            for (const e of st.units) { if (e.side !== u.side && e.hp > 0 && Math.abs(e.L - u.L) <= aoe) applyDamage(e, dmg, u.side) }   // 자폭은 공중 포함 광역 타격
-            for (const g of st.ghosts) { if (g.hp > 0 && Math.abs(g.L - u.L) <= aoe) st.events.push({ type: 'ghosthit', uid: g.uid, dmg }) }   // 멀티: 고스트 광역 피격 릴레이(공중 포함)
+            const aoe = u.stats.atk.aoeR || 0.05, dmg = u.stats.atk.dmg || 1, gOnly = !!u.stats.atk.groundOnly
+            for (const e of st.units) { if (e.side !== u.side && e.hp > 0 && !(gOnly && isFlying(e)) && Math.abs(e.L - u.L) <= aoe) applyDamage(e, dmg, u.side) }   // groundOnly(자폭개미)는 공중 제외
+            for (const g of st.ghosts) { if (g.hp > 0 && !(gOnly && isFlying(g)) && Math.abs(g.L - u.L) <= aoe) st.events.push({ type: 'ghosthit', uid: g.uid, dmg }) }
             if (inBase && !inTgt) { const es = u.side === 0 ? 1 : 0; damageBase(es, Math.round(dmg * baseSiegeMul(u))) }
             st.events.push({ type: 'boom', uid: u.uid, L: u.L, side: u.side, aoeR: aoe })
             st.events.push({ type: 'die', uid: u.uid, side: u.side, L: u.L, unit: u.type })
-            u.hp = 0; continue
+            u._detonated = true; u.hp = 0; continue
           }
         } else if (atkType === 'titan') {   // 브루드 타이탄: 근접=스톰프(지상) / 원거리=레이저(laserAir면 대공 가능). 근접 우선.
           const a = u.stats.atk, stompR = a.stompR || 0.055, laserR = a.laserR || 0.22, laserAir = !!a.laserAir
@@ -279,7 +282,7 @@
                   else { applyDamage(tgt, dmg, u.side); if (kbHit) applyKb(tgt, true); if (stun) tgt.frozenUntil = Math.max(tgt.frozenUntil || 0, st.t + stun); st.events.push({ type: 'hit', by: u.uid, target: tgt.uid, dmg }) }
                 } else { const es = u.side === 0 ? 1 : 0; damageBase(es, Math.round(dmg * baseSiegeMul(u))) }
               } else {   // 원거리: 실제 투사체 발사(컨트롤러가 처리). ghost=true면 명중 시 릴레이.
-                st.events.push({ type: 'fire', by: u.uid, side: u.side, fromL: u.L, dir: u.dir, dmg, atkType, aoeR: u.stats.atk.aoeR || 0, slow: u.stats.atk.slow || 0, slowDur: u.stats.atk.slowDur || 0, targetUid: inTgt ? tgt.uid : null, toL: inTgt ? tgt.L : (u.side === 0 ? 1 : 0), ghost: !!(inTgt && tgtGhost) })
+                st.events.push({ type: 'fire', by: u.uid, side: u.side, fromL: u.L, dir: u.dir, dmg, atkType, aoeR: u.stats.atk.aoeR || 0, aoeMax: u.stats.atk.aoeMax || 0, slow: u.stats.atk.slow || 0, slowDur: u.stats.atk.slowDur || 0, targetUid: inTgt ? tgt.uid : null, toL: inTgt ? tgt.L : (u.side === 0 ? 1 : 0), ghost: !!(inTgt && tgtGhost) })
               }
             }
           }

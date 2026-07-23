@@ -46,7 +46,7 @@
     sniper:     { kind: 'unit', dmgPer: 0.12, gimmick: { at: 5, gk: 'range40', text: '초장거리 +40%' } },
     boss:       { kind: 'unit', hpPer: 0.10, gimmick: { at: 5, gk: 'summon3', text: '소환 간격 5→3초' } },
     broodTitan: { kind: 'unit', hpPer: 0.10, dmgPer: 0.09, gimmick: { at: 5, gk: 'deathMound', text: '죽을 때 잔해 벽 생성(라인 저지)' } },
-    bomberMoth: { kind: 'unit', hpPer: 0.09, dmgPer: 0.10, gimmick: { at: 5, gk: 'aoe15', text: '폭탄 폭발 범위 대폭↑(×1.5)' } },
+    bomberMoth: { kind: 'unit', hpPer: 0.09, dmgPer: 0.10, gimmick: { at: 5, gk: 'mothSplit', text: '격추 시 작은 폭탄 2개로 분열' } },
     skySwarm:   { kind: 'unit', hpPer: 0.08, dmgPer: 0.08, gimmick: { at: 5, gk: 'swarm1', text: '무리 +1마리(3→4)' } },
     spiderling: { kind: 'unit', hpPer: 0.08, dmgPer: 0.10, gimmick: { at: 5, gk: 'swarm1', text: '무리 +1마리(4→5)' } },
     flakAnt:    { kind: 'unit', hpPer: 0.08, dmgPer: 0.10, gimmick: { at: 5, gk: 'airStun', text: '공중 명중 시 낙하 스턴(격추)' } },
@@ -106,6 +106,7 @@
     const gk = (sp.gimmick && lv >= sp.gimmick.at) ? sp.gimmick.gk : null
     out.gimmick = (sp.gimmick && lv >= sp.gimmick.at) ? sp.gimmick.text : null
     if (gk === 'spawn2') out.spawnCount = 2
+    else if (gk === 'mothSplit') out.mothSplit = true   // 폭격 나방 Lv5: 격추 낙하 폭발 시 작은 폭탄 2개 분열
     else if (gk === 'siegeUp') out.siegeMul = +((out.siegeMul || 1.7) + 1.0).toFixed(2)   // 기지 공성 배율 +1.0(정찰개미 2.5→3.5)
     else if (gk === 'kbHit') a.kbHit = true
     else if (gk === 'burst4') a.burst = 4
