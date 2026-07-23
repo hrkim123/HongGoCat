@@ -137,6 +137,14 @@
     const cd = (a.cd && (a.type === 'melee' || a.type === 'proj' || a.type === 'aoe' || a.type === 'antiair')) ? ` · 쿨 ${a.cd}s` : ''
     return `코스트 ${e.cost} · HP ${e.hp} · ${atk}${cd}${e.flying ? ' · 공중유닛' : ''}${air}`
   }
+  // 대공 공격 가능 유닛(HUD ✈ 마커와 동일 규칙). 대공포=대공전용, groundOnly(자폭개미·저격·라이플)는 불가.
+  function unitHitsAir(e) {
+    if (!e || e.cat === 'weapon') return false
+    const a = e.atk || {}
+    if (a.type === 'antiair') return true
+    if (a.groundOnly) return false
+    return a.type === 'proj' || a.type === 'aoe' || a.type === 'suicide' || (a.type === 'titan' && a.laserAir)
+  }
   function openInfo(id) {
     const e = (D.UNITS[id] ? { id, ...D.UNITS[id] } : { id, ...D.WEAPONS[id] })
     const info = D.RARITY[e.rarity] || D.RARITY.common
@@ -357,6 +365,7 @@
     .bg-help{position:absolute;top:3px;right:3px;width:16px;height:16px;padding:0;border-radius:50%;border:1px solid rgba(255,255,255,.25);background:rgba(20,24,30,.75);color:#cfd4de;font-size:11px;line-height:1;cursor:pointer;z-index:2}
     .bg-help:hover{background:#2f6bd8;color:#fff}
     .bg-cell .dk{font-size:9px;margin-top:1px;color:#8fd3ff}
+    .bg-air{position:absolute;top:3px;left:4px;font-size:11px;line-height:1;color:#8ff0c8;text-shadow:0 1px 2px #000;z-index:2;pointer-events:none}
     .bg-up{display:flex;align-items:center;gap:10px;background:#1c2029;border:1px solid #2b2f39;border-radius:10px;padding:8px 10px;margin-bottom:6px}
     .bg-up .ui{flex:1;min-width:0}
     .bg-up .un{font-size:13px;color:#e8ebf0}
@@ -427,8 +436,9 @@
     function cellHtml(e) {
       const info = D.RARITY[e.rarity], indeck = G.inDeck(e.id)
       const tag = e.cat === 'weapon' ? '무기' : `코스트 ${e.cost}`
+      const airBadge = (e.cat === 'unit' && unitHitsAir(e)) ? `<div class="bg-air" title="${(e.atk && e.atk.type === 'antiair') ? '대공 전용' : '대공 가능'}">✈</div>` : ''
       return `<div class="bg-cell ${e.owned ? '' : 'locked'} ${indeck ? 'indeck' : ''}" data-id="${e.id}" title="${e.name} [${info.name}]" style="border-color:${e.owned ? info.color : '#2b2f39'};background:${e.owned ? info.color + '18' : '#1c2029'}">
-        <button class="bg-help" data-help="${e.id}" title="설명">?</button>
+        ${airBadge}<button class="bg-help" data-help="${e.id}" title="설명">?</button>
         <div class="e">${iconFor(e, 36)}</div><div class="n">${e.name}</div>` +
         (e.owned ? `<div class="lv">${tag} · Lv.${e.level}</div>${indeck ? '<div class="dk">덱 ✓</div>' : ''}` : `<div class="lk">🔒 미획득</div>`) + `</div>`
     }

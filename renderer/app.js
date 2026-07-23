@@ -501,6 +501,11 @@
   // Compares the last-seen version (localStorage) to the current app version; lists every changelog
   // entry between them (first run just shows the current version). Add newest versions at the TOP.
   const CHANGELOG = {
+    '1.3.1': [
+      '📋 덱 편성(컬렉션) 창에 대공 가능 유닛 ✈ 표시 (HUD와 동일)',
+      '🦋 폭격 나방은 공중 공격 불가 — 지상 유닛/기지만 타격(도착 자폭·격추 낙하 모두)',
+      '🦾 메카 인간폼 코스트 15 → 13',
+    ],
     '1.3.0': [
       '🦋💣 폭격 나방 리워크 — 적 진영으로 무작정 전진→자폭(기지+범위 50), 격추되면 전진 방향으로 낙하해 착탄 폭발(범위 적 50). 대공으로만 요격 · 코스트 5',
       '🎯 공중 공격 정리 — 자폭 개미·저격 개미·라이플 솔져는 공중 공격 불가(대공은 대공포·드론·나방 등으로)',
@@ -3808,9 +3813,9 @@
     if (inTaskbar(f.x, gy)) battleDig(f.x, f.bomblet ? 0.4 : 0.7)
     if (!f.replay) {   // 소유자만 데미지 적용(범위 내 적 유닛). 멀티는 고스트=bghit 릴레이, 솔로는 로컬.
       if (battleMulti && f.side === 0) {
-        for (const g of battleGhosts) { if (g.hp > 0 && Math.abs(battleLaneX(g.L) - f.x) < rPx) { if (connected()) net.send(JSON.stringify({ t: 'bghit', to: battleMulti.oppId, uid: g.uid, dmg: f.dmg, slow: 0, slowDur: 0, kb: 0 })); g.hp -= f.dmg } }
+        for (const g of battleGhosts) { if (g.hp > 0 && !(window.BattleData.UNITS[g.type] || {}).flying && Math.abs(battleLaneX(g.L) - f.x) < rPx) { if (connected()) net.send(JSON.stringify({ t: 'bghit', to: battleMulti.oppId, uid: g.uid, dmg: f.dmg, slow: 0, slowDur: 0, kb: 0 })); g.hp -= f.dmg } }   // 지상 폭발 — 공중 유닛 제외
       } else if (battle) {
-        for (const e of battle.state.units) { if (e.side !== f.side && e.hp > 0 && Math.abs(battleLaneX(e.L) - f.x) < rPx) battle.hitUnit(e.uid, f.dmg, 0, 0, false) }
+        for (const e of battle.state.units) { if (e.side !== f.side && e.hp > 0 && !(window.BattleData.UNITS[e.type] || {}).flying && Math.abs(battleLaneX(e.L) - f.x) < rPx) battle.hitUnit(e.uid, f.dmg, 0, 0, false) }   // 지상 폭발 — 공중 유닛 제외
       }
     }
     if (f.split && !f.bomblet) {   // Lv5: 작은 폭탄 2개 분열(위로 튀어 착탄 폭발)

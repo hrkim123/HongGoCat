@@ -62,7 +62,7 @@
       art: 'mecha', size: 1.6, // 기존 메카 아트·포물선 대포 재사용
     },
     mechaHuman: {
-      name: '메카 인간폼', cat: 'unit', rarity: 'legend', cost: 15, hp: 120,
+      name: '메카 인간폼', cat: 'unit', rarity: 'legend', cost: 13, hp: 120,
       speed: 0.12, atk: { type: 'proj', dmg: 15, range: 0.20, cd: 1.05, charge: 1.0 }, kb: 1, // 에너지포 = 1초 충전 후 최대 빔(오버레이 ECANNON_MS 동일). ≈14dps (사거리 0.28→0.20)
       battleShield: { absorb: 16, cooldown: 6 }, // 공중 면역이 이미 큰 생존기 → 실드 20→16(코스트 7→9 상향과 함께 밸런스). 여왕(10) 근처의 결전급으로 재조정
 
@@ -127,7 +127,7 @@
     // ── 공중 축 확장 (대공 픽률 근거) ──
     bomberMoth: {
       name: '폭격 나방', cat: 'unit', rarity: 'rare', cost: 5, hp: 70,
-      speed: 0.135, atk: { type: 'suicide', dmg: 50, aoeR: 0.06, range: 0.03, cd: 0.1, strafe: true, baseOnly: true }, suicide: true, kb: 1,
+      speed: 0.135, atk: { type: 'suicide', dmg: 50, aoeR: 0.06, range: 0.03, cd: 0.1, strafe: true, baseOnly: true, groundOnly: true }, suicide: true, kb: 1,
       flying: true, art: 'bomberMoth', size: 1.5, // 공중 자폭 폭격기: 무작정 전진(strafe=유닛 통과)해 기지 도착 시 자폭(기지+범위 유닛 50). 격추되면 전진 방향으로 낙하→작업표시줄 착탄 폭발(범위 적 유닛 50). 근접 못 건드림 → 대공으로만 요격. 속도 0.09→0.135(×1.5)
     },
     skySwarm: {
