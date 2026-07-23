@@ -12,10 +12,10 @@
   const KB_DUR = 0.30, KB_BACK = 0.09, KB_CD = 0.7   // 넉백: 0.30초간 살짝 뒤로(냥코풍 짧은 홉) + 재넉백 최소 간격 0.7s(락 방지)
   // 마나 강화(냥코 일꾼레벨): 마나 지불→이번 판 충전속도↑(판 끝나면 초기화). 기본 0.5/s, 강화 체감 소폭 상향.
   // 마나 강화 5단계. rate = 그 단계의 초당 마나(누적 아님). 노업(0단계)=0.5.
-  // ⚖ 러시↔저축 양립: 기본 0.5로 러시가 강화 없이도 성립 / 강화는 비용을 키워(총 85) "군대 없이 은행하는 노출 창"을 확실히 만들고, 상한 2.3으로 완전 투자 보상↑(컴백 1.2보다 위라 경제 투자 가치 보존).
-  //   상위 강화는 마나를 캡(30) 근처까지 은행처럼 모아야 해서(=군대 없음) 러시에 노출되는 "탐욕 처벌 창"이 생긴다.
+  // ⚖ 러시↔저축 양립: 기본 0.5로 러시가 강화 없이도 성립 / 강화는 비용을 키워(총 75) "군대 없이 은행하는 노출 창"을 확실히 만들고, 상한 2.3으로 완전 투자 보상↑(컴백 1.2보다 위라 경제 투자 가치 보존).
+  //   ★ 모든 단계 비용 ≤ 마나캡(30) — 안 그러면 그 단계는 영원히 못 찍는다(5단계 27로 상한 아래). 상위 강화는 캡 근처까지 은행처럼 모아야 해서(=군대 없음) 러시에 노출되는 "탐욕 처벌 창"이 생긴다.
   const MANA_LEVELS = [
-    { cost: 5, rate: 0.8 }, { cost: 10, rate: 1.15 }, { cost: 16, rate: 1.5 }, { cost: 23, rate: 1.9 }, { cost: 31, rate: 2.3 },
+    { cost: 5, rate: 0.8 }, { cost: 9, rate: 1.15 }, { cost: 14, rate: 1.5 }, { cost: 20, rate: 1.9 }, { cost: 27, rate: 2.3 },
   ]
 
   function baseStatsFor(type) {   // 업그레이드 미반영 원본 스탯(생산형이 뽑는 소환체용 — 플레이어 강화 영향 X)
@@ -301,7 +301,10 @@
         }
 
         // 이동: 오라 속도 버프 + 감속(slow). 근접 교전/사격 중엔 정지.
-        const blocked = tgt && td <= Math.max(range, 0.02)
+        const airOnly = !!(u.stats.atk && u.stats.atk.airOnly)   // 대공 전용(대공포)
+        let blocked = tgt && td <= Math.max(range, 0.02)
+        // 대공포는 공격 못 하는 지상 유닛 앞에서 멈추면 안 됨 → 필드에 공중 적이 있으면 지상 블로킹 무시하고 전진(사거리 들면 acting으로 정지). 공중 적이 아예 없으면 기존처럼 정지(무의미한 돌진 방지).
+        if (airOnly && blocked) { const anyAir = st.units.some((e) => e.side !== u.side && e.hp > 0 && isFlying(e)) || st.ghosts.some((g) => g.hp > 0 && isFlying(g)); if (anyAir) blocked = false }
         const slowMul = (u.slowUntil && u.slowUntil > st.t) ? (u.slowMul || 1) : 1
         const spdMul = (1 + (u._auraSpd || 0)) * slowMul
         const strafe = !!(u.stats.atk && u.stats.atk.strafe)   // 이동식 폭격기(폭격 나방): 멈추지 않고 기지로 전진하며 사격

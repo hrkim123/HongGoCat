@@ -501,6 +501,12 @@
   // Compares the last-seen version (localStorage) to the current app version; lists every changelog
   // entry between them (first run just shows the current version). Add newest versions at the TOP.
   const CHANGELOG = {
+    '1.2.7': [
+      '⚡ 배틀 템포↑ — 전장을 좁히고(양 끝에서 2번째 위치서 시작) 행군 속도 +29%로 교전이 더 빨라져요',
+      '🤝 배틀 신청 안정화 — 여러 명에게 신청 시 꼬여서 "유령 배틀"에 갇히던 문제 수정(확인 핸드셰이크)',
+      '🎯 대공포 개선 — 못 때리는 지상 유닛 앞에서 멈추던 문제 수정 + 사거리↑(메카 인간폼과 마주 요격)',
+      '⚖ 마나 5단계 강화 비용 수정(상한 초과로 못 찍던 버그) · 기타 밸런스',
+    ],
     '1.2.6': [
       '🎴 배틀 덱 — 소환체 세트 2개(각 5칸=최대 10) + 🔄 세트 스왑(배틀 중 한 세트 소환, 스왑으로 세트 통째 교체)',
       '💠 브루드 타이탄 개편 — 메카 개미 생산(13초)·마나 25 (오버레이에선 메카개미 자동 생산 없음)',
@@ -921,6 +927,10 @@
         for (const id of [...peers.keys()]) if (!seen.has(id)) peers.delete(id)
         // 배틀 중 상대가 팅김(로스터에서 사라짐) = 비자발적 이탈 → 무효·베팅 환불 후 종료
         if (battleMulti && battleActive && battlePhase !== 'result' && !seen.has(battleMulti.oppId)) { refundBattleBet('상대 접속 종료'); showToast('상대 접속이 끊겨 배틀 무효'); stopBattle() }
+        // 신청/수락 대기 중 상대가 나감 → 대기 상태 정리(허공 대기 방지)
+        if (battleInvite && !seen.has(battleInvite.to)) battleInvite = null
+        if (battleAwaitingGo && !seen.has(battleAwaitingGo.from)) { clearAwaitingGo(); showToast('상대가 나가 매칭이 취소됐어요') }
+        if (battleIncoming && !seen.has(battleIncoming.from)) closeBattleInvitePopup()
         // drop any remote entities belonging to peers who left (no lingering state)
         for (const m of [remoteMissiles, remoteShields, remoteAnts, remoteBlackholes, remoteGatlings, remoteGBullets, remoteHumans, remoteHbullets, remoteNets, remoteMechas, remoteMShells])
           for (const id of [...m.keys()]) if (!seen.has(id)) m.delete(id)
@@ -963,10 +973,25 @@
       else if (msg.t === 'digreset') { resetTaskbarDig(false) }   // someone restored → everyone restores
       else if (msg.t === 'peace') { setPeace(!!msg.on, true) }    // dev toggled peace mode → lock/unlock weapons for me too
       // ── 멀티 배틀 ── (to === me.netId 만 처리)
-      else if (msg.t === 'battle-req') { if (msg.to === me.netId && !battleActive && !battleIncoming) { const p = peers.get(msg.id); showBattleInvitePopup(msg.id, (p && p.name) || '상대', msg.bet || null) } else if (msg.to === me.netId && connected()) net.send(JSON.stringify({ t: 'battle-dec', to: msg.id, reason: 'busy' })) }
-      else if (msg.t === 'battle-acc') { if (msg.to === me.netId && battleInvite && battleInvite.to === msg.id) { const bet = battleInvite.bet; battleInvite = null; startBattleMulti(msg.id, 0, bet) } }   // 내 신청 수락됨 → 신청자=side0(+베팅 escrow)
+      else if (msg.t === 'battle-req') { if (msg.to === me.netId && !battleActive && !battleIncoming && !battleAwaitingGo) { const p = peers.get(msg.id); showBattleInvitePopup(msg.id, (p && p.name) || '상대', msg.bet || null) } else if (msg.to === me.netId && connected()) net.send(JSON.stringify({ t: 'battle-dec', to: msg.id, reason: 'busy' })) }
+      else if (msg.t === 'battle-acc') {   // 상대가 내 신청 수락 → 내가 아직 가능하면 확답(battle-go) 후 시작(side0), 아니면 busy 회신(상대 유령 배틀 방지)
+        if (msg.to === me.netId && battleInvite && battleInvite.to === msg.id && !battleActive && !battleAwaitingGo) { const bet = battleInvite.bet; battleInvite = null; if (connected()) net.send(JSON.stringify({ t: 'battle-go', to: msg.id, bet })); startBattleMulti(msg.id, 0, bet) }
+        else if (msg.to === me.netId && connected()) net.send(JSON.stringify({ t: 'battle-dec', to: msg.id, reason: 'busy' }))   // 이미 다른 배틀 매칭/진행 중 → 수락자 대기 해제
+      }
+      else if (msg.t === 'battle-go') {   // (수락자) 신청자 확답 → 이제 시작(side1). 대기중이던 매칭만 수락.
+        if (msg.to === me.netId && battleAwaitingGo && battleAwaitingGo.from === msg.id && !battleActive) { const bet = battleAwaitingGo.bet; clearAwaitingGo(); startBattleMulti(msg.id, 1, bet) }
+      }
+      else if (msg.t === 'battle-cancel') {   // 신청자가 신청 취소 → 내 초대 팝업/수락 대기 정리
+        if (msg.to === me.netId) {
+          if (battleIncoming && battleIncoming.from === msg.id) { closeBattleInvitePopup(); showToast('상대가 배틀 신청을 취소했습니다') }
+          if (battleAwaitingGo && battleAwaitingGo.from === msg.id) { clearAwaitingGo(); showToast('상대가 배틀 신청을 취소했습니다') }
+        }
+      }
       else if (msg.t === 'battle-state') { const p = peers.get(msg.id); if (p) p.inBattle = !!msg.on }   // 관전자: 원위치 유지 + "⚔ 배틀 중" 배지
-      else if (msg.t === 'battle-dec') { if (msg.to === me.netId && battleInvite && battleInvite.to === msg.id) { battleInvite = null; showToast(msg.reason === 'busy' ? '상대가 배틀 중입니다' : '상대가 배틀을 거절했습니다') } }
+      else if (msg.t === 'battle-dec') {
+        if (msg.to === me.netId && battleInvite && battleInvite.to === msg.id) { battleInvite = null; showToast(msg.reason === 'busy' ? '상대가 배틀 중입니다' : '상대가 배틀을 거절했습니다') }   // (신청자) 내 신청 거절/busy
+        else if (msg.to === me.netId && battleAwaitingGo && battleAwaitingGo.from === msg.id) { clearAwaitingGo(); showToast('상대가 이미 다른 배틀 중 — 매칭이 취소됐어요') }   // (수락자) 내 수락이 busy로 반려
+      }
       else if (msg.t === 'battle-end') { if (battleMulti && msg.id === battleMulti.oppId && battlePhase !== 'result') { battlePhase = 'result'; battleResultAt = performance.now(); battleWin = true; seedBattleConfetti(); recordBattleWin() } }   // 상대가 패배/이탈 통지 → 내 승리
       else if (msg.t === 'bunits') { if (battleMulti && msg.id === battleMulti.oppId && msg.to === me.netId) { const prev = new Map(battleGhosts.map((g) => [g.uid, g._dispL])); battleGhosts = (msg.list || []).filter((g) => !battleNetHeldUids.has(g.uid)).map((g) => { const L = 1 - g.L; return { uid: g.uid, type: g.type, L, hp: g.hp, mhp: g.mhp || g.hp, shHp: g.shHp, frozen: g.frozen, slowed: g.slowed, _dispL: prev.has(g.uid) ? prev.get(g.uid) : L } }); battleGhostBase = msg.base != null ? msg.base : battleGhostBase; battleGhostShield = { hp: msg.bsh || 0, until: (msg.bshU || 0) > 0 ? performance.now() + msg.bshU * 1000 : 0 } } }   // 상대 유닛(미러링·표시위치 이어받아 보간) + 상대 기지 HP + 방어 돔
       else if (msg.t === 'bghit') { if (battleMulti && msg.to === me.netId && battle) { battle.hitUnit(msg.uid, msg.dmg || 0, msg.slow || 0, msg.slowDur || 0, !!msg.kb, !!msg.kbBig) } }   // 내 유닛이 맞음(상대가 통지) → 로컬 적용(권한, 넉백 플래그 · kbBig=쉴드 파열 큰 밀림)
@@ -1062,7 +1087,7 @@
       else if (msg.t === 'hbullets') { mergeRemote(remoteHbullets, msg.id, msg.list, 'nx', 'ny') }
       else if (msg.t === 'error' && msg.reason === 'room_full') { setStatus('방이 가득 찼어요'); ws.close() }
     }
-    ws.onclose = () => { if (net === ws) { net = null; peers.clear(); remoteAnts.clear(); remoteBlackholes.clear(); remoteGatlings.clear(); remoteGBullets.clear(); remoteHumans.clear(); remoteHbullets.clear(); remoteNets.clear(); remoteMechas.clear(); remoteMShells.clear(); remoteDrawStroke = null; if (platformsAreRemote) { platforms.length = 0; platformsAreRemote = false }; me.netId = undefined; roomCount = 0; setStatus('오프라인 — 혼자 연주 중') } }
+    ws.onclose = () => { if (net === ws) { net = null; peers.clear(); remoteAnts.clear(); remoteBlackholes.clear(); remoteGatlings.clear(); remoteGBullets.clear(); remoteHumans.clear(); remoteHbullets.clear(); remoteNets.clear(); remoteMechas.clear(); remoteMShells.clear(); remoteDrawStroke = null; battleInvite = null; if (battleAwaitingGo) clearAwaitingGo(); if (battleIncoming) closeBattleInvitePopup(); if (platformsAreRemote) { platforms.length = 0; platformsAreRemote = false }; me.netId = undefined; roomCount = 0; setStatus('오프라인 — 혼자 연주 중') } }
     ws.onerror = () => setStatus('접속 실패')
   }
   function disconnect() {
@@ -1765,7 +1790,7 @@
       }
       if (it.kind === 'bunit') {   // 배틀 소환체: 쌔게(커서 상단) 던지면 사망, 살살이면 전장 복귀
         const b = o; battleNetHeldUids.delete(b.uid)
-        const L = Math.max(0, Math.min(1, (me.netBx - BATTLE_PAD) / (canvas.clientWidth - 2 * BATTLE_PAD)))
+        const L = Math.max(0, Math.min(1, (me.netBx - battlePad()) / (canvas.clientWidth - 2 * battlePad())))
         if (lethal) {
           if (b.ghost) { if (connected() && battleMulti) net.send(JSON.stringify({ t: 'bghit', to: battleMulti.oppId, uid: b.uid, dmg: 9999, slow: 0, slowDur: 0, kb: 0 })) }
           else battleDead.push({ id: b.type, L, side: 1, born: nowP })   // 솔로: 이미 제거됨 → 사망 스프라이트
@@ -3692,7 +3717,7 @@
   let battleActive = false, battle = null, battleAI = null, battleLastT = 0, battleResultAt = 0
   let battleAtkAt = {}, battleDead = [], battleOpp = null, battleHud = null, battleShieldFlash = {}, battleHealFx = [], battleFalls = []
   // 멀티 배틀: 상대와 1v1. battleMulti = { oppId, mySide(0=신청자/1=수락자), oppName } · null이면 솔로.
-  let battleMulti = null, battleInvite = null, battleIncoming = null, battleFlip = false
+  let battleMulti = null, battleInvite = null, battleIncoming = null, battleFlip = false, battleAwaitingGo = null, battleAwaitTimer = null   // battleAwaitingGo=내가 수락 후 신청자 확답(battle-go) 대기중(유령 배틀 방지 핸드셰이크)
   let battleBet = null, battleBetSettled = false   // 베팅: {cur:'count'|'gems'|'mat', amt}. 진입 시 escrow 차감, 결과 시 1회 정산.
   let battleBetResult = null   // 결과창 표시용: {cur, amt, win, bal(정산 후 보유량)}
   const BET_CUR = { count: { name: '카운트', emoji: '🪙' }, gems: { name: '젬', emoji: '💎' }, mat: { name: '강화 부품', emoji: '🔩' } }
@@ -3781,12 +3806,13 @@
   let battleSavedCarve, battleSavedBarDmg = 0
   let battlePhase = 'idle', battlePhaseAt = 0, battleWin = false, battleConfetti = []   // 'countdown' | 'playing' | 'result'
   const BATTLE_CD_MS = 3200   // 3·2·1 (각 800ms) + START(800ms)
-  const BATTLE_PAD = 90
+  // 전장 좌우 여백 = 화면폭 1/9(≈양 끝에서 2번째 프리셋 c=1/c=8). 예전 고정 90px(≈화면 끝)에서 안쪽으로 당겨 전장을 좁힘(시각). 실제 템포는 speedScale로.
+  function battlePad() { return canvas.clientWidth / 9 }
   const BATTLE_DIG_MUL = 0.4   // 배틀 전체 땅파임 하향 배율(모든 battleDig에 곱함) — 지형 붕괴가 과해서 전반 완화(연출만 남김)
   const BATTLE_UNIT_SCALE = 2.0   // 배틀 유닛 렌더 배율 (2.86 → ×0.7 축소). 히트박스(unitHitboxScreen)도 이 값에 연동.
   // 멀티: 신청자(side0)=화면 왼쪽 / 수락자(side1)=오른쪽으로 "절대 고정". 수락자는 battleFlip으로 좌우 반전 렌더
   // → 두 클라가 동일 절대 프레임을 공유(미사일 등 화면좌표 무기도 정합, 미러링 혼란 해소). sim은 L그대로.
-  function battleLaneX(L) { const W = canvas.clientWidth, t = battleFlip ? 1 - L : L; return BATTLE_PAD + t * (W - 2 * BATTLE_PAD) }
+  function battleLaneX(L) { const W = canvas.clientWidth, pad = battlePad(), t = battleFlip ? 1 - L : L; return pad + t * (W - 2 * pad) }
   // 유닛 발밑 Y. 지상형은 파인 지형(antGroundY)을 따라가고, 공중형은 땅 파임과 무관하게 원래 작업표시줄 라인 위로 고정.
   function battleUnitFeetY(x, flying) {
     if (flying) { const tb = taskbarRect(); return (tb ? tb.top : canvas.clientHeight) - 5 * view.scale - 64 * view.scale }   // 공중형: 지상보다 확실히 높게(34→64)
@@ -3838,7 +3864,7 @@
     for (const m of [remoteMissiles, remoteShields, remoteAnts, remoteBlackholes, remoteGatlings, remoteGBullets, remoteHumans, remoteHbullets, remoteNets, remoteMechas, remoteMShells]) m.clear()   // ★ 상대(피어) 오버레이 소환체·투사체도 전부 제거 — 배틀은 내것/남것 모두 없는 깨끗한 환경에서 시작
     remoteSummonShots.length = 0
     littleBoys.length = 0; debris.length = 0; bloodStains.length = 0   // 낙하 폭탄·잔해도 정리
-    battle = window.BattleSim.newBattle({ speedScale: 0.38 })   // 냥코풍 느린 행군(전략성). 0.44 → 0.38
+    battle = window.BattleSim.newBattle({ speedScale: 0.49 })   // 행군 템포: 0.44 → 0.38 → 0.49(+29%). 전장 폭을 2번째 프리셋(~78%)으로 좁힌 것과 등가 — 유닛이 더 빨리 교전(sim은 L정규화라 speedScale이 실제 템포 레버)
     battleAtkAt = {}; battleShieldFlash = {}; battleHealFx = []; battleFalls = []; battleDead = []; bproj.length = 0
     battleGhosts = []; battleGhostBase = battle.state.baseHpMax; bunitsLastSend = 0; unitReadyAt = {}; weaponCdUntil = {}; remoteBattleShots.length = 0; battleGhostShield = { hp: 0, until: 0 }; remoteCannonSweep = null; titanLasers.length = 0; battleIntc.length = 0
     { const dk = (window.BattleGacha && window.BattleGacha.getDeck) ? window.BattleGacha.getDeck() : {}; battleDeckA = (dk.unitsA || []).slice(0, 5); battleDeckB = (dk.unitsB || []).slice(0, 5); battleDeckSwapped = false }   // 배틀-로컬 덱 세트 2개(각 5칸)
@@ -3883,14 +3909,30 @@
   function sendBattleRequest(peerId, bet) {
     if (!connected()) { showToast('멀티 접속 후 신청 가능'); return }
     if (battleActive) { showToast('이미 배틀 중'); return }
+    if (battleAwaitingGo) { showToast('수락한 배틀 확인 대기 중이에요'); return }   // 내가 이미 다른 배틀 수락 대기중
     if (window.BattleGacha && window.BattleGacha.deckReady && !window.BattleGacha.deckReady()) { showToast('덱 구성을 완료하세요 — 소환체 3개 이상, 무기 1개 이상'); return }
     const p = peers.get(peerId); if (!p) { showToast('상대를 찾을 수 없어요'); return }
     if (bet && bet.amt > 0) { if (!BET_CUR[bet.cur]) return; if (betBalance(bet.cur) < bet.amt) { showToast(`${BET_CUR[bet.cur].name} 잔액 부족(베팅 ${bet.amt})`); return } }
     else bet = null
+    // 동시 신청은 1개만 — 이전 신청 대상이 다르면 그쪽에 취소 통지(상대 팝업 닫힘, 유령 배틀 방지)
+    if (battleInvite && battleInvite.to !== peerId && connected()) net.send(JSON.stringify({ t: 'battle-cancel', to: battleInvite.to }))
     battleInvite = { to: peerId, at: performance.now(), bet }
     net.send(JSON.stringify({ t: 'battle-req', to: peerId, bet }))
     showToast(`⚔ ${p.name || '상대'} 님에게 배틀 신청${bet ? ` (베팅 ${betLabel(bet)})` : ''}… 응답 대기`)
   }
+  // 내 초대 팝업을 외부(취소 수신 등)에서 닫기
+  function closeBattleInvitePopup() { const el = document.querySelector('.bm-invite'); if (el) el.remove(); battleIncoming = null; sendHotzone() }
+  // 수락 후 신청자 확답 대기 UI(간단 오버레이) + 타임아웃(응답 없으면 해제)
+  function showAwaitingGo(fromName) {
+    const old = document.querySelector('.bm-await'); if (old) old.remove()
+    const back = document.createElement('div'); back.className = 'no-drag bm-await'
+    back.style.cssText = 'position:fixed;inset:0;z-index:2147483200;display:flex;align-items:center;justify-content:center;background:rgba(6,8,12,.5);font-family:system-ui,"맑은 고딕",sans-serif'
+    back.innerHTML = `<div style="background:linear-gradient(180deg,#1a1f28,#12151b);border:1px solid #39414f;border-radius:14px;padding:22px 26px;text-align:center;box-shadow:0 18px 50px rgba(0,0,0,.6);color:#e8ebf0">
+      <div style="font-size:15px;font-weight:700;margin-bottom:8px">⚔ 수락 완료</div>
+      <div style="font-size:13px;color:#8fa0b4"><b style="color:#8fd3ff">${fromName}</b> 님의 확인을 기다리는 중…</div></div>`
+    document.body.appendChild(back); sendHotzone()
+  }
+  function clearAwaitingGo() { battleAwaitingGo = null; const el = document.querySelector('.bm-await'); if (el) el.remove(); if (battleAwaitTimer) { clearTimeout(battleAwaitTimer); battleAwaitTimer = null } sendHotzone() }
   // 배틀 신청 전 베팅 선택 다이얼로그(무베팅/카운트/젬/부품 + 금액) → sendBattleRequest 호출
   function openBetDialog(peerId) {
     if (!connected()) { showToast('멀티 접속 후 신청 가능'); return }
@@ -3949,8 +3991,13 @@
       if (!connected()) { close(); return }
       if (window.BattleGacha && window.BattleGacha.deckReady && !window.BattleGacha.deckReady()) { showToast('덱 구성 먼저 완료하세요'); return }
       if (bet && bet.amt > 0 && betBalance(bet.cur) < bet.amt) { showToast(`${BET_CUR[bet.cur].name} 잔액 부족 — 수락 불가`); if (connected()) net.send(JSON.stringify({ t: 'battle-dec', to: fromId, reason: 'insufficient' })); close(); return }
+      if (battleInvite && connected()) { net.send(JSON.stringify({ t: 'battle-cancel', to: battleInvite.to })); battleInvite = null }   // 내가 딴 데 신청 중이었다면 취소(중복 매칭 방지)
       net.send(JSON.stringify({ t: 'battle-acc', to: fromId })); close()
-      startBattleMulti(fromId, 1, bet)   // 수락자 = side1
+      // 낙관적 즉시 시작 X → 신청자 확답(battle-go) 대기(유령 배틀 방지). 확답 오면 side1로 시작.
+      battleAwaitingGo = { from: fromId, bet, at: performance.now() }
+      showAwaitingGo(fromName)
+      if (battleAwaitTimer) clearTimeout(battleAwaitTimer)
+      battleAwaitTimer = setTimeout(() => { if (battleAwaitingGo && battleAwaitingGo.from === fromId) { clearAwaitingGo(); showToast('상대 응답이 없어 매칭이 취소됐어요') } }, 8000)
     }
   }
   // 나가기 확인 팝업 — 나가면 패배 처리(승패 판정과 연관). YES/NO.
@@ -4460,7 +4507,7 @@
       const bh = bhRenderPull(x, y, now); if (bh) { x = bh.x; y = bh.y; s *= bh.scl }   // 🕳 블랙홀 흡입: 홀 중심으로 끌려 올라가며 축소
       drawTeamMarker(x, y, u.side, u.type, def.size || 1)   // 진영 구분: 머리 위 삼각형(내편 파랑 / 상대 빨강)
       // 커맨더 오라 링(바닥, 유닛 뒤) — 주변 아군 버프 범위 표시
-      if (def.aura) { const rad = def.aura.range * (canvas.clientWidth - 2 * BATTLE_PAD); ctx.save(); ctx.globalAlpha = 0.5 + 0.2 * Math.sin(now / 300); ctx.strokeStyle = 'rgba(255,210,90,.5)'; ctx.lineWidth = 2 * view.scale; ctx.beginPath(); ctx.ellipse(x, antGroundY(x), rad, rad * 0.18, 0, 0, Math.PI * 2); ctx.stroke(); ctx.restore() }
+      if (def.aura) { const rad = def.aura.range * (canvas.clientWidth - 2 * battlePad()); ctx.save(); ctx.globalAlpha = 0.5 + 0.2 * Math.sin(now / 300); ctx.strokeStyle = 'rgba(255,210,90,.5)'; ctx.lineWidth = 2 * view.scale; ctx.beginPath(); ctx.ellipse(x, antGroundY(x), rad, rad * 0.18, 0, 0, Math.PI * 2); ctx.stroke(); ctx.restore() }
       // 메카/인간 = 기존 오버레이 아트 그대로 재사용(새로 안 만듦). 쉴드도 form별(돔/판넬) 원본 함수 재사용.
       const sh01 = u.shHp > 0 && u.shMax ? u.shHp / u.shMax : null
       if (u.type === 'mechaAnt') drawOverlayMechaAt(x, y, 0.43 * (def.size || 1.6), facing, 0, now, { walking: true, shHp01: sh01 })
@@ -4954,7 +5001,7 @@
         if (d >= b.r) continue
         if (d < consumeR) { spawnDustToHole(ux, uy, { x: b.x, y: b.y }); u.hp = 0; break }   // 중심 도달 → 소멸(먼지)
         // 아니면 홀 쪽으로 강하게 흡입(빙결 아이스 없이 — L을 홀 레인으로 당김)
-        const t = Math.max(0, Math.min(1, (b.x - BATTLE_PAD) / (W - 2 * BATTLE_PAD)))
+        const t = Math.max(0, Math.min(1, (b.x - battlePad()) / (W - 2 * battlePad())))
         const holeL = battleFlip ? 1 - t : t
         const strength = (1 - d / b.r) * 3.2
         u.L += (holeL - u.L) * Math.min(1, strength * dt)

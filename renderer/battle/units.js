@@ -144,8 +144,8 @@
     // ── 대공 전문(요격 미사일) ──
     flakAnt: {
       name: '대공포 개미', cat: 'unit', rarity: 'rare', cost: 4, hp: 70,
-      speed: 0.11, atk: { type: 'antiair', dmg: 8, range: 0.17, cd: 1.2, salvo: 4, airOnly: true }, kb: 1,
-      art: 'flakAnt', size: 1.1, // 공대공 전용(지상·기지 공격 불가) — 유도 요격 미사일 살보. 공중엔 확실한 카운터, 지상엔 무력(보호 필요)
+      speed: 0.11, atk: { type: 'antiair', dmg: 8, range: 0.20, cd: 1.2, salvo: 4, airOnly: true }, kb: 1,
+      art: 'flakAnt', size: 1.1, // 공대공 전용(지상·기지 공격 불가) — 유도 요격 미사일 살보. 사거리 0.17→0.20(메카 인간폼 0.20과 동급, 마주 요격 가능). 공중엔 확실한 카운터, 지상엔 무력(보호 필요)
     },
   }
 
