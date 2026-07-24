@@ -90,7 +90,7 @@ wss.on('connection', (ws, req) => {
     } else if (msg.t === 'ants' && Array.isArray(msg.list)) {
       broadcast(joinedRoom, { t: 'ants', id, list: msg.list.slice(0, 5) }, id)
     } else if (msg.t === 'ant-hit') {
-      broadcast(joinedRoom, { t: 'ant-hit', id, target: msg.target, ant: msg.ant, dmg: msg.dmg }, id)
+      broadcast(joinedRoom, { t: 'ant-hit', id, target: msg.target, ant: msg.ant, dmg: msg.dmg, slow: msg.slow || 0, slowDur: msg.slowDur || 0, frozen: msg.frozen || 0, kb: msg.kb || 0 }, id)   // slow/frozen=얼음개미, kb=망치개미
     } else if (msg.t === 'blackhole') {
       broadcast(joinedRoom, { t: 'blackhole', id, nx: msg.nx, ny: msg.ny, ttl: msg.ttl }, id)
     } else if (msg.t === 'dig') {

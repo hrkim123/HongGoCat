@@ -501,6 +501,12 @@
   // Compares the last-seen version (localStorage) to the current app version; lists every changelog
   // entry between them (first run just shows the current version). Add newest versions at the TOP.
   const CHANGELOG = {
+    '1.3.2': [
+      '🐜 오버레이 소환체 공격이 배틀과 동일해졌어요 — 타이탄 레이저/생산, 얼음(감속·빙결), 대공포(유도 요격), 폭격나방(전진 자폭·격추 낙하), 망치(넉백), 지휘(오라), 쉴더(실드)',
+      '🤖 합체 수정 — 이제 기본 개미 10마리일 때만 메카 합체(다른 소환체는 합체 안 됨)',
+      '🔢 소환 제한 — 기본 개미 10마리 + 그 외 소환체 합쳐서 5마리',
+      '🎯 오버레이 투사체가 상대 유닛에 제대로 명중(예전엔 빗나가 땅에 꽂힘)',
+    ],
     '1.3.1': [
       '📋 덱 편성(컬렉션) 창에 대공 가능 유닛 ✈ 표시 (HUD와 동일)',
       '🦋 폭격 나방은 공중 공격 불가 — 지상 유닛/기지만 타격(도착 자폭·격추 낙하 모두)',
@@ -794,7 +800,7 @@
   function clearMySummons() {
     projectiles.length = 0; ants.length = 0; gbullets.length = 0; hbullets.length = 0; bolts.length = 0
     energyShots.length = 0; interceptors.length = 0; mechaShells.length = 0
-    summonProj.length = 0; bombs.length = 0; bombQueue.length = 0; fireZones.length = 0; bomberPlane = null   // 소환 투사체·폭격 정리
+    summonProj.length = 0; bombs.length = 0; bombQueue.length = 0; fireZones.length = 0; bomberPlane = null; overlayIntc.length = 0; overlayMothFalls.length = 0   // 소환 투사체·폭격·요격·낙하 정리
     if (me.gatActive) setGat(false)
     me.gatBattle = false; me.gatStructUid = null; me.gatCdUntil = 0   // 배틀 게틀링 상태·재배치 쿨 초기화
     if (me.humanActive) removeHuman()
@@ -975,7 +981,12 @@
       }
       else if (msg.t === 'shield-hit') { if (msg.target === me.netId) hitMyShield(msg.power || 1) }
       else if (msg.t === 'ants') { mergeRemote(remoteAnts, msg.id, msg.list, 'nx', 'nx') }
-      else if (msg.t === 'ant-hit') { if (msg.target === me.netId) { const a = ants.find((x) => x.id === msg.ant); if (a && !a.dead) { antTakeDmg(a, msg.dmg || 1); if (a.dead) creditKill('ant', msg.id) } } }
+      else if (msg.t === 'ant-hit') { if (msg.target === me.netId) { const a = ants.find((x) => x.id === msg.ant); if (a && !a.dead) {
+        const nowP = performance.now()
+        if (msg.slow) { a.slowUntil = nowP + (msg.slowDur || 2) * 1000; a.slowMul = 1 - msg.slow; if (a.slowStackAt == null || nowP - a.slowStackAt > (msg.slowDur || 2) * 1000 + 500) a.slowStacks = 0; a.slowStacks = (a.slowStacks || 0) + 1; a.slowStackAt = nowP; if (a.slowStacks >= 3 && !(a.freezeImmuneUntil > nowP)) { a.frozenUntil = nowP + 2000; a.slowStacks = 0; a.freezeImmuneUntil = nowP + 12000 } }   // ❄ 얼음개미 감속 + 3스택 빙결
+        if (msg.frozen) a.frozenUntil = Math.max(a.frozenUntil || 0, nowP + msg.frozen * 1000)
+        if (msg.kb) { a.kbUntil = nowP + 320; a.kbBack = a.dir }   // 🔨 망치 넉백: 잠깐 뒤로(진격 방향 반대)
+        antTakeDmg(a, msg.dmg || 1); if (a.dead) creditKill('ant', msg.id) } } }
       else if (msg.t === 'blackhole') {
         if (msg.ttl > 0) remoteBlackholes.set(msg.id, { nx: msg.nx, ny: msg.ny, until: performance.now() + msg.ttl })
         else remoteBlackholes.delete(msg.id)
@@ -1307,7 +1318,7 @@
             if (weaponsLocked()) { /* weapons locked */ }
             else if (me.humanActive) humanAttack()                              // human attack
             else if (me.mechaActive) { me.mechaCharging = true; me.mechaChargeStart = performance.now(); me.mechaCharge = 0 }   // mecha cannon / energy charge
-            else if (!me.gatActive && antMax() >= 10 && ants.filter((a) => !a.dead && !a.falling).length >= 10) mergeAntsToMecha()   // 10 ants → merge
+            else if (!me.gatActive && antMax() >= 10 && ants.filter((a) => !a.dead && !a.falling && !a.sprite).length >= 10) mergeAntsToMecha()   // 기본 개미(스프라이트 아님) 10마리일 때만 합체
           } else if (msg.key === 'r' && !weaponsLocked() && me.mechaActive && (me.mechaForm || 0) >= 0.5 && !me.mechaTransforming) fireInterceptors(performance.now())   // human-form R: interceptors
         }
       } else {
@@ -2340,12 +2351,12 @@
   function mechaScale() { return view.scale * MECHA_SCALE }
   const MERGE_MS = 1100
   function mergeAntsToMecha() {   // START the magic-circle merge (ants spiral in; the mecha emerges after)
-    const alive = ants.filter((a) => !a.dead && !a.falling)
+    const alive = ants.filter((a) => !a.dead && !a.falling && !a.sprite)   // 기본 개미만 합체(스프라이트 유닛 제외)
     if (alive.length < 10 || antMax() < 10 || me.mechaActive || me.mechaMerging) return
     if (me.humanActive) removeHuman(); if (me.gatActive) setGat(false)   // exclusive with human/gatling
     const cx = Math.max(16 * mechaScale(), Math.min(canvas.clientWidth - 16 * mechaScale(), cursor.x))   // merge AT the cursor (player picks solid ground)
     me.mergeSnap = alive.map((a) => ({ x0: a.x, y0: a.y, step: Math.random() * 10 }))
-    ants.length = 0
+    for (let i = ants.length - 1; i >= 0; i--) { const a = ants[i]; if (!a.sprite && !a.dead && !a.falling) ants.splice(i, 1) }   // 합체된 기본 개미만 제거 — 스프라이트 소환체는 필드에 유지
     me.mechaMerging = true; me.mechaMergeStart = performance.now(); me.mechaMergeX = cx; me.mechaMergeY = mechaGroundY(cx)
     showToast('🐜✨ 개미들이 뭉치는 중...')
   }
@@ -3671,18 +3682,19 @@
     return true
   }
   function summonAnt() {
-    if (ants.filter((a) => !a.dead).length >= antMax()) return
+    if (ants.filter((a) => !a.dead && !a.sprite).length >= 10) return   // 기본 개미 최대 10마리(스프라이트 유닛과 별도 카운트)
     ants.push({ id: nextAntId++, x: cursor.x, y: cursor.y, vy: 0, onGround: false, hp: ANT_HP,
       dir: Math.random() < 0.5 ? -1 : 1, wanderUntil: 0, atkCd: 0, dead: false, deadAt: 0, step: Math.random() * 10 })
   }
   // 신규 소환체(스프라이트)를 오버레이에 소환 — 기본 개미와 동일한 ants[] 시스템에 편입해
   // 체력(HP)·충돌·사망·핵/그물/포탄 등 모든 상호작용을 그대로 재사용한다. (기본 규칙: 모든 소환체는 HP+충돌 보유)
   function summonSpriteUnit(id) {
-    if (ants.filter((a) => !a.dead).length >= antMax()) { showToast('소환 최대치'); return }
+    if (ants.filter((a) => !a.dead && a.sprite).length >= 5) { showToast('소환체 최대 5마리'); return }   // 기본 개미 제외 스프라이트 소환체 전부 합쳐서 최대 5마리(수동 조작 메카/인간은 별도 시스템이라 제외)
     const def = (window.BattleData && window.BattleData.UNITS[id]) || {}
     const hp = Math.max(1, Math.round((def.hp || 20) / 8))   // 오버레이용 축약 HP(개미=1 기준 스케일)
+    const shMax = def.battleShield ? Math.max(1, Math.round(def.battleShield.absorb / 8)) : 0   // 쉴더·메카 자동 실드(오버레이 축약)
     ants.push({ id: nextAntId++, sprite: id, size: def.size || 1, x: cursor.x, y: cursor.y, vy: 0, onGround: false,
-      hp, maxHp: hp, dir: cursor.x < canvas.clientWidth / 2 ? 1 : -1, wanderUntil: 0, atkCd: 0, dead: false, deadAt: 0, step: Math.random() * 10 })
+      hp, maxHp: hp, shHp: shMax, shMax, dir: cursor.x < canvas.clientWidth / 2 ? 1 : -1, wanderUntil: 0, atkCd: 0, dead: false, deadAt: 0, step: Math.random() * 10 })
   }
 
   // ---------- 오버레이 필드 유닛 (신규 소환체: BattleSprites 렌더 + 배회 AI) ----------
@@ -5273,8 +5285,12 @@
   }
   function antTakeDmg(ant, dmg) {
     if (ant.dead) return
+    if (ant.shHp > 0) { const block = Math.min(ant.shHp, dmg); ant.shHp -= block; dmg -= block; ant.hitAt = performance.now(); if (ant.shHp <= 0) spawnSpark(ant.x, ant.y - 6 * view.scale); if (dmg <= 0) return }   // 자동 실드(쉴더·메카) 먼저 흡수
     ant.hp -= dmg; ant.hitAt = performance.now(); spawnBlood(ant.x, ant.y, Math.min(dmg + 1, 3)); spawnSpark(ant.x, ant.y - 6 * view.scale)   // 피격 순간 스파크(충돌 연출)
-    if (ant.hp <= 0) { ant.dead = true; ant.deadAt = performance.now(); spawnBlood(ant.x, ant.y, 12); addBloodStain(ant.x, ant.y, 11 * view.scale) }   // death: bigger burst + lingering stain
+    if (ant.hp <= 0) {
+      ant.dead = true; ant.deadAt = performance.now(); spawnBlood(ant.x, ant.y, 12); addBloodStain(ant.x, ant.y, 11 * view.scale)   // death: bigger burst + lingering stain
+      if (ant.sprite === 'bomberMoth' && !ant._detonated) { ant._detonated = true; const bd = (window.BattleData.UNITS.bomberMoth || {}).atk || {}; spawnOverlayMothFall(ant.x, ant.dir || 1, Math.max(1, Math.round((bd.dmg || 50) / 6))) }   // 폭격 나방 격추 → 전진 방향 낙하 폭발
+    }
   }
   // 소환체의 실제 몸통 히트박스. 스프라이트 유닛은 크게(2.86×) 그려지므로 발밑 원이 아니라
   // 몸통 높이(발밑~머리)를 덮어야 미사일/총알이 몸에 맞는다(기존엔 발밑 18px만 검사 → 몸통 관통 지나감).
@@ -5342,17 +5358,36 @@
         if (a.y >= floor) { a.y = floor; a.vy = 0; a.onGround = true; a.onPlat = !uflying && (platY != null && platY <= gy) }
         drawAnt(a, now, false, myCol); continue
       }
+      // ❄ 빙결: 이동·공격 정지(위치 유지) / 🔨 넉백: 잠깐 진격 반대로 밀림(공격 X)
+      if (a.frozenUntil && a.frozenUntil > now) { if (uflying) a.y = restY; drawAnt(a, now, true, myCol); continue }
+      if (a.kbUntil && a.kbUntil > now) { a.x -= (a.kbBack || a.dir) * 2.6; if (a.x < 8) a.x = 8; if (a.x > W - 8) a.x = W - 8; a.step += 0.3; a.y = uflying ? restY : gy; drawAnt(a, now, false, myCol); continue }
       // ── 배틀식 공격: 유닛의 battle atk 패턴대로. 타겟 우선순위 = 적 소환체 → 적 캐릭터(고양이) ──
       const udef = a.sprite ? (window.BattleData.UNITS[a.sprite] || {}) : null
       const uatk = (udef && udef.atk) ? udef.atk : { type: 'melee', dmg: (a.sprite ? 5 : 1), range: 0.02, cd: 0.6 }
       const atkType = uatk.type, cdMs = Math.max(200, (uatk.cd || 0.6) * 1000)
       const rangePx = Math.max(22 * view.scale, (uatk.range || 0.02) * W * 0.6)
       const odmg = Math.max(1, Math.round((uatk.dmg || uatk.stompDmg || 1) / 6))   // 오버레이 축약 HP 스케일에 맞춘 데미지(타이탄=스톰프 데미지)
+      // 지휘 개미 오라: 주변 아군 지휘관이 있으면 +공격/이동(배틀 동일)
+      let auraAtk = 0, auraSpd = 0
+      for (const o of ants) { if (o.dead || o === a || o.sprite !== 'commander') continue; const oa = (window.BattleData.UNITS.commander || {}).aura; if (oa && Math.abs(o.x - a.x) <= oa.range * W) { auraAtk = Math.max(auraAtk, oa.atk || 0); auraSpd = Math.max(auraSpd, oa.speed || 0) } }
+      const odmgA = Math.max(1, Math.round(odmg * (1 + auraAtk)))
+      // 폭격 나방(배틀 동일): 적 소환체 무시하고 적 캐릭터로 무작정 전진 → 도달 시 자폭(광역). 격추 시 낙하는 antTakeDmg에서.
+      if (a.sprite === 'bomberMoth') {
+        const ec = nearestEnemyCat(a.x)
+        if (ec) {
+          a.dir = ec.c.x >= a.x ? 1 : -1
+          if (Math.abs(ec.c.x - a.x) <= 46 * view.scale) { a._detonated = true; addEffect(a.x, a.y - 8 * view.scale, 3); summonAreaHit(a.x, a.y, (uatk.aoeR || 0.06) * W, odmgA, false); antTakeDmg(a, 99); continue }
+        }
+        const slowMb = (a.slowUntil && a.slowUntil > now) ? (a.slowMul || 1) : 1
+        const spdB = ((udef && udef.speed) ? Math.max(0.5, udef.speed * 5) : 1.2) * slowMb
+        a.x += a.dir * spdB; if (a.x < 8) { a.x = 8; a.dir = 1 } if (a.x > W - 8) { a.x = W - 8; a.dir = -1 } a.step += 0.35
+        a.y = restY; drawAnt(a, now, false, myCol); continue
+      }
       // 여왕 등 생산 유닛: 적 유무와 무관하게 주기적으로 아군 소환체 생산
-      if (udef && udef.summon && udef.summon.unit !== 'mechaAnt') { if (!a.prodAt) a.prodAt = now + (udef.summon.every || 5) * 1000; else if (now >= a.prodAt) { a.prodAt = now + (udef.summon.every || 5) * 1000; summonProduce(a, udef.summon.unit) } }   // 오버레이에선 메카개미 자동 생산 제외(메카개미는 오버레이에서 수동 조작 유닛 — 타이탄의 메카개미 생산은 배틀 전용)
+      if (udef && udef.summon) { if (!a.prodAt) a.prodAt = now + (udef.summon.every || 5) * 1000; else if (now >= a.prodAt) { a.prodAt = now + (udef.summon.every || 5) * 1000; summonProduce(a, udef.summon.unit) } }   // 생산형(여왕=라이플·타이탄=메카개미) 오버레이도 배틀과 동일하게 생산
       // 타겟: 적 소환체(원격 ant/gatling/메카/인간) 우선, 없으면 가장 가까운 적 캐릭터.
       // ★ 메카개미·메카인간·인간도 반드시 후보에 포함(예전엔 ant/gatling만 봐서 상대가 메카/인간만 내면 캐릭터로 폴백하던 버그).
-      const isMeleeAtk = (atkType === 'melee' || atkType === 'titan' || (uatk && uatk.groundOnly))   // 순수 근접·타이탄·groundOnly(자폭개미·저격·라이플)는 지상만(공중 못 침)
+      const isMeleeAtk = (atkType === 'melee' || (uatk && uatk.groundOnly))   // 순수 근접·groundOnly(자폭개미·저격·라이플)는 지상만(공중 못 침). 타이탄은 레이저로 대공 가능 → 제외
       const cands = []
       { const e = nearestEnemyAnt(a.x); if (e) cands.push({ x: e.s.x, y: e.s.y, kind: 'rant', pid: e.pid, id: e.s.id, fly: false }) }
       { const e = nearestEnemyGatling(a.x); if (e) cands.push({ x: e.x, y: e.y, kind: 'gat', pid: e.pid, fly: false }) }
@@ -5363,34 +5398,48 @@
       for (const c of cands) { if (isMeleeAtk && c.fly) continue; const d = Math.abs(c.x - a.x); if (d < btd) { btd = d; tgt = c } }
       // 공격 가능한 적 소환체가 없을 때만 캐릭터로 폴백 — 단 캐릭터는 책상 위(공중)라 원거리(proj/aoe)만 공격 가능.
       // 근접/자폭은 공중 캐릭터를 못 때리므로 폴백하지 않고 그냥 배회한다.
-      if (!tgt && (atkType === 'proj' || atkType === 'aoe')) { const ec = nearestEnemyCat(a.x); if (ec) tgt = { x: ec.c.x, y: ec.c.y - 22 * view.scale, kind: 'cat', cat: ec.cat } }
+      if (!tgt && (atkType === 'proj' || atkType === 'aoe' || atkType === 'titan')) { const ec = nearestEnemyCat(a.x); if (ec) tgt = { x: ec.c.x, y: ec.c.y - 22 * view.scale, kind: 'cat', cat: ec.cat } }
       let moving = true, acting = false
       if (atkType === 'heal') {                 // 메딕: 주변 다친 아군 소환체 회복(투사체 X)
         const ally = nearestHurtAlly(a, rangePx)
         if (ally) { moving = false; acting = true; if (now >= a.atkCd) { a.atkCd = now + cdMs; a.atkFlash = now + 220; ally.hp = Math.min(ally.maxHp || ally.hp, ally.hp + Math.max(1, Math.round((uatk.heal || 3) / 6))); addEffect(ally.x, ally.y - 12 * view.scale, 1) } }
+      } else if (atkType === 'antiair') {        // 대공포(배틀 동일): 공중 적만 유도 요격 미사일. 지상엔 무력 → 없으면 배회.
+        const air = nearestOverlayAir(a.x)
+        if (air && Math.abs(air.x - a.x) <= (uatk.range || 0.2) * W) { moving = false; acting = true; a.dir = air.x >= a.x ? 1 : -1; if (now >= a.atkCd) { a.atkCd = now + cdMs; a.atkFlash = now + 160; spawnOverlayInterceptors(a.x, a.y, uatk.salvo || 4, odmgA) } }
       } else if (tgt) {
         a.dir = tgt.x >= a.x ? 1 : -1
         const dist = Math.abs(tgt.x - a.x)
-        const isMelee = (atkType === 'melee' || atkType === 'suicide' || atkType === 'titan')   // 타이탄=스톰프(근접 접촉)
-        if (isMelee) {                          // 근접/자폭: 접촉 사거리에서
+        const isMelee = (atkType === 'melee' || atkType === 'suicide')
+        if (atkType === 'titan') {   // 브루드 타이탄(배틀 동일): 근접=스톰프(지상 광역), 사거리 밖이면 레이저(원거리·대공)
+          const stompRpx = (uatk.stompR || 0.055) * W, laserRpx = (uatk.laserR || 0.22) * W
+          if (!tgt.fly && dist <= Math.max(34 * view.scale, stompRpx)) {   // 스톰프
+            moving = false; acting = true
+            if (now >= a.atkCd) { a.atkCd = now + (uatk.stompCd || 1.5) * 1000; a.atkFlash = now + 220; addEffect(a.x, a.y - 8 * view.scale, 3); summonAreaHit(a.x, a.y, stompRpx, Math.max(1, Math.round((uatk.stompDmg || 34) / 6)) + (auraAtk ? 1 : 0), false) }
+          } else if (dist <= laserRpx) {   // 땅 긁는 레이저(대공 가능)
+            moving = false; acting = true
+            if (now >= a.atkCd) { a.atkCd = now + (uatk.laserCd || 6) * 1000; a.atkFlash = now + 220; const toX = a.x + a.dir * laserRpx; titanLaserFx(a.x, toX); summonAreaHit((a.x + toX) / 2, a.y, laserRpx / 2, Math.max(1, Math.round((uatk.laserDmg || 11) / 6)) + (auraAtk ? 1 : 0), !!uatk.laserAir) }
+          }
+        } else if (isMelee) {                          // 근접/자폭: 접촉 사거리에서
           if (dist <= Math.max(22 * view.scale, rangePx) && Math.abs((tgt.y != null ? tgt.y : a.y) - a.y) <= 46 * view.scale) {
             moving = false; acting = true
             if (now >= a.atkCd) {
               a.atkCd = now + cdMs; a.atkFlash = now + 220
-              if (atkType === 'suicide') { summonSuicide(a, odmg); continue }   // 자폭: 광역 + 자신 사망
-              summonMeleeHit(tgt, odmg, a)
+              if (atkType === 'suicide') { summonSuicide(a, odmgA); continue }   // 자폭: 광역 + 자신 사망
+              else if (uatk.aoeR) summonAreaHit(tgt.x, (tgt.y != null ? tgt.y : a.y), uatk.aoeR * W, odmgA, false, { kb: uatk.kbHit ? 1 : 0 })   // 망치 개미: 범위 슬램 + 강제 넉백
+              else summonMeleeHit(tgt, odmgA, a, uatk.kbHit ? 1 : 0)   // 쉴더 등 kbHit 근접은 넉백
             }
           }
         } else if (atkType !== 'none') {         // 원거리/광역: 사거리 안에서 멈춰 발사
           if (dist <= rangePx) {
             moving = false; acting = true
-            if (now >= a.atkCd) { a.atkCd = now + cdMs; a.atkFlash = now + 160; spawnSummonProj(a, uatk, tgt, odmg, atkType) }
+            if (now >= a.atkCd) { a.atkCd = now + cdMs; a.atkFlash = now + 160; spawnSummonProj(a, uatk, tgt, odmgA, atkType) }
           }
         }
       } else if (now >= a.wanderUntil) {
         a.wanderUntil = now + 700 + Math.random() * 1400; if (Math.random() < 0.35) a.dir *= -1
       }
-      const spd = (udef && udef.speed) ? Math.max(0.5, udef.speed * 5) : 0.9   // 배틀 속도 반영(정찰=빠름)
+      const slowM = (a.slowUntil && a.slowUntil > now) ? (a.slowMul || 1) : 1   // ❄ 얼음개미 감속
+      const spd = ((udef && udef.speed) ? Math.max(0.5, udef.speed * 5) : 0.9) * (1 + auraSpd) * slowM   // 배틀 속도 반영 + 지휘관 오라 + 감속
       if (moving) { a.x += a.dir * spd; if (a.x < 8) { a.x = 8; a.dir = 1 } if (a.x > W - 8) { a.x = W - 8; a.dir = -1 } a.step += 0.35 }
       if (uflying) { a.y = antGroundY(a.x) - OVERLAY_HOVER }   // 공중형: 플랫폼·구멍 무시, 공중 높이 유지(현재 x 기준)
       else {
@@ -5406,9 +5455,9 @@
   // ── 오버레이 소환 전투 헬퍼(배틀 atk 패턴 재사용) ──
   function nearestEnemyCat(x) { let best = null, bd = Infinity; for (let i = 0; i < catPos.length; i++) { const cat = allRef[i], c = catPos[i]; if (!cat || !c || cat.id === 'me') continue; const d = Math.abs(c.x - x); if (d < bd) { bd = d; best = { cat, c } } } return best }
   function nearestHurtAlly(a, rangePx) { let best = null, bd = Infinity; for (const o of ants) { if (o === a || o.dead) continue; if ((o.maxHp || o.hp) <= o.hp) continue; const d = Math.abs(o.x - a.x); if (d <= rangePx && d < bd) { bd = d; best = o } } return best }
-  function summonMeleeHit(tgt, dmg, a) {
+  function summonMeleeHit(tgt, dmg, a, kb) {
     spawnBlood(tgt.x, (tgt.y != null ? tgt.y : a.y) - 4 * view.scale, 4)
-    if (tgt.kind === 'rant') { if (connected()) net.send(JSON.stringify({ t: 'ant-hit', target: tgt.pid, ant: tgt.id, dmg })) }
+    if (tgt.kind === 'rant') { if (connected()) net.send(JSON.stringify({ t: 'ant-hit', target: tgt.pid, ant: tgt.id, dmg, kb: kb || 0 })) }
     else if (tgt.kind === 'gat') { if (connected()) net.send(JSON.stringify({ t: 'gat-hit', target: tgt.pid, dmg })) }
     else if (tgt.kind === 'mecha') { if (connected()) net.send(JSON.stringify({ t: 'mecha-hit', target: tgt.pid, dmg })) }
     else if (tgt.kind === 'human') { if (connected()) net.send(JSON.stringify({ t: 'human-hit', target: tgt.pid, dmg, hx: +((tgt.x) / canvas.clientWidth).toFixed(4), hy: +((tgt.y) / canvas.clientHeight).toFixed(4) })) }
@@ -5422,6 +5471,63 @@
     for (const [pid, h] of remoteHumans) { if (Math.hypot(h.nx * W - a.x, h.ny * H - a.y) <= R && connected()) net.send(JSON.stringify({ t: 'human-hit', target: pid, dmg: dmg * 2, hx: +(h.nx).toFixed(4), hy: +(h.ny).toFixed(4) })) }
     for (let ci = 0; ci < catPos.length; ci++) { const cat = allRef[ci], c = catPos[ci]; if (!cat || !c || cat.id === 'me') continue; if (Math.hypot(c.x - a.x, c.y - a.y) <= R) applyCatHit(cat, dmg * 2, now) }
     antTakeDmg(a, 99)
+  }
+  // 광역 타격(스톰프·레이저·슬램·서리 공용) — 반경 R 내 적 소환체/캐릭터에 데미지(기존 hit 릴레이 재사용 → MP 정합).
+  // includeAir=공중(메카 인간폼) 포함 · opts={slow,slowDur,frozen,kb,max}(개미 대상 상태이상, max=최대 타격 마릿수)
+  function summonAreaHit(cx, cy, R, dmg, includeAir, opts) {
+    opts = opts || {}; const now = performance.now(), W = canvas.clientWidth, H = canvas.clientHeight
+    const extra = { slow: opts.slow || 0, slowDur: opts.slowDur || 0, frozen: opts.frozen || 0, kb: opts.kb || 0 }
+    // 개미 대상: 반경 내 후보 수집 → (max 지정 시) 최근접 N마리만
+    let antc = []
+    for (const [pid, rec] of remoteAnts) for (const e of rec.items.values()) { if (e.dead) continue; const sp = remoteAntScreenPos(pid, e); if (sp && Math.hypot(sp.x - cx, sp.y - cy) <= R) antc.push({ pid, id: e.id, d: Math.hypot(sp.x - cx, sp.y - cy) }) }
+    if (opts.max > 0) antc = antc.sort((p, q) => p.d - q.d).slice(0, opts.max)
+    for (const t of antc) if (connected()) net.send(JSON.stringify(Object.assign({ t: 'ant-hit', target: t.pid, ant: t.id, dmg }, extra)))
+    for (const [pid, m] of remoteMechas) { const fly = m.form === 1; if ((includeAir || !fly) && Math.hypot(m.nx * W - cx, m.ny * H - cy) <= R && connected()) net.send(JSON.stringify({ t: 'mecha-hit', target: pid, dmg })) }
+    for (const [pid, h] of remoteHumans) { if (Math.hypot(h.nx * W - cx, h.ny * H - cy) <= R && connected()) net.send(JSON.stringify({ t: 'human-hit', target: pid, dmg, hx: +(h.nx).toFixed(4), hy: +(h.ny).toFixed(4) })) }
+    for (let ci = 0; ci < catPos.length; ci++) { const cat = allRef[ci], c = catPos[ci]; if (!cat || !c || cat.id === 'me') continue; if (Math.hypot(c.x - cx, c.y - cy) <= R) applyCatHit(cat, dmg, now) }
+  }
+  // 오버레이 공중 타겟(대공포용): 상대 공중 유닛 = 메카 인간폼(form1) + 비행 스프라이트 개미
+  function nearestOverlayAir(x) {
+    let best = null, bd = Infinity; const W = canvas.clientWidth, H = canvas.clientHeight
+    for (const [pid, m] of remoteMechas) { if (m.form !== 1) continue; const d = Math.abs(m.nx * W - x); if (d < bd) { bd = d; best = { x: m.nx * W, y: m.ny * H - 20 * view.scale, kind: 'mecha', pid } } }
+    for (const [pid, rec] of remoteAnts) { for (const e of rec.items.values()) { if (e.dead) continue; if (!(window.BattleData.UNITS[e.sp] || {}).flying) continue; const sp = remoteAntScreenPos(pid, e); if (sp) { const d = Math.abs(sp.x - x); if (d < bd) { bd = d; best = { x: sp.x, y: sp.y, kind: 'rant', pid, id: e.id } } } } }
+    return best
+  }
+  const overlayIntc = []   // 대공포 유도 요격 미사일(오버레이)
+  function spawnOverlayInterceptors(x, y, salvo, dmg) {
+    const s = view.scale, spd = 10 * s
+    for (let k = 0; k < salvo; k++) { const ang = -Math.PI / 2 + (k - (salvo - 1) / 2) * 0.22; overlayIntc.push({ x: x + (Math.random() - 0.5) * 12 * s, y: y - 20 * s, vx: Math.cos(ang) * spd * 0.5, vy: Math.sin(ang) * spd, spd, dmg, born: performance.now(), seekAt: performance.now() + 240, life: 3000 }) }
+  }
+  function stepOverlayIntc(now) {
+    if (!overlayIntc.length) return
+    const s = view.scale
+    for (let i = overlayIntc.length - 1; i >= 0; i--) {
+      const p = overlayIntc[i]
+      if (now - p.born > p.life) { overlayIntc.splice(i, 1); continue }
+      const tg = (now >= p.seekAt) ? nearestOverlayAir(p.x) : null
+      if (tg) {
+        const dx = tg.x - p.x, dy = tg.y - p.y, d = Math.hypot(dx, dy) || 1
+        p.vx += ((dx / d) * p.spd - p.vx) * 0.24; p.vy += ((dy / d) * p.spd - p.vy) * 0.24
+        if (d < 18 * s) { addEffect(p.x, p.y, 1); spawnSpark(p.x, p.y); if (connected()) { if (tg.kind === 'mecha') net.send(JSON.stringify({ t: 'mecha-hit', target: tg.pid, dmg: p.dmg })); else if (tg.kind === 'rant') net.send(JSON.stringify({ t: 'ant-hit', target: tg.pid, ant: tg.id, dmg: p.dmg })) } overlayIntc.splice(i, 1); continue }
+      } else { p.vy += (-p.spd * 0.5 - p.vy) * 0.06; p.vx *= 0.98 }
+      p.x += p.vx; p.y += p.vy; drawInterceptor(p)
+    }
+  }
+  const overlayMothFalls = []   // 폭격 나방 격추 낙하(오버레이)
+  function spawnOverlayMothFall(x, dir, dmg) {
+    const s = view.scale
+    overlayMothFalls.push({ x, y: antGroundY(x) - 60 * s, vx: dir * 3.4 * s, vy: 0.6 * s, dmg: dmg || 8, rot: 0, vr: dir * 0.24, born: performance.now() })
+  }
+  function stepOverlayMothFalls(now) {
+    if (!overlayMothFalls.length) return
+    const s = view.scale
+    for (let i = overlayMothFalls.length - 1; i >= 0; i--) {
+      const f = overlayMothFalls[i]
+      f.vy += 0.62 * s; f.x += f.vx; f.y += f.vy; f.rot += f.vr
+      ctx.save(); ctx.translate(f.x, f.y); ctx.rotate(f.rot); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `${Math.round(24 * s)}px system-ui`; ctx.fillText('🦋', 0, 0); ctx.font = `${Math.round(13 * s)}px system-ui`; ctx.fillText('💣', 0, 10 * s); ctx.restore()
+      if (f.y >= antGroundY(f.x)) { const gy = antGroundY(f.x); addEffect(f.x, gy - 6 * s, 3, 0.3); summonAreaHit(f.x, gy, 0.06 * canvas.clientWidth, f.dmg, false); overlayMothFalls.splice(i, 1); continue }
+      if (f.x < -60 || f.x > canvas.clientWidth + 60 || now - f.born > 4000) overlayMothFalls.splice(i, 1)
+    }
   }
   function summonProduce(a, unitId) {   // 여왕: 아군 소환체 생산
     if (ants.filter((x) => !x.dead).length >= antMax()) return
@@ -5441,7 +5547,7 @@
       let vx, vy
       if (kind === 'grenade') { const dx = tx - fx; vx = dx / 0.8; vy = -260 * view.scale }   // 포물선
       else { const jit = burst > 1 ? (Math.random() - 0.5) * 0.05 : 0, ang = Math.atan2(ty - fy, tx - fx) + jit; vx = Math.cos(ang) * spd; vy = Math.sin(ang) * spd }
-      summonProj.push({ x: fx, y: fy, vx, vy, kind, dmg, aoe, born: performance.now(), life: (PROJ_LIFE[kind] || 1500) })
+      summonProj.push({ x: fx, y: fy, vx, vy, kind, dmg, aoe, slow: uatk.slow || 0, slowDur: uatk.slowDur || 0, aoeMax: uatk.aoeMax || 0, born: performance.now(), life: (PROJ_LIFE[kind] || 1500) })
       // 오버레이 MP: 상대 화면에도 이 투사체가 보이도록 시각 릴레이(데미지는 ant-hit 등으로 별도). 배틀은 bshot 사용.
       if (connected() && net && !battleActive) net.send(JSON.stringify({ t: 'sproj', nx: +(fx / canvas.clientWidth).toFixed(4), ny: +(fy / canvas.clientHeight).toFixed(4), vx: +(vx / canvas.clientWidth).toFixed(5), vy: +(vy / canvas.clientHeight).toFixed(5), k: kind, ay: kind === 'grenade' ? +((900 * view.scale) / canvas.clientHeight).toFixed(6) : 0, life: PROJ_LIFE[kind] || 1500 }))
     }
@@ -5472,14 +5578,14 @@
       { const psw = platformSweep(px0, py0, p.x, p.y); if (psw) { damagePlatform(psw.pl, p.dmg || 1); addEffect(psw.hx, psw.hy, 1); spawnSpark(psw.hx, psw.hy); summonProj.splice(i, 1); continue } }
       let done = false
       // 적 소환체(원격 ant) 충돌
-      for (const [pid, rec] of remoteAnts) { if (now - rec.ts > 800) continue; for (const e of rec.items.values()) { if (e.dead) continue; const sp = remoteAntScreenPos(pid, e); if (!sp) continue; if (Math.hypot(sp.x - p.x, sp.y - p.y) < 14 * view.scale) { done = true; break } } if (done) break }   // ★ 접촉 트리거(작게) — aoe는 폭발 데미지 전용(예전엔 트리거에 aoe 써서 즉발→투사체 안 보임)
+      for (const [pid, rec] of remoteAnts) { if (now - rec.ts > 800) continue; for (const e of rec.items.values()) { if (e.dead) continue; const sp = remoteAntScreenPos(pid, e); if (!sp) continue; if (Math.hypot(sp.x - p.x, sp.y - p.y) < 24 * view.scale) { done = true; break } } if (done) break }   // 접촉 트리거 24px(조준 몸통보정 20px보다 커야 명중 — 예전 14px라 빗나가 땅에 꽂힘)
       if (done) {
-        if (p.aoe) { for (const [pid2, rec2] of remoteAnts) { for (const e2 of rec2.items.values()) { if (e2.dead) continue; const s2 = remoteAntScreenPos(pid2, e2); if (s2 && Math.hypot(s2.x - p.x, s2.y - p.y) <= p.aoe && connected()) net.send(JSON.stringify({ t: 'ant-hit', target: pid2, ant: e2.id, dmg: p.dmg })) } } addEffect(p.x, p.y, 2, 0.2) }
-        else { for (const [pid, rec] of remoteAnts) { let hit = false; for (const e of rec.items.values()) { if (e.dead) continue; const sp = remoteAntScreenPos(pid, e); if (sp && Math.hypot(sp.x - p.x, sp.y - p.y) < 16 * view.scale) { if (connected()) net.send(JSON.stringify({ t: 'ant-hit', target: pid, ant: e.id, dmg: p.dmg })); hit = true; break } } if (hit) break } spawnSpark(p.x, p.y) }
+        if (p.aoe) { summonAreaHit(p.x, p.y, p.aoe, p.dmg, false, { slow: p.slow, slowDur: p.slowDur, max: p.aoeMax }); addEffect(p.x, p.y, 2, 0.2) }   // 얼음개미=서리(감속+최대3), 수류탄=광역
+        else { for (const [pid, rec] of remoteAnts) { let hit = false; for (const e of rec.items.values()) { if (e.dead) continue; const sp = remoteAntScreenPos(pid, e); if (sp && Math.hypot(sp.x - p.x, sp.y - p.y) < 24 * view.scale) { if (connected()) net.send(JSON.stringify({ t: 'ant-hit', target: pid, ant: e.id, dmg: p.dmg })); hit = true; break } } if (hit) break } spawnSpark(p.x, p.y) }
         summonProj.splice(i, 1); continue
       }
       // 적 소환체(원격 메카/인간) 충돌 — HP 있는 유닛
-      { const rr = 18 * view.scale, Hc = canvas.clientHeight   // 접촉 트리거(작게)
+      { const rr = 24 * view.scale, Hc = canvas.clientHeight   // 접촉 트리거(조준 몸통보정 커버)
         for (const [pid, m] of remoteMechas) { if (Math.hypot(m.nx * W - p.x, (m.ny * Hc - 20 * view.scale) - p.y) < rr) { if (connected()) net.send(JSON.stringify({ t: 'mecha-hit', target: pid, dmg: p.dmg })); done = true; break } }
         if (!done) for (const [pid, h] of remoteHumans) { if (Math.hypot(h.nx * W - p.x, (h.ny * Hc - 20 * view.scale) - p.y) < rr) { if (connected()) net.send(JSON.stringify({ t: 'human-hit', target: pid, dmg: p.dmg, hx: +(p.x / W).toFixed(4), hy: +(p.y / Hc).toFixed(4) })); done = true; break } }
       }
@@ -5488,7 +5594,7 @@
       for (let ci = 0; ci < catPos.length; ci++) { const cat = allRef[ci], c = catPos[ci]; if (!cat || !c || cat.id === 'me') continue; if (Math.hypot(c.x - p.x, (c.y - 20 * view.scale) - p.y) < 46 * view.scale) { applyCatHit(cat, p.dmg, now); done = true; break } }
       if (done) { p.aoe ? addEffect(p.x, p.y, 2, 0.2) : spawnSpark(p.x, p.y); summonProj.splice(i, 1); continue }
       if (inTaskbar(p.x, p.y)) {   // 착지 — 수류탄(aoe)은 착탄 지점에서 광역 폭발
-        if (p.aoe && connected()) for (const [pid, rec] of remoteAnts) for (const e of rec.items.values()) { if (e.dead) continue; const sp = remoteAntScreenPos(pid, e); if (sp && Math.hypot(sp.x - p.x, sp.y - p.y) <= p.aoe) net.send(JSON.stringify({ t: 'ant-hit', target: pid, ant: e.id, dmg: p.dmg })) }
+        if (p.aoe) summonAreaHit(p.x, p.y, p.aoe, p.dmg, false, { slow: p.slow, slowDur: p.slowDur, max: p.aoeMax })   // 착탄 광역(얼음=서리 감속)
         addEffect(p.x, p.y, p.aoe ? 2 : 1, 0.2); summonProj.splice(i, 1); continue   // 소환 투사체 착탄 땅파임 20%로
       }
       if (now - p.born > p.life || p.x < -30 || p.x > W + 30 || p.y > canvas.clientHeight + 40) summonProj.splice(i, 1)
@@ -6492,6 +6598,7 @@
     drawDebris(now)
     stepAnts(now)
     stepSummonProj(now); drawSummonProj(now)   // 오버레이 소환체 투사체(원거리/광역 전투)
+    if (!battleActive) { stepOverlayIntc(now); stepOverlayMothFalls(now) }   // 오버레이 대공포 요격 미사일 + 폭격 나방 낙하
     if (!battleActive) stepDrawRemoteSummonShots(now)             // 상대 소환체 투사체 연출(MP) — 배틀 중 금지
     stepFireZones(now); drawFireZones(now)     // 💣 폭격 불장판(DoT) — 바닥
     stepBombs(now); drawBomberPlane(now); drawBombs(now)   // ✈️ 폭격기 + 💣 낙하 폭탄
