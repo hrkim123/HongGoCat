@@ -91,6 +91,8 @@ wss.on('connection', (ws, req) => {
       broadcast(joinedRoom, { t: 'ants', id, list: msg.list.slice(0, 5) }, id)
     } else if (msg.t === 'ant-hit') {
       broadcast(joinedRoom, { t: 'ant-hit', id, target: msg.target, ant: msg.ant, dmg: msg.dmg, slow: msg.slow || 0, slowDur: msg.slowDur || 0, frozen: msg.frozen || 0, kb: msg.kb || 0 }, id)   // slow/frozen=얼음개미, kb=망치개미
+    } else if (msg.t === 'ofx') {
+      broadcast(joinedRoom, { t: 'ofx', id, kind: String(msg.kind || '').slice(0, 16), fx: msg.fx || 0, tx: msg.tx || 0, dir: msg.dir || 1, dmg: msg.dmg || 0, salvo: msg.salvo || 0 }, id)   // 오버레이 소환체 연출(타이탄 레이저·대공포 요격·나방 낙하) — 상대 화면 재현
     } else if (msg.t === 'blackhole') {
       broadcast(joinedRoom, { t: 'blackhole', id, nx: msg.nx, ny: msg.ny, ttl: msg.ttl }, id)
     } else if (msg.t === 'dig') {
